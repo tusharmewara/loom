@@ -1,5 +1,6 @@
 mod adapter;
 mod app;
+#[allow(dead_code)]
 mod dispatch;
 mod ui;
 

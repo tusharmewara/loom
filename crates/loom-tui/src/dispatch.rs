@@ -40,8 +40,8 @@ impl TerminalLaunch {
 
     fn find_terminal_launcher() -> Option<(&'static str, &'static str)> {
         if cfg!(target_os = "macos") {
-            if Self::command_exists("open") {
-                Some(("open", "-a Terminal"))
+            if Self::command_exists("osascript") {
+                Some(("osascript", "-e"))
             } else {
                 None
             }
@@ -53,6 +53,14 @@ impl TerminalLaunch {
             }
             None
         }
+    }
+
+    fn is_safe_task_id(s: &str) -> bool {
+        !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '-')
+    }
+
+    fn shell_escape(s: &str) -> String {
+        s.replace('\'', "'\\''")
     }
 }
 
@@ -99,18 +107,38 @@ impl Dispatcher for TerminalLaunch {
         let task_id = task.pointer("/task_id").and_then(Value::as_str).unwrap_or("");
         let title = task.pointer("/title").and_then(Value::as_str).unwrap_or("");
 
-        let command = format!(
-            "cd {} && loom-cli workflow show {} && exec {}",
-            std::env::current_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
-            task_id,
-            agent
-        );
+        if !Self::is_safe_task_id(task_id) {
+            return DispatchResult {
+                success: false,
+                message: "Invalid task ID: contains unsafe characters".to_string(),
+                detail: None,
+            };
+        }
+
+        let cwd = std::env::current_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        let cwd_has_metachar = cwd.contains([';', '|', '&', '$', '`', '(', ')', '{', '}', '<', '>', '!', '\\']);
+        if cwd_has_metachar {
+            return DispatchResult {
+                success: false,
+                message: "Working directory contains unsafe characters".to_string(),
+                detail: None,
+            };
+        }
+
+        let command = format!("cd '{}' && loom-cli workflow show '{}' && exec {}", Self::shell_escape(&cwd), Self::shell_escape(task_id), agent);
 
         let mut cmd = std::process::Command::new(launcher);
         if cfg!(target_os = "macos") {
-            cmd.arg(arg).arg("--args").arg("/bin/bash").arg("-c").arg(&command);
+            let script = format!(
+                r#"tell application "Terminal" to do script "{}""#,
+                command.replace('"', r#"\""#)
+            );
+            cmd.arg(arg).arg(&script);
         } else {
-            cmd.arg("-e").arg(format!("bash -c '{}'", command));
+            cmd.arg(arg).arg(format!("bash -c '{}'", Self::shell_escape(&command)));
         }
 
         match cmd.spawn() {
@@ -236,5 +264,31 @@ mod tests {
         assert!(!dispatch.available());
         assert_eq!(dispatch.name(), "Embedded Pane");
         assert_eq!(dispatch.shortcut(), 'e');
+    }
+
+    #[test]
+    fn test_is_safe_task_id_valid() {
+        assert!(TerminalLaunch::is_safe_task_id("abc-123-def"));
+        assert!(TerminalLaunch::is_safe_task_id("550e8400-e29b"));
+        assert!(TerminalLaunch::is_safe_task_id("simple"));
+    }
+
+    #[test]
+    fn test_is_safe_task_id_invalid() {
+        assert!(!TerminalLaunch::is_safe_task_id(""));
+        assert!(!TerminalLaunch::is_safe_task_id("id; rm -rf /"));
+        assert!(!TerminalLaunch::is_safe_task_id("id$(whoami)"));
+        assert!(!TerminalLaunch::is_safe_task_id("id`whoami`"));
+        assert!(!TerminalLaunch::is_safe_task_id("id | cat"));
+    }
+
+    #[test]
+    fn test_shell_escape_no_quotes() {
+        assert_eq!(TerminalLaunch::shell_escape("/safe/path"), "/safe/path");
+    }
+
+    #[test]
+    fn test_shell_escape_single_quote() {
+        assert_eq!(TerminalLaunch::shell_escape("it's"), "it'\\''s");
     }
 }
