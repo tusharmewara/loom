@@ -18,7 +18,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
         .split(frame.area());
 
     frame.render_widget(
-        Paragraph::new("Loom TUI v1 — q quit | r refresh | 1-7 tabs | s scan | d doctor | D actions | ? help"),
+        Paragraph::new("Loom TUI v1 — q quit | r refresh | 1-7 tabs | s scan | d doctor | a dispatch | D actions | ? help"),
         chunks[0],
     );
 
@@ -174,18 +174,20 @@ fn draw_help_overlay(frame: &mut Frame) {
         "  1-7       Switch tabs".to_string(),
         "  Tab/→     Next tab".to_string(),
         "  Shift-Tab/←  Previous tab".to_string(),
-        "  ↑/↓       Scroll content".to_string(),
+        "  ↑/↓       Scroll content / select tasks".to_string(),
         "".to_string(),
         "Actions:".to_string(),
         "  r         Refresh all data".to_string(),
         "  s         Run ecosystem scan".to_string(),
         "  d         Run doctor checks".to_string(),
+        "  a         Dispatch selected task (Logs/Sessions)".to_string(),
         "  D         Open daemon action palette".to_string(),
         "".to_string(),
-        "Palette:".to_string(),
-        "  Enter     Execute selected action".to_string(),
-        "  Esc       Close palette".to_string(),
-        "  j/k       Navigate palette".to_string(),
+        "Dispatch Menu:".to_string(),
+        "  Enter     Execute selected dispatcher".to_string(),
+        "  t         Quick: Terminal Launch".to_string(),
+        "  Esc       Close menu".to_string(),
+        "  j/k       Navigate dispatchers".to_string(),
         "".to_string(),
         "General:".to_string(),
         "  q         Quit TUI".to_string(),
