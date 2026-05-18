@@ -52,7 +52,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
         body
     };
 
-    let title = format!("Details ({}) [scroll ↑/↓]", app.tabs[app.tab_index]);
+    let title = if app.is_task_tab() {
+        format!("Details ({}) [↑/↓ select, a dispatch]", app.tabs[app.tab_index])
+    } else {
+        format!("Details ({}) [scroll ↑/↓]", app.tabs[app.tab_index])
+    };
     frame.render_widget(
         Paragraph::new(scrolled_body).block(Block::default().borders(Borders::ALL).title(title)),
         chunks[2],
@@ -548,22 +552,26 @@ fn sessions_body(app: &App) -> String {
             lines.push("  loom-cli sessions export <id>".to_string());
             lines.push("  loom-cli sessions import <path>".to_string());
         } else {
-            for s in sess {
-                lines.push("".to_string());
-                let id = s.pointer("/session_id").and_then(Value::as_str).unwrap_or("?");
-                let tool = s.pointer("/source_tool").and_then(Value::as_str).unwrap_or("?");
-                let msgs = s.pointer("/message_count").and_then(Value::as_u64).unwrap_or(0);
-                let topic = s.pointer("/topic").and_then(Value::as_str).unwrap_or("");
-                let exported = s.pointer("/exported_at").and_then(Value::as_str).unwrap_or("");
-                lines.push(format!("─── {} ───", id));
-                lines.push(format!("Tool: {} | Messages: {}", tool, msgs));
-                if !topic.is_empty() {
-                    lines.push(format!("Topic: {}", topic));
-                }
-                if !exported.is_empty() {
-                    lines.push(format!("Exported: {}", exported));
-                }
+        for (i, s) in sess.iter().enumerate() {
+            let id = s.pointer("/session_id").and_then(Value::as_str).unwrap_or("?");
+            let tool = s.pointer("/source_tool").and_then(Value::as_str).unwrap_or("?");
+            let msgs = s.pointer("/message_count").and_then(Value::as_u64).unwrap_or(0);
+            let topic = s.pointer("/topic").and_then(Value::as_str).unwrap_or("");
+            let exported = s.pointer("/exported_at").and_then(Value::as_str).unwrap_or("");
+            let prefix = if i == app.task_selection_index && app.tab_index == 5 {
+                "▸ "
+            } else {
+                "  "
+            };
+            lines.push(format!("{}─── {} ───", prefix, id));
+            lines.push(format!("    Tool: {} | Messages: {}", tool, msgs));
+            if !topic.is_empty() {
+                lines.push(format!("    Topic: {}", topic));
             }
+            if !exported.is_empty() {
+                lines.push(format!("    Exported: {}", exported));
+            }
+        }
         }
     }
 
@@ -593,12 +601,17 @@ fn logs_body(app: &App) -> String {
     lines.push(format!("  Active: {}", task_count));
 
     if let Some(tasks) = app.workflow.pointer("/tasks").and_then(Value::as_array) {
-        for t in tasks {
+        for (i, t) in tasks.iter().enumerate() {
             let id = t.pointer("/task_id").and_then(Value::as_str).unwrap_or("?");
             let title = t.pointer("/title").and_then(Value::as_str).unwrap_or("");
             let phase = t.pointer("/phase").and_then(Value::as_str).unwrap_or("?");
             let status = t.pointer("/status").and_then(Value::as_str).unwrap_or("?");
-            lines.push(format!("  {} | {} | {} ({})", &id[..8], title, phase, status));
+            let prefix = if i == app.task_selection_index && app.tab_index == 6 {
+                "▸ "
+            } else {
+                "  "
+            };
+            lines.push(format!("{}{} | {} | {} ({})", prefix, &id[..8], title, phase, status));
         }
     }
 
