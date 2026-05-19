@@ -1463,6 +1463,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
+name = "loom"
+version = "2.0.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "comfy-table",
+ "loom-adapters",
+ "loom-core",
+ "loom-discovery",
+ "loom-event-bus",
+ "loom-generic-adapter",
+ "loom-hooks",
+ "loom-ipc",
+ "loom-routing",
+ "loom-sessions",
+ "loom-workflow",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "loom-adapters"
 version = "2.0.0"
 dependencies = [
@@ -1494,34 +1522,6 @@ dependencies = [
  "tracing",
  "uuid",
  "zeroize",
-]
-
-[[package]]
-name = "loom-cli"
-version = "2.0.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "comfy-table",
- "loom-adapters",
- "loom-core",
- "loom-discovery",
- "loom-event-bus",
- "loom-generic-adapter",
- "loom-hooks",
- "loom-ipc",
- "loom-routing",
- "loom-sessions",
- "loom-workflow",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]

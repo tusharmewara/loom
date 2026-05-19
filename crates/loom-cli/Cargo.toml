@@ -1,5 +1,5 @@
 [package]
-name = "loom-cli"
+name = "loom"
 version.workspace = true
 edition.workspace = true
 
@@ -7,7 +7,7 @@ edition.workspace = true
 name = "loom_cli"
 
 [[bin]]
-name = "loom-cli"
+name = "loom"
 path = "src/main.rs"
 
 [dependencies]
