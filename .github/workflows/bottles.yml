@@ -21,50 +21,53 @@ jobs:
             platform: monterey
 
     steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Set up Rust
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: ${{ matrix.target }}
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
-    - name: Determine version
-      id: vars
-      run: |
-        VERSION="${GITHUB_REF_NAME#v}"
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
+      - name: Determine version
+        id: vars
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-    - name: Build binaries
-      run: |
-        cargo build --release --bins -p loom -p loomd --target ${{ matrix.target }}
-        mkdir -p bottle/loom/bin
-        cp "target/${{ matrix.target }}/release/loom" "target/${{ matrix.target }}/release/loomd" bottle/loom/bin/
+      - name: Build binaries
+        run: |
+          cargo build --release --bins -p loom -p loomd --target ${{ matrix.target }}
+          mkdir -p bottle/loom/bin
+          cp "target/${{ matrix.target }}/release/loom" "target/${{ matrix.target }}/release/loomd" bottle/loom/bin/
 
-    - name: Create bottle tarball
-      run: |
-        tar -czf "loom--${{ steps.vars.outputs.version }}--${{ matrix.platform }}.tar.gz" -C bottle loom
+      - name: Create bottle tarball
+        run: |
+          tar -czf "loom--${{ steps.vars.outputs.version }}--${{ matrix.platform }}.tar.gz" -C bottle loom
 
-    - name: Compute checksums
-      id: checksum
-      run: |
-        TARBALL="loom--${{ steps.vars.outputs.version }}--${{ matrix.platform }}.tar.gz"
-        echo "sha256=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+      - name: Compute checksums
+        id: checksum
+        run: |
+          TARBALL="loom--${{ steps.vars.outputs.version }}--${{ matrix.platform }}.tar.gz"
+          echo "sha256=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)" >> $GITHUB_OUTPUT
 
-    - name: Upload bottle asset
-      uses: softprops/action-gh-release@v1
-      with:
-        files: "loom--${{ steps.vars.outputs.version }}--${{ matrix.platform }}.tar.gz"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Wait for release to be ready
+        run: sleep 30
 
-    - name: Save checksum
-      run: |
-        echo "@sha256_${{ matrix.platform }} = \"${{ steps.checksum.outputs.sha256 }}\"" >> checksums.txt
+      - name: Upload bottle asset
+        uses: softprops/action-gh-release@v1
+        with:
+          files: "loom--${{ steps.vars.outputs.version }}--${{ matrix.platform }}.tar.gz"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Upload checksum file as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: checksums
-        path: checksums.txt
+      - name: Save checksum
+        run: |
+          echo "@sha256_${{ matrix.platform }} = \"${{ steps.checksum.outputs.sha256 }}\"" >> checksums.txt
+
+      - name: Upload checksum file as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums
+          path: checksums.txt
