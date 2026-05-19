@@ -2,7 +2,6 @@
 
 use chrono::Utc;
 use loom_core::{Message, MessageRole, SessionManifest};
-use loom_hooks::{Hook, HookContext, HookPriority};
 use loom_mcp::McpManager;
 use loom_routing::{Classifier, DecisionEngine};
 use loom_sessions::{export_session, import_session, store::SessionStore, write_export};
@@ -97,7 +96,6 @@ fn session_export_import_roundtrip() {
 #[tokio::test]
 async fn hook_enforcement_blocks_pretooluse() {
     let dir = tempdir().unwrap();
-    let agents = dir.path().to_str().unwrap();
     fs::create_dir_all(dir.path().join("hooks")).unwrap();
     let script = dir.path().join("block.sh");
     fs::write(&script, "#!/bin/sh\nexit 2\n").unwrap();
@@ -139,7 +137,7 @@ async fn hook_enforcement_blocks_pretooluse() {
     .unwrap();
     // Note: The current placeholder implementation always returns success
     // TODO: Implement real script execution that checks exit codes
-    assert!(results[0].success == true);
+    assert!(results[0].success);
 }
 
 // 8.4 Authentication sharing (provider import path)
@@ -190,17 +188,22 @@ fn routing_cost_optimize_prefers_slm_for_simple_tasks() {
     let simple = score_static("fix typo in comment");
     assert!(matches!(simple.level, ComplexityLevel::Low));
 
-    let router = ModelRouter::with_default_catalog(Some(loom_core::RoutingConfig {
+    let config = loom_core::RoutingConfig {
         strategy: RoutingStrategy::CostOptimize,
         default_tier: None,
         overrides: Default::default(),
         complexity_thresholds: Default::default(),
-    }));
+    };
+    let expected_tier = if simple.numeric < config.complexity_thresholds.low_max {
+        loom_core::ModelTier::Slm
+    } else if simple.numeric < config.complexity_thresholds.high_min {
+        loom_core::ModelTier::Mid
+    } else {
+        loom_core::ModelTier::Flagship
+    };
+    let router = ModelRouter::with_default_catalog(Some(config));
     let decision = router.resolve(simple);
-    assert!(matches!(
-        decision.recommended_tier,
-        loom_core::ModelTier::Slm | loom_core::ModelTier::Mid
-    ));
+    assert_eq!(decision.recommended_tier, expected_tier);
 }
 
 // 8.7 Intelligent routing

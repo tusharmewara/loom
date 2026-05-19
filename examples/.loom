@@ -4,7 +4,7 @@
 
 [project]
 name = "my-project"
-agents_dir = "~/.agents"
+loom_dir = "~/.loom"
 
 # Tools enabled for this project
 [tools]

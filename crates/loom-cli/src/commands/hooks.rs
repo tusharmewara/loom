@@ -12,8 +12,8 @@ fn parse_event(s: &str) -> anyhow::Result<HookEventType> {
     }
 }
 
-pub async fn run(agents_dir: &Path, action: &HooksAction) -> anyhow::Result<()> {
-    let engine = HooksEngine::new(agents_dir.to_str().unwrap());
+pub async fn run(loom_dir: &Path, action: &HooksAction) -> anyhow::Result<()> {
+    let engine = HooksEngine::new(loom_dir.to_str().unwrap());
 
     match action {
         HooksAction::List { json } => {
@@ -62,11 +62,11 @@ pub async fn run(agents_dir: &Path, action: &HooksAction) -> anyhow::Result<()> 
             if !src.exists() {
                 anyhow::bail!("Path does not exist: {path}");
             }
-            let dst = agents_dir.join("hooks").join(
+            let dst = loom_dir.join("hooks").join(
                 src.file_name()
                     .ok_or_else(|| anyhow::anyhow!("invalid path"))?,
             );
-            std::fs::create_dir_all(agents_dir.join("hooks"))?;
+            std::fs::create_dir_all(loom_dir.join("hooks"))?;
             std::fs::copy(src, &dst)?;
             println!("Registered hook from '{path}'");
         }
@@ -85,7 +85,7 @@ pub async fn run(agents_dir: &Path, action: &HooksAction) -> anyhow::Result<()> 
                 payload: serde_json::json!({ "tool": tool, "matcher": matcher }),
                 tool_name: Some(tool.clone()),
             };
-            let results = loom_hooks::execute_hooks(engine.registry(), &event, &ctx).await?;
+            let results = loom_hooks::execute_hooks(engine.registry(), event, &ctx).await?;
             for r in results {
                 println!("{} success={} output={}", r.hook_id, r.success, r.output);
             }

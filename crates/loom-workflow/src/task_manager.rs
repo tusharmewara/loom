@@ -1,5 +1,5 @@
 use crate::phases::{default_model_tier, next_phase};
-use crate::routing::{Classifier, DecisionEngine, DynamicSignals};
+use crate::routing::{Classifier, DecisionEngine};
 use anyhow::{Context, Result};
 use loom_core::{
     config::ConfigReader, ComplexityLevel, ModelTier, PhaseHistoryEntry, Task, TaskPhase,
@@ -15,15 +15,15 @@ pub struct TaskManager {
 }
 
 impl TaskManager {
-    pub fn new(agents_dir: &str) -> Self {
-        let tasks_dir = Path::new(agents_dir).join("workflow").join("tasks");
+    pub fn new(loom_dir: &str) -> Self {
+        let tasks_dir = Path::new(loom_dir).join("workflow").join("tasks");
         let _ = std::fs::create_dir_all(&tasks_dir);
 
-        // Load routing config from ~/.agents/config.toml (or overlays)
-        let config_reader = ConfigReader::new(agents_dir);
+        // Load routing config from ~/.loom/config.toml (or overlays)
+        let config_reader = ConfigReader::new(loom_dir);
         let routing_config = config_reader.load().ok().and_then(|cfg| cfg.routing);
 
-        let router = DecisionEngine::with_agents_dir(agents_dir, routing_config)
+        let router = DecisionEngine::with_loom_dir(loom_dir, routing_config)
             .unwrap_or_else(|_| DecisionEngine::new());
 
         Self {

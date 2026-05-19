@@ -35,7 +35,7 @@ impl Topic {
     /// Create a topic from a string (e.g. for config-based subscription).
     ///
     /// Returns `None` if the string doesn't match a known event topic.
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "skills:added"
             | "skills:removed"
@@ -75,6 +75,14 @@ impl Topic {
             "task:phase-changed",
             "task:created",
         ]
+    }
+}
+
+impl std::str::FromStr for Topic {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s).ok_or(())
     }
 }
 

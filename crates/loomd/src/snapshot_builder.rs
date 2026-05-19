@@ -1,7 +1,7 @@
 //! Loom snapshot builder.
 //!
 //! Maintains a SQLite snapshot of all resources (skills, MCP servers, sessions, providers, hooks)
-//! for fast discovery. Initial snapshot is built by walking ~/.agents/, then updated incrementally
+//! for fast discovery. Initial snapshot is built by walking ~/.loom/, then updated incrementally
 //! via EventBus events.
 
 use anyhow::{Context, Result};
@@ -18,8 +18,8 @@ struct SnapshotDb {
 }
 
 impl SnapshotDb {
-    fn new(agents_dir: &str) -> Result<Self> {
-        let cache_dir = Path::new(agents_dir).join(".cache");
+    fn new(loom_dir: &str) -> Result<Self> {
+        let cache_dir = Path::new(loom_dir).join(".cache");
         std::fs::create_dir_all(&cache_dir)?;
         let db_path = cache_dir.join("snapshot.db");
         let conn = Connection::open(&db_path)?;
@@ -98,9 +98,9 @@ impl SnapshotDb {
         Ok(self.conn.blocking_lock().clone())
     }
 
-    /// Build initial snapshot by scanning the ~/.agents/ tree.
-    pub fn build_initial(&self, agents_dir: &str) -> Result<()> {
-        let skills_dir = Path::new(agents_dir).join("skills");
+    /// Build initial snapshot by scanning the ~/.loom/ tree.
+    pub fn build_initial(&self, loom_dir: &str) -> Result<()> {
+        let skills_dir = Path::new(loom_dir).join("skills");
         if skills_dir.exists() {
             for entry in std::fs::read_dir(&skills_dir)? {
                 let entry = entry?;
@@ -119,7 +119,7 @@ impl SnapshotDb {
             }
         }
 
-        let mcp_dir = Path::new(agents_dir).join("mcp");
+        let mcp_dir = Path::new(loom_dir).join("mcp");
         if mcp_dir.exists() {
             for entry in std::fs::read_dir(&mcp_dir)? {
                 let entry = entry?;
@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn test_build_initial_snapshot() -> anyhow::Result<()> {
         let dir = tempdir()?;
-        let agents_dir = dir.path().to_str().unwrap();
+        let loom_dir = dir.path().to_str().unwrap();
 
         // Create test skill
         let skills_dir = dir.path().join("skills");
@@ -212,8 +212,8 @@ mod tests {
         let skill_file = skills_dir.join("test-skill.md");
         std::fs::write(&skill_file, "# Test Skill")?;
 
-        let snapshot = SnapshotDb::new(agents_dir)?;
-        snapshot.build_initial(agents_dir)?;
+        let snapshot = SnapshotDb::new(loom_dir)?;
+        snapshot.build_initial(loom_dir)?;
 
         // Verify skill was added
         let conn = snapshot.conn()?;
@@ -226,9 +226,9 @@ mod tests {
     #[test]
     fn test_update_skill() -> anyhow::Result<()> {
         let dir = tempdir()?;
-        let agents_dir = dir.path().to_str().unwrap();
+        let loom_dir = dir.path().to_str().unwrap();
 
-        let snapshot = SnapshotDb::new(agents_dir)?;
+        let snapshot = SnapshotDb::new(loom_dir)?;
         snapshot.update_skill("test-id", "test-skill", "/path/to/skill.md", "abc123")?;
 
         let conn = snapshot.conn()?;

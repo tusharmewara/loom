@@ -11,7 +11,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Initialize the ~/.agents/ ecosystem directory
+    /// Initialize the ~/.loom/ ecosystem directory
     Init {
         /// Scan for existing resources and build the initial snapshot
         #[arg(long, short)]
@@ -326,17 +326,17 @@ pub enum RoutingAction {
 
 impl Cli {
     pub async fn execute(self) -> anyhow::Result<()> {
-        let agents_dir = crate::agents_dir();
-        let agents_path = PathBuf::from(&agents_dir);
+        let loom_dir = crate::loom_dir();
+        let agents_path = PathBuf::from(&loom_dir);
         match self.command {
-            Command::Init { import } => crate::commands::init::run(import, &agents_dir).await,
-            Command::Scan { json } => crate::commands::scan::run(&agents_dir, json).await,
-            Command::Status { json } => crate::commands::status::run(&agents_dir, json).await,
-            Command::Doctor { json } => crate::commands::doctor::run(&agents_dir, json).await,
+            Command::Init { import } => crate::commands::init::run(import, &loom_dir).await,
+            Command::Scan { json } => crate::commands::scan::run(&loom_dir, json).await,
+            Command::Status { json } => crate::commands::status::run(&loom_dir, json).await,
+            Command::Doctor { json } => crate::commands::doctor::run(&loom_dir, json).await,
             Command::Thread {
                 tool,
                 apply_routing,
-            } => crate::commands::thread::run(&tool, apply_routing.as_deref(), &agents_dir).await,
+            } => crate::commands::thread::run(&tool, apply_routing.as_deref(), &loom_dir).await,
             Command::Daemon { action } => crate::commands::daemon::run(&agents_path, &action).await,
             Command::Mcp { action } => crate::commands::mcp::run(&agents_path, &action).await,
             Command::Skills { action } => crate::commands::skills::run(&agents_path, &action).await,
@@ -349,7 +349,7 @@ impl Cli {
                 tools,
                 args,
                 dry_run,
-            } => crate::commands::exec::run(&tools, &args, dry_run, &agents_dir).await,
+            } => crate::commands::exec::run(&tools, &args, dry_run, &loom_dir).await,
             Command::InitShell { shell } => crate::commands::init_shell::run(&shell),
 
             #[cfg(feature = "integration-acp")]
@@ -357,7 +357,7 @@ impl Cli {
                 crate::commands::tools_acp::AddArgs {
                     agent_id,
                 }
-                .handle(&agents_dir)
+                .handle(&loom_dir)
                 .await
             }
         }

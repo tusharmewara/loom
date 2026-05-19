@@ -47,11 +47,11 @@ impl LoomToolAdapter for ClaudeCodeAdapter {
         Ok(())
     }
 
-    fn sync_from_native(&self, agents_dir: &str, home: &str) -> Result<SyncReport> {
-        let mut report = crate::sync_tools_dir(agents_dir)?;
+    fn sync_from_native(&self, loom_dir: &str, home: &str) -> Result<SyncReport> {
+        let mut report = crate::sync_tools_dir(loom_dir)?;
         let creds = Path::new(home).join(".claude/credentials.json");
         if creds.exists() {
-            let mut auth = loom_auth::AuthManager::new(agents_dir);
+            let mut auth = loom_auth::AuthManager::new(loom_dir);
             if auth.vault_is_locked() {
                 report.notes.push(
                     "claude credentials found; unlock vault to import providers".into(),

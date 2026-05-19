@@ -13,17 +13,17 @@ use std::sync::Arc;
 
 pub struct SkillsEngine {
     #[allow(dead_code)]
-    agents_dir: String,
+    loom_dir: String,
     registry: registry::SkillRegistry,
     loader: SkillLoader,
 }
 
 impl SkillsEngine {
-    pub fn new(agents_dir: &str) -> anyhow::Result<Self> {
+    pub fn new(loom_dir: &str) -> anyhow::Result<Self> {
         Ok(Self {
-            agents_dir: agents_dir.to_string(),
-            registry: registry::SkillRegistry::new(agents_dir)?,
-            loader: SkillLoader::new(agents_dir),
+            loom_dir: loom_dir.to_string(),
+            registry: registry::SkillRegistry::new(loom_dir)?,
+            loader: SkillLoader::new(loom_dir),
         })
     }
 

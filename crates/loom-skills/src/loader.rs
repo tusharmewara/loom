@@ -6,7 +6,7 @@ use tracing::debug;
 /// Two-tier index for skills: lightweight metadata in memory, full content loaded on-demand
 pub struct SkillLoader {
     /// Base directory where skills are stored
-    agents_dir: PathBuf,
+    loom_dir: PathBuf,
     /// Lightweight metadata cache (~50 bytes per entry in practice)
     /// In a real implementation, this would be stored in SQLite, but we'll keep it in memory for simplicity
     metadata_cache: Arc<RwLock<HashMap<String, SkillMetadata>>>,
@@ -30,10 +30,10 @@ pub struct SkillMetadata {
 
 impl SkillLoader {
     /// Create a new skill loader
-    pub fn new(agents_dir: &str) -> Self {
-        let agents_dir_path = PathBuf::from(agents_dir);
+    pub fn new(loom_dir: &str) -> Self {
+        let loom_dir_path = PathBuf::from(loom_dir);
         Self {
-            agents_dir: agents_dir_path.clone(),
+            loom_dir: loom_dir_path.clone(),
             metadata_cache: Arc::new(RwLock::new(HashMap::new())),
             content_cache: Arc::new(RwLock::new(HashMap::new())),
             max_content_cache_size: 100, // Keep 100 skill contents in memory by default
@@ -42,7 +42,7 @@ impl SkillLoader {
 
     /// Scan the skills directory and populate metadata cache
     pub fn refresh_metadata(&self) -> anyhow::Result<()> {
-        let skills_dir = self.agents_dir.join("skills");
+        let skills_dir = self.loom_dir.join("skills");
         if !skills_dir.exists() {
             return Ok(());
         }
@@ -69,7 +69,7 @@ impl SkillLoader {
                             // In production, we'd use a real hash of the content
                             let content_hash = format!(
                                 "{:x}",
-                                (metadata_file.len() as u64).wrapping_add(
+                                metadata_file.len().wrapping_add(
                                     modified
                                         .duration_since(std::time::UNIX_EPOCH)
                                         .unwrap()
@@ -162,7 +162,7 @@ impl SkillLoader {
     /// Preload content for a list of skill names
     pub fn preload_contents(&self, names: &[String]) -> anyhow::Result<()> {
         for name in names {
-            let _ = self.load_content(&name)?;
+            let _ = self.load_content(name)?;
         }
         Ok(())
     }
@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn test_refresh_metadata() -> anyhow::Result<()> {
         let dir = tempdir()?;
-        let agents_dir = dir.path().to_str().unwrap();
+        let loom_dir = dir.path().to_str().unwrap();
 
         // Create a test skill file
         let skills_dir = dir.path().join("skills");
@@ -211,7 +211,7 @@ mod tests {
         let skill_file = skills_dir.join("test-skill.md");
         std::fs::write(&skill_file, "# Test Skill\n\nThis is a test.")?;
 
-        let loader = SkillLoader::new(agents_dir);
+        let loader = SkillLoader::new(loom_dir);
         loader.refresh_metadata()?;
 
         assert_eq!(loader.metadata_cache_size(), 1);
@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn test_load_content() -> anyhow::Result<()> {
         let dir = tempdir()?;
-        let agents_dir = dir.path().to_str().unwrap();
+        let loom_dir = dir.path().to_str().unwrap();
 
         // Create a test skill file
         let skills_dir = dir.path().join("skills");
@@ -236,7 +236,7 @@ mod tests {
         let skill_file = skills_dir.join("load-test.md");
         std::fs::write(&skill_file, skill_content)?;
 
-        let loader = SkillLoader::new(agents_dir);
+        let loader = SkillLoader::new(loom_dir);
         loader.refresh_metadata()?;
 
         // Load the content
@@ -268,7 +268,7 @@ mod tests {
     #[test]
     fn test_has_content_changed() -> anyhow::Result<()> {
         let dir = tempdir()?;
-        let agents_dir = dir.path().to_str().unwrap();
+        let loom_dir = dir.path().to_str().unwrap();
 
         // Create a test skill file
         let skills_dir = dir.path().join("skills");
@@ -278,7 +278,7 @@ mod tests {
         let initial_content = "# Initial Content";
         std::fs::write(&skill_file, initial_content)?;
 
-        let loader = SkillLoader::new(agents_dir);
+        let loader = SkillLoader::new(loom_dir);
         loader.refresh_metadata()?;
 
         let metadata = loader.get_metadata("change-test").unwrap();

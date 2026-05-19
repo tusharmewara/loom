@@ -40,9 +40,9 @@ impl CheckRow {
     }
 }
 
-pub async fn run(agents_dir: &str, json: bool) -> Result<()> {
+pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
     let mut rows: Vec<CheckRow> = Vec::new();
-    let agents_path = Path::new(agents_dir);
+    let agents_path = Path::new(loom_dir);
 
     if !agents_path.exists() {
         rows.push(CheckRow::new(
@@ -54,7 +54,7 @@ pub async fn run(agents_dir: &str, json: bool) -> Result<()> {
             ),
         ));
         if json {
-            print_json_report(agents_dir, &rows);
+            print_json_report(loom_dir, &rows);
         } else {
             print_report(&rows);
         }
@@ -123,7 +123,7 @@ pub async fn run(agents_dir: &str, json: bool) -> Result<()> {
     }
 
     // Snapshot health
-    let snapshot_db = SnapshotDb::new(agents_dir);
+    let snapshot_db = SnapshotDb::new(loom_dir);
     match snapshot_db
         .initialize_schema()
         .context("initialize_schema failed")
@@ -186,7 +186,7 @@ pub async fn run(agents_dir: &str, json: bool) -> Result<()> {
     ));
 
     if json {
-        print_json_report(agents_dir, &rows);
+        print_json_report(loom_dir, &rows);
     } else {
         print_report(&rows);
     }
@@ -226,7 +226,7 @@ fn print_report(rows: &[CheckRow]) {
     println!("Doctor summary: {passes} pass | {warns} warn | {fails} fail");
 }
 
-fn print_json_report(agents_dir: &str, rows: &[CheckRow]) {
+fn print_json_report(loom_dir: &str, rows: &[CheckRow]) {
     let passes = rows
         .iter()
         .filter(|r| matches!(r.status, CheckStatus::Pass))
@@ -254,7 +254,7 @@ fn print_json_report(agents_dir: &str, rows: &[CheckRow]) {
         serde_json::to_string_pretty(&serde_json::json!({
             "schema_version": 1,
             "command": "doctor",
-            "agents_dir": agents_dir,
+            "loom_dir": loom_dir,
             "summary": {
                 "pass": passes,
                 "warn": warns,
@@ -328,9 +328,7 @@ fn service_status_check() -> (CheckStatus, String) {
         ),
         Ok(_) => (
             CheckStatus::Warn,
-            format!(
-                "launchd plist exists but service is not loaded. Try `loom-cli daemon install-service`."
-            ),
+            "launchd plist exists but service is not loaded. Try `loom-cli daemon install-service`.".to_string(),
         ),
         Err(e) => (
             CheckStatus::Warn,
@@ -425,19 +423,19 @@ mod tests {
     use crate::commands::init;
 
     #[tokio::test]
-    async fn test_doctor_fails_when_agents_dir_missing() {
+    async fn test_doctor_fails_when_loom_dir_missing() {
         let dir = tempfile::tempdir().unwrap();
-        let agents_dir = dir.path().join("missing");
-        let err = run(agents_dir.to_str().unwrap(), false).await.unwrap_err();
+        let loom_dir = dir.path().join("missing");
+        let err = run(loom_dir.to_str().unwrap(), false).await.unwrap_err();
         assert!(err.to_string().contains("failing check"));
     }
 
     #[tokio::test]
     async fn test_doctor_initialized_dir_has_no_failures() {
         let dir = tempfile::tempdir().unwrap();
-        let agents_dir = dir.path().to_str().unwrap();
-        init::run(false, agents_dir).await.unwrap();
-        let result = run(agents_dir, false).await;
+        let loom_dir = dir.path().to_str().unwrap();
+        init::run(false, loom_dir).await.unwrap();
+        let result = run(loom_dir, false).await;
         assert!(result.is_ok(), "doctor should pass, got: {result:?}");
     }
 }

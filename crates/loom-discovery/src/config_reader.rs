@@ -4,25 +4,25 @@ use std::sync::Mutex;
 
 /// Layer-specific config reader with lazy loading.
 ///
-/// Loads ~/.agents/config.toml first, then overlays layer-specific configs
-/// from ~/.agents/config/routing.toml, mcp.toml, and hooks.toml.
+/// Loads ~/.loom/config.toml first, then overlays layer-specific configs
+/// from ~/.loom/config/routing.toml, mcp.toml, and hooks.toml.
 /// Configs are loaded on first access and cached in memory.
 pub struct ConfigReader {
-    agents_dir: String,
+    loom_dir: String,
     cache: Mutex<HashMap<String, serde_json::Value>>,
 }
 
 impl ConfigReader {
-    pub fn new(agents_dir: &str) -> Self {
+    pub fn new(loom_dir: &str) -> Self {
         Self {
-            agents_dir: agents_dir.to_string(),
+            loom_dir: loom_dir.to_string(),
             cache: Mutex::new(HashMap::new()),
         }
     }
 
     /// Load the global config.toml with layer overlays.
     pub fn load_global(&self) -> anyhow::Result<Option<loom_core::LoomConfig>> {
-        let path = Path::new(&self.agents_dir).join("config.toml");
+        let path = Path::new(&self.loom_dir).join("config.toml");
         if !path.exists() {
             return Ok(None);
         }
@@ -47,9 +47,9 @@ impl ConfigReader {
         Ok(Some(config))
     }
 
-    /// Load an individual layer config file from ~/.agents/config/{name}.
+    /// Load an individual layer config file from ~/.loom/config/{name}.
     fn load_overlay<T: serde::de::DeserializeOwned>(&self, filename: &str) -> anyhow::Result<Option<T>> {
-        let path = Path::new(&self.agents_dir).join("config").join(filename);
+        let path = Path::new(&self.loom_dir).join("config").join(filename);
         if !path.exists() {
             return Ok(None);
         }

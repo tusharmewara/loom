@@ -1,7 +1,13 @@
-use crate::scorer::{self, DynamicSignals, StaticSignals};
+use crate::scorer::{self, DynamicSignals};
 use loom_core::ComplexityScore;
 
 pub struct Classifier;
+
+impl Default for Classifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Classifier {
     pub fn new() -> Self {

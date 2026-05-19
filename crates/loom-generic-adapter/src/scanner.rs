@@ -1,4 +1,4 @@
-//! Directory scanner for `~/.agents/tools/` — discovers all registered TOML files.
+//! Directory scanner for `~/.loom/tools/` — discovers all registered TOML files.
 
 use crate::config::ToolToml;
 use anyhow::Result;
@@ -24,8 +24,8 @@ impl AdapterDirScanner {
     /// Scan a directory and return all valid registrations.
     ///
     /// Files that fail to parse are logged as warnings and skipped.
-    pub fn scan(agents_dir: &str) -> Vec<ToolRegistration> {
-        let tools_dir = Path::new(agents_dir).join("tools");
+    pub fn scan(loom_dir: &str) -> Vec<ToolRegistration> {
+        let tools_dir = Path::new(loom_dir).join("tools");
         if !tools_dir.is_dir() {
             tracing::warn!("Tools directory not found: {}", tools_dir.display());
             return vec![];
@@ -92,8 +92,8 @@ impl AdapterDirScanner {
     }
 
     /// Count TOML files in a directory without full parsing.
-    pub fn count(agents_dir: &str) -> usize {
-        let tools_dir = Path::new(agents_dir).join("tools");
+    pub fn count(loom_dir: &str) -> usize {
+        let tools_dir = Path::new(loom_dir).join("tools");
         if !tools_dir.is_dir() {
             return 0;
         }

@@ -16,7 +16,7 @@ pub async fn run(
     tools: &[String],
     tool_args: &[String],
     dry_run: bool,
-    agents_dir: &str,
+    loom_dir: &str,
 ) -> Result<()> {
     if tools.is_empty() {
         anyhow::bail!("At least one tool name is required");
@@ -34,12 +34,12 @@ pub async fn run(
 
     // Collect env vars from all ecosystem tools
     let mut env_vars = HashMap::new();
-    env_vars.insert("LOOM_AGENTS_DIR".to_string(), agents_dir.to_string());
+    env_vars.insert("LOOM_AGENTS_DIR".to_string(), loom_dir.to_string());
     env_vars.insert("LOOM_ENABLED".to_string(), "1".to_string());
 
     if let Some(ref config) = project_config {
         env_vars.insert("LOOM_PROJECT_NAME".to_string(), config.project.name.clone());
-        if let Some(ref agents) = config.project.agents_dir {
+        if let Some(ref agents) = config.project.loom_dir {
             env_vars.insert("LOOM_AGENTS_DIR".to_string(), agents.clone());
         }
     }
@@ -79,7 +79,7 @@ pub async fn run(
             if let Some(ref native_dir) = skills.native_dir {
                 env_vars.insert(
                     "LOOM_SKILLS_DIR".to_string(),
-                    format!("{agents_dir}/skills"),
+                    format!("{loom_dir}/skills"),
                 );
                 env_vars.insert(
                     format!("{}_SKILLS_DIR", launch_tool.to_uppercase().replace('-', "_")),
@@ -93,7 +93,7 @@ pub async fn run(
             if let Some(ref config_path) = mcp.config_path {
                 env_vars.insert(
                     "LOOM_MCP_DIR".to_string(),
-                    format!("{agents_dir}/mcp"),
+                    format!("{loom_dir}/mcp"),
                 );
                 env_vars.insert(
                     format!("{}_MCP_CONFIG", launch_tool.to_uppercase().replace('-', "_")),
@@ -107,7 +107,7 @@ pub async fn run(
             if let Some(ref store_path) = sessions.store_path {
                 env_vars.insert(
                     "LOOM_SESSIONS_DIR".to_string(),
-                    format!("{agents_dir}/sessions"),
+                    format!("{loom_dir}/sessions"),
                 );
                 env_vars.insert(
                     format!("{}_SESSIONS_DIR", launch_tool.to_uppercase().replace('-', "_")),
@@ -183,6 +183,7 @@ pub async fn run(
 
 /// Project configuration from .loom file
 #[derive(Debug, Clone, serde::Deserialize)]
+#[allow(dead_code)]
 struct ProjectConfig {
     project: ProjectSection,
     #[serde(default)]
@@ -198,26 +199,30 @@ struct ProjectConfig {
 #[derive(Debug, Clone, serde::Deserialize)]
 struct ProjectSection {
     name: String,
-    agents_dir: Option<String>,
+    loom_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+#[allow(dead_code)]
 struct ToolsSection {
     enabled: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+#[allow(dead_code)]
 struct RoutingSection {
     default_tier: String,
     strategy: String,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+#[allow(dead_code)]
 struct McpSection {
     shared: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+#[allow(dead_code)]
 struct SkillsSection {
     auto_load: bool,
 }

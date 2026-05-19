@@ -9,15 +9,15 @@ use orchestrator::TaskOrchestrator;
 
 pub struct WorkflowEngine {
     #[allow(dead_code)]
-    agents_dir: String,
+    loom_dir: String,
     orchestrator: TaskOrchestrator,
 }
 
 impl WorkflowEngine {
-    pub fn new(agents_dir: &str) -> Self {
+    pub fn new(loom_dir: &str) -> Self {
         Self {
-            agents_dir: agents_dir.to_string(),
-            orchestrator: TaskOrchestrator::new(agents_dir),
+            loom_dir: loom_dir.to_string(),
+            orchestrator: TaskOrchestrator::new(loom_dir),
         }
     }
 

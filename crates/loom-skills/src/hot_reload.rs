@@ -6,16 +6,16 @@ use std::sync::mpsc::channel;
 use std::thread;
 use std::time::Duration;
 
-/// Watch `~/.agents/skills/` and emit events on SKILL.md changes.
+/// Watch `~/.loom/skills/` and emit events on SKILL.md changes.
 pub struct SkillWatcher {
-    agents_dir: String,
+    loom_dir: String,
     handle: Option<thread::JoinHandle<()>>,
 }
 
 impl SkillWatcher {
-    pub fn new(agents_dir: &str) -> Self {
+    pub fn new(loom_dir: &str) -> Self {
         Self {
-            agents_dir: agents_dir.to_string(),
+            loom_dir: loom_dir.to_string(),
             handle: None,
         }
     }
@@ -24,7 +24,7 @@ impl SkillWatcher {
     where
         F: Fn(LoomEvent) + Send + 'static,
     {
-        let skills_path = Path::new(&self.agents_dir).join("skills");
+        let skills_path = Path::new(&self.loom_dir).join("skills");
         if !skills_path.exists() {
             std::fs::create_dir_all(&skills_path)?;
         }

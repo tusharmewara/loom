@@ -25,15 +25,15 @@ pub struct HookRunResult {
 }
 
 pub struct HookRunner {
-    agents_dir: PathBuf,
+    loom_dir: PathBuf,
     registry: HookRegistry,
 }
 
 impl HookRunner {
-    pub fn new(agents_dir: &str) -> Self {
+    pub fn new(loom_dir: &str) -> Self {
         Self {
-            agents_dir: PathBuf::from(agents_dir),
-            registry: HookRegistry::new(agents_dir),
+            loom_dir: PathBuf::from(loom_dir),
+            registry: HookRegistry::new(loom_dir),
         }
     }
 
@@ -42,7 +42,7 @@ impl HookRunner {
     }
 
     pub fn reload(&mut self) {
-        self.registry = HookRegistry::new(self.agents_dir.to_str().unwrap());
+        self.registry = HookRegistry::new(self.loom_dir.to_str().unwrap());
     }
 
     /// Hooks matching event, sorted ecosystem-first then by id.
@@ -72,10 +72,10 @@ impl HookRunner {
 
         let mut handles = Vec::new();
         for hook in hooks {
-            let agents_dir = self.agents_dir.clone();
+            let loom_dir = self.loom_dir.clone();
             let ctx = ctx.clone();
             handles.push(tokio::spawn(async move {
-                run_one_hook(&agents_dir, &hook, &ctx).await
+                run_one_hook(&loom_dir, &hook, &ctx).await
             }));
         }
 
@@ -116,7 +116,7 @@ fn matcher_matches(hook: &HookEntry, ctx: &HookContext) -> bool {
 }
 
 async fn run_one_hook(
-    agents_dir: &Path,
+    loom_dir: &Path,
     hook: &HookEntry,
     ctx: &HookContext,
 ) -> Result<HookRunResult> {
@@ -124,7 +124,7 @@ async fn run_one_hook(
         bail!("hook '{}' failed signature verification", hook.id);
     }
 
-    let script = resolve_script_path(agents_dir, &hook.script_path)?;
+    let script = resolve_script_path(loom_dir, &hook.script_path)?;
     if !script.exists() {
         bail!("hook script not found: {}", script.display());
     }
@@ -135,7 +135,7 @@ async fn run_one_hook(
     cmd.env("LOOM_HOOK_ID", &hook.id)
         .env("LOOM_EVENT", format!("{:?}", hook.event_type))
         .env("LOOM_TOOL", &ctx.tool_name)
-        .env("LOOM_AGENTS_DIR", agents_dir)
+        .env("LOOM_AGENTS_DIR", loom_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -158,10 +158,10 @@ async fn run_one_hook(
     })
 }
 
-fn resolve_script_path(agents_dir: &Path, script_path: &str) -> Result<PathBuf> {
+fn resolve_script_path(loom_dir: &Path, script_path: &str) -> Result<PathBuf> {
     let p = Path::new(script_path);
     if p.is_absolute() {
         return Ok(p.to_path_buf());
     }
-    Ok(agents_dir.join(script_path))
+    Ok(loom_dir.join(script_path))
 }

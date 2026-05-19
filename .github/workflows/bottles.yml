@@ -4,6 +4,9 @@ on:
   release:
     types: [created]
 
+permissions:
+  contents: write
+
 jobs:
   build-bottles:
     runs-on: macos-14
@@ -21,7 +24,7 @@ jobs:
             platform: monterey
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -38,7 +41,7 @@ jobs:
 
       - name: Build binaries
         run: |
-          cargo build --release --bins -p loom-cli -p loomd --target ${{ matrix.target }}
+          cargo build --release --bins -p loom -p loomd --target ${{ matrix.target }}
           mkdir -p bottle/loom/bin
           cp "target/${{ matrix.target }}/release/loom" "target/${{ matrix.target }}/release/loomd" bottle/loom/bin/
 
@@ -56,7 +59,7 @@ jobs:
         run: sleep 30
 
       - name: Upload bottle asset
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           files: "loom--${{ steps.vars.outputs.version }}--${{ matrix.platform }}.tar.gz"
         env:

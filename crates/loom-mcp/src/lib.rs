@@ -35,8 +35,8 @@ pub use registry::McpRegistry;
 /// - [`McpHealthChecker`] — periodic health checking
 /// - [`McpClientPool`] — connection reuse
 pub struct McpManager {
-    /// Root directory for agent metadata (`.agents/`).
-    agents_dir: PathBuf,
+    /// Root directory for agent metadata (`.loom/`).
+    loom_dir: PathBuf,
     /// SQLite-backed registry.
     registry: McpRegistry,
     /// Process pool.
@@ -54,17 +54,17 @@ pub struct McpManager {
 }
 
 impl McpManager {
-    /// Create a new `McpManager` with the given `agents_dir`.
+    /// Create a new `McpManager` with the given `loom_dir`.
     ///
-    /// The registry database is stored at `agents_dir / mcp_registry.db`.
-    pub fn new(agents_dir: &str) -> Result<Self> {
-        let registry = McpRegistry::new(agents_dir)?;
+    /// The registry database is stored at `loom_dir / mcp_registry.db`.
+    pub fn new(loom_dir: &str) -> Result<Self> {
+        let registry = McpRegistry::new(loom_dir)?;
         let pool = McpPool::new();
         let health_checker = McpHealthChecker::with_defaults();
         let client_pool = McpClientPool::with_defaults();
 
         Ok(Self {
-            agents_dir: PathBuf::from(agents_dir),
+            loom_dir: PathBuf::from(loom_dir),
             registry,
             pool,
             health_checker,
@@ -76,8 +76,8 @@ impl McpManager {
     }
 
     /// Create a new `McpManager` with an event bus for change notifications.
-    pub fn with_event_bus(agents_dir: &str, event_bus: Arc<EventBus>) -> Result<Self> {
-        let registry = McpRegistry::new(agents_dir)?;
+    pub fn with_event_bus(loom_dir: &str, event_bus: Arc<EventBus>) -> Result<Self> {
+        let registry = McpRegistry::new(loom_dir)?;
         let pool = McpPool::new();
 
         // Wire up health changes to publish on the event bus
@@ -96,7 +96,7 @@ impl McpManager {
         let client_pool = McpClientPool::with_defaults();
 
         Ok(Self {
-            agents_dir: PathBuf::from(agents_dir),
+            loom_dir: PathBuf::from(loom_dir),
             registry,
             pool,
             health_checker,
@@ -168,8 +168,8 @@ impl McpManager {
     }
 
     /// The configured agents directory.
-    pub fn agents_dir(&self) -> &Path {
-        &self.agents_dir
+    pub fn loom_dir(&self) -> &Path {
+        &self.loom_dir
     }
 }
 
@@ -223,7 +223,7 @@ mod tests {
     fn test_mcp_manager_new() {
         let dir = tempfile::tempdir().unwrap();
         let mgr = McpManager::new(dir.path().to_str().unwrap()).unwrap();
-        assert!(mgr.agents_dir().exists());
+        assert!(mgr.loom_dir().exists());
     }
 
     #[test]
@@ -267,8 +267,8 @@ mod tests {
         mgr.client_pool().release(conn);
     }
 
-    #[test]
-    fn test_mcp_manager_health_checks_start_stop() {
+    #[tokio::test]
+    async fn test_mcp_manager_health_checks_start_stop() {
         let dir = tempfile::tempdir().unwrap();
         let mut mgr = McpManager::new(dir.path().to_str().unwrap()).unwrap();
         mgr.start_health_checks();

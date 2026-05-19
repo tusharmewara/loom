@@ -8,7 +8,7 @@ use std::path::Path;
 /// - SharedFirst: shared resources take precedence
 /// - Manual: user explicitly chooses via config
 pub struct ResourceMerger {
-    agents_dir: String,
+    loom_dir: String,
 }
 
 pub struct Conflict {
@@ -27,8 +27,8 @@ pub enum ResourceType {
 }
 
 impl ResourceMerger {
-    pub fn new(agents_dir: &str) -> Self {
-        Self { agents_dir: agents_dir.to_string() }
+    pub fn new(loom_dir: &str) -> Self {
+        Self { loom_dir: loom_dir.to_string() }
     }
 
     /// Resolve all conflicts across resource types.
@@ -48,7 +48,7 @@ impl ResourceMerger {
     /// Detect skills that exist in both a tool's native dir and the shared skills dir.
     fn detect_skill_conflicts(&self, strategy: &ConflictResolution) -> anyhow::Result<Vec<Conflict>> {
         let mut conflicts = Vec::new();
-        let shared_skills = Path::new(&self.agents_dir).join("skills");
+        let shared_skills = Path::new(&self.loom_dir).join("skills");
         if !shared_skills.exists() {
             return Ok(conflicts);
         }
@@ -60,12 +60,12 @@ impl ResourceMerger {
             .collect();
 
         // Check tools/ TOML configs for native skill directories
-        let tools_dir = Path::new(&self.agents_dir).join("tools");
+        let tools_dir = Path::new(&self.loom_dir).join("tools");
         if tools_dir.exists() {
             for entry in std::fs::read_dir(&tools_dir)? {
                 let entry = entry?;
                 let path = entry.path();
-                if path.extension().map_or(false, |e| e == "toml") {
+                if path.extension().is_some_and(|e| e == "toml") {
                     let content = std::fs::read_to_string(&path)?;
                     let toml_value: toml::Value = toml::from_str(&content)?;
 
@@ -111,7 +111,7 @@ impl ResourceMerger {
 
     /// Load the conflict resolution strategy from config.
     fn load_strategy(&self) -> ConflictResolution {
-        let config_path = Path::new(&self.agents_dir).join("config.toml");
+        let config_path = Path::new(&self.loom_dir).join("config.toml");
         if let Ok(content) = std::fs::read_to_string(&config_path) {
             if let Ok(config) = toml::from_str::<loom_core::LoomConfig>(&content) {
                 return config.ecosystem.conflict_resolution;
@@ -129,7 +129,7 @@ mod tests {
     fn test_no_conflicts_in_empty_agents() {
         let dir = std::env::temp_dir().join("loom-test-merger-empty");
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir.join("skills")).unwrap();
+        std::fs::create_dir_all(dir.join("skills")).unwrap();
 
         let merger = ResourceMerger::new(dir.to_str().unwrap());
         let conflicts = merger.resolve_all().unwrap();

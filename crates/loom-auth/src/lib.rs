@@ -29,19 +29,19 @@ pub struct AuthManager {
 impl AuthManager {
     /// Create a new `AuthManager` for the given agents directory.
     ///
-    /// All storage is relative to `agents_dir/auth/`.
-    pub fn new(agents_dir: &str) -> Self {
+    /// All storage is relative to `loom_dir/auth/`.
+    pub fn new(loom_dir: &str) -> Self {
         // Ensure auth directory exists
-        let auth_dir = Path::new(agents_dir).join("auth");
+        let auth_dir = Path::new(loom_dir).join("auth");
         if let Err(e) = std::fs::create_dir_all(&auth_dir) {
             warn!(path = ?auth_dir, error = %e, "failed to create auth dir");
         }
 
-        let vault = vault::CredentialVault::new(agents_dir);
+        let vault = vault::CredentialVault::new(loom_dir);
         let acl = acl::AclEngine::new();
-        let audit = audit::AuditLogger::new(agents_dir);
-        let providers = providers::ProviderRegistry::new(agents_dir);
-        let importer = import::AutoImporter::new(agents_dir);
+        let audit = audit::AuditLogger::new(loom_dir);
+        let providers = providers::ProviderRegistry::new(loom_dir);
+        let importer = import::AutoImporter::new(loom_dir);
 
         Self {
             vault,
@@ -140,7 +140,7 @@ impl AuthManager {
 
     /// Run auto-import from tool config TOML files.
     ///
-    /// Scans `{agents_dir}/tools/*.toml` and imports any discovered auth providers.
+    /// Scans `{loom_dir}/tools/*.toml` and imports any discovered auth providers.
     /// If the vault is unlocked, credentials will be imported into the vault.
     pub fn import_from_tools(&mut self) -> Result<Vec<ProviderEntry>> {
         let vault = if !self.vault.is_locked() {
@@ -259,7 +259,6 @@ fn days_to_date(z: i64) -> (i64, u32, u32) {
 mod tests {
     use super::*;
     use loom_core::{AuthMethod, ProviderStatus};
-    use std::fs;
 
     fn test_provider(id: &str) -> ProviderEntry {
         ProviderEntry {

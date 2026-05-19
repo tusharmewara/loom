@@ -397,8 +397,8 @@ command = "new-cmd"
 
 // ─── McpManager Integration Tests ─────────────────────────────────────
 
-#[test]
-fn test_manager_full_lifecycle() {
+#[tokio::test]
+async fn test_manager_full_lifecycle() {
     let dir = tempfile::tempdir().unwrap();
     let mut mgr = McpManager::new(dir.path().to_str().unwrap()).unwrap();
 

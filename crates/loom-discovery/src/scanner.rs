@@ -8,14 +8,14 @@ use crate::registry::SnapshotDb;
 /// Phase 1: detect available layers by checking directory existence (fast, no I/O heavy).
 /// Phase 2: validate snapshot entries against filesystem (SHA-256 hash verification).
 pub struct Scanner {
-    agents_dir: String,
+    loom_dir: String,
     snapshot: Arc<SnapshotDb>,
 }
 
 impl Scanner {
-    pub fn new(agents_dir: &str, snapshot: Arc<SnapshotDb>) -> Self {
+    pub fn new(loom_dir: &str, snapshot: Arc<SnapshotDb>) -> Self {
         Self {
-            agents_dir: agents_dir.to_string(),
+            loom_dir: loom_dir.to_string(),
             snapshot,
         }
     }
@@ -23,7 +23,7 @@ impl Scanner {
     /// Phase 1: Fast layer detection by directory existence.
     pub fn scan_layers(&self) -> anyhow::Result<Vec<String>> {
         let mut layers = Vec::new();
-        let path = Path::new(&self.agents_dir);
+        let path = Path::new(&self.loom_dir);
 
         if path.join("skills").exists() { layers.push("skills".into()); }
         if path.join("mcp").exists() { layers.push("mcp".into()); }
@@ -39,10 +39,10 @@ impl Scanner {
     /// Phase 1: Quick warnings check.
     pub fn check_warnings(&self) -> anyhow::Result<Vec<String>> {
         let mut warnings = Vec::new();
-        let path = Path::new(&self.agents_dir);
+        let path = Path::new(&self.loom_dir);
 
         if !path.exists() {
-            warnings.push("~/.agents/ does not exist. Run 'loom init' first.".into());
+            warnings.push("~/.loom/ does not exist. Run 'loom init' first.".into());
         } else if !path.join("config.toml").exists() {
             warnings.push("No config.toml found. Run 'loom init' to create one.".into());
         }

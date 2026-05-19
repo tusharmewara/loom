@@ -21,7 +21,7 @@ const MAX_ROTATED_FILES: u32 = 5;
 
 /// Structured audit logger with automatic log rotation.
 ///
-/// Logs are written as newline-delimited JSON to `{agents_dir}/auth/audit.log`.
+/// Logs are written as newline-delimited JSON to `{loom_dir}/auth/audit.log`.
 /// When the log file exceeds 10 MB, it is rotated to `audit.log.1`, `audit.log.2`, etc.
 pub struct AuditLogger {
     /// Mutex to serialize log writes and rotations
@@ -37,8 +37,8 @@ struct AuditInner {
 
 impl AuditLogger {
     /// Create a new audit logger for the given agents directory.
-    pub fn new(agents_dir: &str) -> Self {
-        let log_path = Path::new(agents_dir).join("auth").join("audit.log");
+    pub fn new(loom_dir: &str) -> Self {
+        let log_path = Path::new(loom_dir).join("auth").join("audit.log");
         let log_path_str = log_path.to_string_lossy().to_string();
 
         // Ensure directory exists
@@ -115,7 +115,7 @@ impl AuditLogger {
             .with_context(|| format!("failed to open audit log: {log_path}"))?;
 
         let line = serde_json::to_string(entry)?;
-        writeln!(file, "{}", line).with_context(|| format!("failed to write audit log entry"))?;
+        writeln!(file, "{}", line).with_context(|| "failed to write audit log entry")?;
         file.flush()?;
 
         drop(inner);

@@ -9,10 +9,10 @@ pub use cli::{
     SkillsAction, WorkflowAction,
 };
 
-/// Resolve the default ecosystem directory (~/.agents/).
-pub fn agents_dir() -> String {
+/// Resolve the default ecosystem directory (~/.loom/).
+pub fn loom_dir() -> String {
     let home = std::env::var("HOME").expect("HOME environment variable not set");
-    format!("{}/.agents", home)
+    format!("{}/.loom", home)
 }
 
 /// Entry point for the loom CLI binary.

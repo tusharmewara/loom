@@ -11,7 +11,7 @@ use crate::config::ToolToml;
 
 /// The GenericAdapter auto-implements all 6 Loom traits from a single TOML file.
 ///
-/// When instantiated for a tool (e.g. "cursor"), it reads `~/.agents/tools/cursor.toml`
+/// When instantiated for a tool (e.g. "cursor"), it reads `~/.loom/tools/cursor.toml`
 /// and conditionally implements:
 ///
 /// | TOML Section | Trait |
@@ -26,7 +26,7 @@ use crate::config::ToolToml;
 /// Missing sections produce no-op implementations — the adapter never errors
 /// on absent sections.
 pub struct GenericAdapter {
-    agents_dir: PathBuf,
+    loom_dir: PathBuf,
     tool_name: String,
     config: ToolToml,
 }
@@ -34,15 +34,15 @@ pub struct GenericAdapter {
 impl GenericAdapter {
     /// Create a GenericAdapter for a specific tool.
     ///
-    /// `agents_dir` = `~/.agents/`, `tool_name` = filename stem in `tools/`.
-    pub fn new(agents_dir: &str, tool_name: &str) -> anyhow::Result<Self> {
-        let tools_dir = PathBuf::from(agents_dir).join("tools");
+    /// `loom_dir` = `~/.loom/`, `tool_name` = filename stem in `tools/`.
+    pub fn new(loom_dir: &str, tool_name: &str) -> anyhow::Result<Self> {
+        let tools_dir = PathBuf::from(loom_dir).join("tools");
         let toml_path = tools_dir.join(format!("{}.toml", tool_name));
         let raw = std::fs::read_to_string(&toml_path)?;
         let config: ToolToml = toml::from_str(&raw)?;
 
         Ok(Self {
-            agents_dir: PathBuf::from(agents_dir),
+            loom_dir: PathBuf::from(loom_dir),
             tool_name: tool_name.to_string(),
             config,
         })
@@ -50,13 +50,13 @@ impl GenericAdapter {
 
     /// Create a GenericAdapter from raw TOML content (for testing or in-memory use).
     pub fn from_toml(
-        agents_dir: &str,
+        loom_dir: &str,
         tool_name: &str,
         toml_content: &str,
     ) -> anyhow::Result<Self> {
         let config: ToolToml = toml::from_str(toml_content)?;
         Ok(Self {
-            agents_dir: PathBuf::from(agents_dir),
+            loom_dir: PathBuf::from(loom_dir),
             tool_name: tool_name.to_string(),
             config,
         })
@@ -66,7 +66,7 @@ impl GenericAdapter {
     pub fn build(&self) -> TraitSet {
         TraitSet {
             config: self.config.clone(),
-            agents_dir: self.agents_dir.clone(),
+            loom_dir: self.loom_dir.clone(),
             tool_name: self.tool_name.clone(),
         }
     }
@@ -89,7 +89,7 @@ impl GenericAdapter {
 pub struct TraitSet {
     config: ToolToml,
     #[allow(dead_code)]
-    agents_dir: PathBuf,
+    loom_dir: PathBuf,
     #[allow(dead_code)]
     tool_name: String,
 }

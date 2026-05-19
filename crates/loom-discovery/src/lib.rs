@@ -17,7 +17,7 @@ use std::time::Instant;
 /// CLI with daemon: Phase 1 only (daemon handles Phase 2)
 /// CLI without daemon: Phase 1 + Phase 2 (slightly slower but functional)
 pub struct DiscoveryEngine {
-    agents_dir: String,
+    loom_dir: String,
     snapshot: Arc<registry::SnapshotDb>,
     watcher: Arc<watcher::DiscoveryWatcher>,
 }
@@ -38,11 +38,11 @@ pub struct Phase2Result {
 }
 
 impl DiscoveryEngine {
-    pub fn new(agents_dir: &str) -> Self {
-        let snapshot = Arc::new(registry::SnapshotDb::new(agents_dir));
-        let watcher = Arc::new(watcher::DiscoveryWatcher::new(agents_dir));
+    pub fn new(loom_dir: &str) -> Self {
+        let snapshot = Arc::new(registry::SnapshotDb::new(loom_dir));
+        let watcher = Arc::new(watcher::DiscoveryWatcher::new(loom_dir));
         Self {
-            agents_dir: agents_dir.to_string(),
+            loom_dir: loom_dir.to_string(),
             snapshot,
             watcher,
         }
@@ -81,15 +81,15 @@ impl DiscoveryEngine {
         let start = Instant::now();
 
         // 1. Validate entries: check each snapshot entry against the filesystem
-        let scanner = scanner::Scanner::new(&self.agents_dir, self.snapshot.clone());
+        let scanner = scanner::Scanner::new(&self.loom_dir, self.snapshot.clone());
         let validation = scanner.validate_entries()?;
 
         // 2. Resolve conflicts between native and shared resources
-        let merger = merger::ResourceMerger::new(&self.agents_dir);
+        let merger = merger::ResourceMerger::new(&self.loom_dir);
         let conflicts = merger.resolve_all()?;
 
         // 3. Update snapshot with validated/merged data
-        let snapshot_builder = initializer::SnapshotBuilder::new(&self.agents_dir);
+        let snapshot_builder = initializer::SnapshotBuilder::new(&self.loom_dir);
         snapshot_builder.update(&validation, &conflicts)?;
 
         // 4. Collect warnings

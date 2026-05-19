@@ -49,7 +49,7 @@ loom-tui     — TUI (ratatui + crossterm)
 ### Two-Tier Architecture
 
 - **loom-cli** (`crates/loom-cli/`): CLI binary with 20+ subcommands. Connects to daemon via Unix socket when available, or runs standalone (slower, runs Phase 2 discovery inline).
-- **loomd** (`crates/loomd/`): Background daemon.agents_dir/`): Background daemon. Aggregates all subsystem crates, provides IPC over Unix domain socket (`~/.agents/loomd.sock`). Auto-shutdown after 5 min idle.
+- **loomd** (`crates/loomd/`): Background daemon.agents_dir/`): Background daemon. Aggregates all subsystem crates, provides IPC over Unix domain socket (`~/.loom/loomd.sock`). Auto-shutdown after 5 min idle.
 
 ### IPC Protocol
 
@@ -65,16 +65,16 @@ Commands: `health.check`, `discovery.scan`, `skills.list`, `skills.show`, `mcp.l
 ### Event Bus
 
 - **In-process**: tokio broadcast channel (cap 4096)
-- **Cross-process**: ZeroMQ PUB/SUB via `ipc://~/.agents/.loom-events`
+- **Cross-process**: ZeroMQ PUB/SUB via `ipc://~/.loom/.loom-events`
 - Cross-process is behind `#[cfg(feature = "cross-process")]`
 - Events: `SkillsAdded`, `McpHealthChanged`, `SessionExported`, etc. (all in `LoomEvent` enum)
 
 ### Filesystem Layout
 
-Everything lives in `~/.agents/` (AGENTS_DIR constant in `loom-core`):
+Everything lives in `~/.loom/` (AGENTS_DIR constant in `loom-core`):
 
 ```
-~/.agents/
+~/.loom/
 ├── config.toml              # Main config
 ├── config/
 │   ├── routing.toml         # Overlays merged on top of config.toml
@@ -107,7 +107,7 @@ Every major struct has a convenience method: `as_arc()` or `into_arc()` (they're
 
 ### GenericAdapter
 
-Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`, `HookExecutor`, `RoutingTarget`, `SessionExportable`) from a single TOML file at `~/.agents/tools/{tool_name}.toml`. Missing TOML sections produce no-op implementations (never errors on absent sections).
+Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`, `HookExecutor`, `RoutingTarget`, `SessionExportable`) from a single TOML file at `~/.loom/tools/{tool_name}.toml`. Missing TOML sections produce no-op implementations (never errors on absent sections).
 
 ### Feature Flags
 
@@ -129,7 +129,7 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 1. **Hook scripts are placeholder**: `execute_hook_script()` in `loom-hooks` returns a success message without actually executing anything. If you need real hook execution, implement the script runner.
 2. **loom-tui has `#[allow(dead_code)]` on `mod dispatch`** — dispatch module is used but compiler flags dead code due to conditional compilation patterns.
 3. **Auth vault `export_credential()` returns plaintext** — the comment notes "this is the plaintext; proper export would re-encrypt".
-4. **`mcp_registry.db` is SQLite** — created automatically in `~/.agents/` by `McpRegistry`.
+4. **`mcp_registry.db` is SQLite** — created automatically in `~/.loom/` by `McpRegistry`.
 5. **ConfigReader overlays layer-specific TOML files** — if `routing.toml` exists in `config/`, it completely replaces (not deep-merges) the `routing` field from `config.toml`.
 6. **Session compression**: After `SESSION_COMPRESSION_THRESHOLD` (20) messages, session data uses compression. First `SESSION_FULL_FIDELITY_COUNT` (10) messages are stored uncompressed.
 7. **Vault lockout**: max `VAULT_MAX_UNLOCK_ATTEMPTS` (5) within `VAULT_MAX_UNLOCK_ATTEMPTS within `VAULT_UNLOCK_WINDOW_MS` (60s).
@@ -184,6 +184,6 @@ packages/
 └── opencode/         — OpenCode packaget/
 
 docs/
-└── ~/.agents/
+└── ~/.loom/
     └── ...
 ```

@@ -7,9 +7,9 @@ pub struct TaskOrchestrator {
 }
 
 impl TaskOrchestrator {
-    pub fn new(agents_dir: &str) -> Self {
+    pub fn new(loom_dir: &str) -> Self {
         Self {
-            manager: TaskManager::new(agents_dir),
+            manager: TaskManager::new(loom_dir),
         }
     }
 

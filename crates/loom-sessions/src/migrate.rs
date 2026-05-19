@@ -4,8 +4,8 @@ use loom_core::SessionManifest;
 use std::path::{Path, PathBuf};
 
 /// Migrate legacy `sessions/{id}.json` manifests into `sessions/{id}/manifest.json` + JSONL layout.
-pub fn migrate_legacy_sessions(agents_dir: &str) -> Result<usize> {
-    let sessions_dir = Path::new(agents_dir).join("sessions");
+pub fn migrate_legacy_sessions(loom_dir: &str) -> Result<usize> {
+    let sessions_dir = Path::new(loom_dir).join("sessions");
     if !sessions_dir.exists() {
         return Ok(0);
     }
@@ -47,7 +47,7 @@ pub fn migrate_legacy_sessions(agents_dir: &str) -> Result<usize> {
                 if let Ok(messages) =
                     serde_json::from_str::<Vec<loom_core::Message>>(&raw)
                 {
-                    let store = SessionStore::new(agents_dir);
+                    let store = SessionStore::new(loom_dir);
                     store.replace_messages(&session_id, &messages)?;
                     let _ = std::fs::remove_file(&legacy_messages);
                 }
@@ -63,8 +63,8 @@ pub fn migrate_legacy_sessions(agents_dir: &str) -> Result<usize> {
 }
 
 /// Run migration if needed (called from `loom init`).
-pub fn migrate_if_needed(agents_dir: &str) -> Result<usize> {
-    migrate_legacy_sessions(agents_dir)
+pub fn migrate_if_needed(loom_dir: &str) -> Result<usize> {
+    migrate_legacy_sessions(loom_dir)
 }
 
 pub fn legacy_manifest_path(sessions_dir: &Path, id: &str) -> PathBuf {

@@ -3,23 +3,23 @@ use comfy_table::Table;
 use loom_discovery::registry::SnapshotDb;
 use loom_ipc::{client::send_command, IpcRequest};
 
-/// Default IPC socket path, relative to ~/.agents/.
+/// Default IPC socket path, relative to ~/.loom/.
 const DAEMON_SOCKET: &str = "loomd.sock";
 
 /// `loom status`
 ///
 /// Checks daemon health via the IPC Unix socket. Falls back to reading the
 /// SQLite snapshot directly when the daemon is not running.
-pub async fn run(agents_dir: &str, json: bool) -> Result<()> {
-    let agents_path = std::path::Path::new(agents_dir);
+pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
+    let agents_path = std::path::Path::new(loom_dir);
     if !agents_path.exists() {
         anyhow::bail!(
-            "Ecosystem not initialized at ~/.agents/. Run 'loom init' first."
+            "Ecosystem not initialized at ~/.loom/. Run 'loom init' first."
         );
     }
 
     // ── Check daemon health via IPC ───────────────────────────────
-    let socket_path = format!("{agents_dir}/{DAEMON_SOCKET}");
+    let socket_path = format!("{loom_dir}/{DAEMON_SOCKET}");
     let mut daemon_status = "unreachable".to_string();
     let mut daemon_error: Option<String> = None;
     let mut daemon_data: Option<serde_json::Value> = None;
@@ -41,7 +41,7 @@ pub async fn run(agents_dir: &str, json: bool) -> Result<()> {
     };
 
     // ── Read resource snapshot ────────────────────────────────────
-    let snapshot = SnapshotDb::new(agents_dir);
+    let snapshot = SnapshotDb::new(loom_dir);
     snapshot
         .initialize_schema()
         .context("Failed to initialize snapshot schema")?;
@@ -60,7 +60,7 @@ pub async fn run(agents_dir: &str, json: bool) -> Result<()> {
             serde_json::to_string_pretty(&serde_json::json!({
                 "schema_version": 1,
                 "command": "status",
-                "agents_dir": agents_dir,
+                "loom_dir": loom_dir,
                 "daemon": {
                     "reachable": daemon_ok,
                     "status": daemon_status,
@@ -128,16 +128,16 @@ mod tests {
     #[tokio::test]
     async fn test_status_without_daemon() {
         let dir = tempfile::tempdir().unwrap();
-        let agents_dir = dir.path().to_str().unwrap();
+        let loom_dir = dir.path().to_str().unwrap();
 
         // Initialize first
-        init::run(false, agents_dir).await.unwrap();
+        init::run(false, loom_dir).await.unwrap();
 
         // Should succeed with daemon-not-reachable + snapshot counts
-        run(agents_dir, false).await.unwrap();
+        run(loom_dir, false).await.unwrap();
 
         // Snapshot should have schema with empty counts
-        let db = SnapshotDb::new(agents_dir);
+        let db = SnapshotDb::new(loom_dir);
         let counts = db.count_resources().unwrap();
         assert!(counts.values().all(|c| *c == 0));
     }
@@ -145,13 +145,13 @@ mod tests {
     #[tokio::test]
     async fn test_status_proceeds_with_empty_state() {
         let dir = tempfile::tempdir().unwrap();
-        let agents_dir = dir.path().to_str().unwrap();
+        let loom_dir = dir.path().to_str().unwrap();
 
         // Should succeed — schema created on the fly
-        run(agents_dir, false).await.unwrap();
+        run(loom_dir, false).await.unwrap();
 
         // Snapshot should have schema with empty counts
-        let db = SnapshotDb::new(agents_dir);
+        let db = SnapshotDb::new(loom_dir);
         let counts = db.count_resources().unwrap();
         assert!(counts.values().all(|c| *c == 0));
     }

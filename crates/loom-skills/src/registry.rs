@@ -17,17 +17,17 @@ pub struct SkillRegistry {
 
 impl SkillRegistry {
     /// Create a new skill registry pointing to the given agents directory
-    pub fn new(agents_dir: &str) -> anyhow::Result<Self> {
-        let skills_dir = Path::new(agents_dir).join("skills");
+    pub fn new(loom_dir: &str) -> anyhow::Result<Self> {
+        let skills_dir = Path::new(loom_dir).join("skills");
         std::fs::create_dir_all(&skills_dir)?;
         
         let db_path = skills_dir.join("skills.db");
         let conn = Connection::open(db_path)?;
         
         // Enable foreign keys and other pragmas
-        conn.pragma_update(None, "foreign_keys", &true.to_string())?;
-        conn.pragma_update(None, "journal_mode", &"WAL".to_string())?;
-        conn.pragma_update(None, "synchronous", &"NORMAL".to_string())?;
+        conn.pragma_update(None, "foreign_keys", true.to_string())?;
+        conn.pragma_update(None, "journal_mode", "WAL".to_string())?;
+        conn.pragma_update(None, "synchronous", "NORMAL".to_string())?;
         
         // Create tables if they don't exist
         conn.execute_batch(
@@ -104,10 +104,8 @@ impl SkillRegistry {
             })
         })?;
         
-        for skill in skill_iter {
-            if let Ok(skill) = skill {
-                cache.insert(skill.name.clone(), skill);
-            }
+        for skill in skill_iter.flatten() {
+            cache.insert(skill.name.clone(), skill);
         }
         
         debug!(cache_size = cache.len(), "Refreshed skill registry cache");

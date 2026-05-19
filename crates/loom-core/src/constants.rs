@@ -1,7 +1,7 @@
 //! Shared constants for Loom ecosystem paths.
 
 pub const ECOSYSTEM_VERSION: &str = "2.0.0";
-pub const AGENTS_DIR: &str = ".agents";
+pub const AGENTS_DIR: &str = ".loom";
 pub const SKILLS_DIR: &str = "skills";
 pub const MCP_DIR: &str = "mcp";
 pub const SESSIONS_DIR: &str = "sessions";

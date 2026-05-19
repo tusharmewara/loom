@@ -23,15 +23,15 @@ pub trait LoomToolAdapter: Send + Sync {
     fn tool_name(&self) -> &'static str;
     fn default_toml(&self, home: &str) -> ToolToml;
     fn apply_routing_decision(&self, decision: &RoutingDecision) -> Result<()>;
-    fn sync_from_native(&self, agents_dir: &str, home: &str) -> Result<SyncReport>;
+    fn sync_from_native(&self, loom_dir: &str, home: &str) -> Result<SyncReport>;
 }
 
 pub fn write_tool_registration(
     adapter: &dyn LoomToolAdapter,
-    agents_dir: &str,
+    loom_dir: &str,
     home: &str,
 ) -> Result<()> {
-    let tools_dir = std::path::Path::new(agents_dir).join("tools");
+    let tools_dir = std::path::Path::new(loom_dir).join("tools");
     std::fs::create_dir_all(&tools_dir)?;
     let path = tools_dir.join(format!("{}.toml", adapter.tool_name()));
     let toml = toml::to_string_pretty(&adapter.default_toml(home))?;
@@ -63,12 +63,12 @@ pub fn supported_tools() -> &'static [&'static str] {
     &["jcode", "crush", "claude-code", "opencode", "goose"]
 }
 
-pub fn sync_tools_dir(agents_dir: &str) -> Result<SyncReport> {
+pub fn sync_tools_dir(loom_dir: &str) -> Result<SyncReport> {
     let mut report = SyncReport::default();
-    let mgr = loom_mcp::McpManager::new(agents_dir)?;
+    let mgr = loom_mcp::McpManager::new(loom_dir)?;
     let registry = mgr.registry();
     let n = loom_mcp::import::import_from_tools_dir(
-        std::path::Path::new(agents_dir),
+        std::path::Path::new(loom_dir),
         &|entry| {
             registry.upsert(&entry)?;
             Ok(())

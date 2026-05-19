@@ -7,22 +7,22 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 pub struct SessionStore {
-    agents_dir: String,
+    loom_dir: String,
     sessions_dir: PathBuf,
 }
 
 impl SessionStore {
-    pub fn new(agents_dir: &str) -> Self {
-        let sessions_dir = Path::new(agents_dir).join("sessions");
+    pub fn new(loom_dir: &str) -> Self {
+        let sessions_dir = Path::new(loom_dir).join("sessions");
         let _ = std::fs::create_dir_all(&sessions_dir);
         Self {
-            agents_dir: agents_dir.to_string(),
+            loom_dir: loom_dir.to_string(),
             sessions_dir,
         }
     }
 
-    pub fn agents_dir(&self) -> &str {
-        &self.agents_dir
+    pub fn loom_dir(&self) -> &str {
+        &self.loom_dir
     }
 
     pub fn sessions_dir(&self) -> &Path {

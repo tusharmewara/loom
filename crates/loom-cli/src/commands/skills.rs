@@ -2,11 +2,11 @@ use crate::cli::SkillsAction;
 use loom_ipc::IpcRequest;
 use std::path::Path;
 
-pub async fn run(agents_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
+pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
     match action {
         SkillsAction::List { json } => {
             let req = IpcRequest::new("skills.list");
-            match crate::ipc_client::send_daemon_command(agents_dir, req).await {
+            match crate::ipc_client::send_daemon_command(loom_dir, req).await {
                 Ok(resp) if resp.status == "ok" => {
                     if let Some(data) = resp.data {
                         if let Some(skills) = data.get("skills") {
@@ -28,7 +28,7 @@ pub async fn run(agents_dir: &Path, action: &SkillsAction) -> anyhow::Result<()>
                 Err(e) => eprintln!("Daemon unavailable ({e}); listing local skills dir"),
             }
 
-            let skills_dir = agents_dir.join("skills");
+            let skills_dir = loom_dir.join("skills");
             let mut skill_names = Vec::new();
             if skills_dir.exists() {
                 for entry in std::fs::read_dir(&skills_dir)? {
@@ -56,7 +56,7 @@ pub async fn run(agents_dir: &Path, action: &SkillsAction) -> anyhow::Result<()>
         SkillsAction::Show { name, json } => {
             let req = IpcRequest::new("skills.show")
                 .with_params(serde_json::json!({ "name": name }));
-            match crate::ipc_client::send_daemon_command(agents_dir, req).await {
+            match crate::ipc_client::send_daemon_command(loom_dir, req).await {
                 Ok(resp) if resp.status == "ok" => {
                     if let Some(data) = resp.data {
                         if *json {
@@ -76,7 +76,7 @@ pub async fn run(agents_dir: &Path, action: &SkillsAction) -> anyhow::Result<()>
                 Err(e) => eprintln!("Daemon unavailable ({e})"),
             }
 
-            let path = agents_dir.join("skills").join(name);
+            let path = loom_dir.join("skills").join(name);
             if path.exists() {
                 let content = std::fs::read_to_string(&path)?;
                 if *json {
@@ -103,13 +103,13 @@ pub async fn run(agents_dir: &Path, action: &SkillsAction) -> anyhow::Result<()>
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_string();
-            let dst = agents_dir.join("skills").join(src.file_name().unwrap());
-            std::fs::create_dir_all(agents_dir.join("skills"))?;
+            let dst = loom_dir.join("skills").join(src.file_name().unwrap());
+            std::fs::create_dir_all(loom_dir.join("skills"))?;
             std::fs::copy(src, &dst)?;
             println!("Installed skill '{name}'");
         }
         SkillsAction::Remove { name } => {
-            let path = agents_dir.join("skills").join(name);
+            let path = loom_dir.join("skills").join(name);
             if path.exists() {
                 std::fs::remove_file(&path)?;
                 println!("Removed skill '{name}'");

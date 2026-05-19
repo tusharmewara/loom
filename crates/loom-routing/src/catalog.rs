@@ -17,8 +17,8 @@ impl CatalogManager {
         Self { catalog }
     }
 
-    pub fn load(agents_dir: &str) -> Result<Self> {
-        let path = Path::new(agents_dir)
+    pub fn load(loom_dir: &str) -> Result<Self> {
+        let path = Path::new(loom_dir)
             .join("auth")
             .join("model-catalog.json");
         let catalog = if path.exists() {
@@ -72,14 +72,14 @@ impl CatalogManager {
 
     /// Refresh the catalog from all active providers.
     /// Currently resets to default catalog (placeholder for live provider queries).
-    pub fn refresh_from_providers(agents_dir: &str) -> Result<()> {
+    pub fn refresh_from_providers(loom_dir: &str) -> Result<()> {
         // In a full implementation, this would:
         // 1. Load ProviderRegistry
         // 2. For each active provider, read credential and query models endpoint
         // 3. Merge results into a new ModelCatalog
         // For now, rebuild from built-in defaults to ensure the file exists and is valid.
         let catalog = Self::default_catalog();
-        let path = Path::new(agents_dir).join("auth").join("model-catalog.json");
+        let path = Path::new(loom_dir).join("auth").join("model-catalog.json");
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }

@@ -10,14 +10,14 @@ use std::thread;
 /// Uses notify crate (inotify on Linux, FSEvents on macOS).
 /// Detects file changes within 100ms and forwards typed events.
 pub struct DiscoveryWatcher {
-    agents_dir: String,
+    loom_dir: String,
     watcher_handle: Option<thread::JoinHandle<()>>,
 }
 
 impl DiscoveryWatcher {
-    pub fn new(agents_dir: &str) -> Self {
+    pub fn new(loom_dir: &str) -> Self {
         Self {
-            agents_dir: agents_dir.to_string(),
+            loom_dir: loom_dir.to_string(),
             watcher_handle: None,
         }
     }
@@ -28,19 +28,19 @@ impl DiscoveryWatcher {
     where
         F: Fn(LoomEvent) + Send + 'static,
     {
-        let agents_path = Path::new(&self.agents_dir);
+        let agents_path = Path::new(&self.loom_dir);
         if !agents_path.exists() {
-            tracing::warn!("Cannot watch {}: directory does not exist", self.agents_dir);
+            tracing::warn!("Cannot watch {}: directory does not exist", self.loom_dir);
             return Ok(());
         }
 
         let (tx, rx) = channel();
-        let agents_dir = self.agents_dir.clone();
+        let loom_dir = self.loom_dir.clone();
 
         let mut watcher = RecommendedWatcher::new(
             move |res: notify::Result<notify::Event>| {
                 if let Ok(event) = res {
-                    let loom_event = Self::map_notify_event(&event, &agents_dir);
+                    let loom_event = Self::map_notify_event(&event, &loom_dir);
                     if let Some(ev) = loom_event {
                         let _ = tx.send(ev);
                     }
@@ -59,48 +59,48 @@ impl DiscoveryWatcher {
         });
 
         self.watcher_handle = Some(handle);
-        tracing::info!("Watching {} for filesystem changes", self.agents_dir);
+        tracing::info!("Watching {} for filesystem changes", self.loom_dir);
         Ok(())
     }
 
     /// Map a notify event to a LoomEvent.
-    pub fn map_notify_event(event: &notify::Event, agents_dir: &str) -> Option<LoomEvent> {
+    pub fn map_notify_event(event: &notify::Event, loom_dir: &str) -> Option<LoomEvent> {
         let path = event.paths.first()?;
-        let relative = path.strip_prefix(agents_dir).ok()?;
+        let relative = path.strip_prefix(loom_dir).ok()?;
         let components: Vec<&str> = relative.components()
             .filter_map(|c| c.as_os_str().to_str())
             .collect();
 
         match event.kind {
             EventKind::Create(_) | EventKind::Modify(_) => {
-                match components.first()? {
-                    &"skills" => {
+                match *components.first()? {
+                    "skills" => {
                         let _ = components.get(1);
                         Some(LoomEvent::SkillsAdded { count: 1 })
                     }
-                    &"mcp" => {
+                    "mcp" => {
                         let name = components.get(1)?;
                         Some(LoomEvent::McpServerAdded {
                             id: (*name).to_string(),
                             name: (*name).to_string(),
                         })
                     }
-                    &"config" => {
+                    "config" => {
                         Some(LoomEvent::RoutingUpdated)
                     }
-                    &"auth" => {
+                    "auth" => {
                         let name = components.get(1)?;
                         Some(LoomEvent::AuthProviderAdded {
                             provider_id: (*name).to_string(),
                         })
                     }
-                    &"hooks" => {
+                    "hooks" => {
                         let name = components.get(1)?;
                         Some(LoomEvent::HooksRegistered {
                             hook_id: (*name).to_string(),
                         })
                     }
-                    &"tools" => {
+                    "tools" => {
                         let _ = components.get(1);
                         tracing::info!("Tool registration changed in tools/");
                         None
@@ -109,8 +109,8 @@ impl DiscoveryWatcher {
                 }
             }
             EventKind::Remove(_) => {
-                match components.first()? {
-                    &"skills" => {
+                match *components.first()? {
+                    "skills" => {
                         let name = components.get(1)?;
                         Some(LoomEvent::SkillsRemoved {
                             name: (*name).to_string(),
@@ -140,10 +140,10 @@ mod tests {
     fn test_map_notify_event_skill_added() {
         let event = notify::Event {
             kind: EventKind::Create(notify::event::CreateKind::File),
-            paths: vec![Path::new("/tmp/.agents/skills/my-skill/SKILL.md").to_path_buf()],
+            paths: vec![Path::new("/tmp/.loom/skills/my-skill/SKILL.md").to_path_buf()],
             ..notify::Event::default()
         };
-        let result = DiscoveryWatcher::map_notify_event(&event, "/tmp/.agents");
+        let result = DiscoveryWatcher::map_notify_event(&event, "/tmp/.loom");
         assert!(result.is_some());
         match result.unwrap() {
             LoomEvent::SkillsAdded { count } => assert_eq!(count, 1),
@@ -155,10 +155,10 @@ mod tests {
     fn test_map_notify_event_config_change() {
         let event = notify::Event {
             kind: EventKind::Modify(notify::event::ModifyKind::Data(notify::event::DataChange::Any)),
-            paths: vec![Path::new("/home/user/.agents/config/routing.toml").to_path_buf()],
+            paths: vec![Path::new("/home/user/.loom/config/routing.toml").to_path_buf()],
             ..notify::Event::default()
         };
-        let result = DiscoveryWatcher::map_notify_event(&event, "/home/user/.agents");
+        let result = DiscoveryWatcher::map_notify_event(&event, "/home/user/.loom");
         assert!(result.is_some());
         match result.unwrap() {
             LoomEvent::RoutingUpdated => {},

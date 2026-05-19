@@ -21,7 +21,7 @@ pub struct TelemetryCollector {
 
 impl TelemetryCollector {
     /// Create a new telemetry collector.
-    pub fn new(_agents_dir: &str) -> Self {
+    pub fn new(_loom_dir: &str) -> Self {
         Self {
             metrics: metrics::MetricsCollector::new(),
             histograms: histograms::LatencyHistograms::new(),

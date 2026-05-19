@@ -2,13 +2,13 @@ use anyhow::Result;
 
 pub struct SkillManager {
     #[allow(dead_code)]
-    agents_dir: String,
+    loom_dir: String,
 }
 
 impl SkillManager {
-    pub fn new(agents_dir: &str) -> Self {
+    pub fn new(loom_dir: &str) -> Self {
         Self {
-            agents_dir: agents_dir.to_string(),
+            loom_dir: loom_dir.to_string(),
         }
     }
 

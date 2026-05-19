@@ -7,8 +7,8 @@ use std::fs;
 use std::path::Path;
 
 /// Load a task JSON from the workflow tasks directory.
-fn load_task(agents_dir: &Path, task_id: &str) -> anyhow::Result<Task> {
-    let tasks_dir = agents_dir.join("workflow").join("tasks");
+fn load_task(loom_dir: &Path, task_id: &str) -> anyhow::Result<Task> {
+    let tasks_dir = loom_dir.join("workflow").join("tasks");
     let path = tasks_dir.join(format!("{task_id}.json"));
     if !path.exists() {
         anyhow::bail!("Task file not found: {}", path.display());
@@ -19,8 +19,8 @@ fn load_task(agents_dir: &Path, task_id: &str) -> anyhow::Result<Task> {
 }
 
 /// Save a task JSON.
-fn save_task(agents_dir: &Path, task: &Task) -> anyhow::Result<()> {
-    let tasks_dir = agents_dir.join("workflow").join("tasks");
+fn save_task(loom_dir: &Path, task: &Task) -> anyhow::Result<()> {
+    let tasks_dir = loom_dir.join("workflow").join("tasks");
     let path = tasks_dir.join(format!("{}.json", task.task_id));
     let content = serde_json::to_string_pretty(task)?;
     fs::write(path, content)?;
@@ -37,20 +37,20 @@ fn parse_tier(s: &str) -> anyhow::Result<ModelTier> {
     }
 }
 
-pub async fn run(agents_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> {
+pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> {
     // Load config once
-    let config = ConfigReader::new(agents_dir.to_str().unwrap())
+    let config = ConfigReader::new(loom_dir.to_str().unwrap())
         .load()
         .ok()
         .and_then(|c| c.routing);
 
     let classifier = Classifier::new();
-    let engine = DecisionEngine::with_agents_dir(agents_dir.to_str().unwrap(), config.clone())
+    let engine = DecisionEngine::with_loom_dir(loom_dir.to_str().unwrap(), config.clone())
         .unwrap_or_else(|_| DecisionEngine::new());
 
     match action {
         RoutingAction::Show { json } => {
-            let config_path = agents_dir.join("config").join("routing.toml");
+            let config_path = loom_dir.join("config").join("routing.toml");
             let config_routing = if config_path.exists() {
                 let content = fs::read_to_string(&config_path)?;
                 if *json {
@@ -65,7 +65,7 @@ pub async fn run(agents_dir: &Path, action: &RoutingAction) -> anyhow::Result<()
                     .unwrap_or(toml::Value::Table(Default::default()))
             };
 
-            let catalog = CatalogManager::load(agents_dir.to_str().unwrap())?;
+            let catalog = CatalogManager::load(loom_dir.to_str().unwrap())?;
             if *json {
                 let models: Vec<_> = catalog.catalog().models.iter().map(|m| {
                     json!({
@@ -139,7 +139,7 @@ pub async fn run(agents_dir: &Path, action: &RoutingAction) -> anyhow::Result<()
             }
         }
         RoutingAction::Recommend { task_id, json } => {
-            let task = load_task(agents_dir, task_id)?;
+            let task = load_task(loom_dir, task_id)?;
             let score = task
                 .complexity_score
                 .clone()
@@ -164,7 +164,7 @@ pub async fn run(agents_dir: &Path, action: &RoutingAction) -> anyhow::Result<()
             }
         }
         RoutingAction::Override { task_id, tier, reason } => {
-            let mut task = load_task(agents_dir, task_id)?;
+            let mut task = load_task(loom_dir, task_id)?;
             let forced_tier = parse_tier(tier)?;
 
             // Ensure we have a complexity score
@@ -175,7 +175,7 @@ pub async fn run(agents_dir: &Path, action: &RoutingAction) -> anyhow::Result<()
             };
 
             // Force tier override
-            let catalog = CatalogManager::load(agents_dir.to_str().unwrap())?;
+            let catalog = CatalogManager::load(loom_dir.to_str().unwrap())?;
             let model = catalog
                 .best_for_tier(&forced_tier)
                 .cloned()
@@ -213,7 +213,7 @@ pub async fn run(agents_dir: &Path, action: &RoutingAction) -> anyhow::Result<()
                 last.routing_decision = Some(decision.clone());
             }
 
-            save_task(agents_dir, &task)?;
+            save_task(loom_dir, &task)?;
 
             println!("Override applied to task {}: tier={:?}, model={} ({})",
                 task_id, forced_tier, model.model_id, model.provider_id);
@@ -221,11 +221,11 @@ pub async fn run(agents_dir: &Path, action: &RoutingAction) -> anyhow::Result<()
         RoutingAction::Catalog { refresh, json } => {
             if *refresh {
                 // Refresh catalog from all configured providers
-                let _ = CatalogManager::refresh_from_providers(agents_dir.to_str().unwrap());
+                let _ = CatalogManager::refresh_from_providers(loom_dir.to_str().unwrap());
                 println!("Catalog refreshed from providers.");
             }
 
-            let catalog = CatalogManager::load(agents_dir.to_str().unwrap())?;
+            let catalog = CatalogManager::load(loom_dir.to_str().unwrap())?;
             if *json {
                 let models: Vec<_> = catalog.catalog().models.iter().map(|m| {
                     json!({

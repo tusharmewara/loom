@@ -4,7 +4,7 @@ Routing Hook for Loom — Per-Call Tier Adjustment (Stage 3)
 
 This hook is triggered on PreToolUse events. It inspects the upcoming tool
 invocation (file path, command, operation) and applies any matching rules
-from ~/.agents/config/routing-rules.toml to override the routing tier for
+from ~/.loom/config/routing-rules.toml to override the routing tier for
 this specific call.
 
 Input (stdin): JSON object representing HookContext:
@@ -34,7 +34,7 @@ import json
 import toml
 from pathlib import Path
 
-AGENTS_DIR = Path.home() / ".agents"
+AGENTS_DIR = Path.home() / ".loom"
 RULES_PATH = AGENTS_DIR / "config" / "routing-rules.toml"
 
 def load_rules():

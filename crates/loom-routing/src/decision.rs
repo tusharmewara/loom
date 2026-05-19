@@ -6,6 +6,12 @@ pub struct DecisionEngine {
     router: ModelRouter,
 }
 
+impl Default for DecisionEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DecisionEngine {
     pub fn new() -> Self {
         Self {
@@ -13,9 +19,9 @@ impl DecisionEngine {
         }
     }
 
-    pub fn with_agents_dir(agents_dir: &str, config: Option<RoutingConfig>) -> Result<Self> {
+    pub fn with_loom_dir(loom_dir: &str, config: Option<RoutingConfig>) -> Result<Self> {
         Ok(Self {
-            router: ModelRouter::new(agents_dir, config)?,
+            router: ModelRouter::new(loom_dir, config)?,
         })
     }
 

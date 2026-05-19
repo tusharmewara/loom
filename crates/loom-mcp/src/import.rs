@@ -149,15 +149,15 @@ pub fn import_from_paths(
     Ok(total)
 }
 
-/// Import servers from every `mcp.toml` file found in `agents_dir/tools/`.
+/// Import servers from every `mcp.toml` file found in `loom_dir/tools/`.
 ///
 /// This discovers tool-specific MCP configs that tools leave in the
 /// shared ecosystem directory.
 pub fn import_from_tools_dir(
-    agents_dir: &Path,
+    loom_dir: &Path,
     registry_upsert: &dyn Fn(McpServerEntry) -> Result<()>,
 ) -> Result<usize> {
-    let tools_dir = agents_dir.join("tools");
+    let tools_dir = loom_dir.join("tools");
     if !tools_dir.exists() {
         debug!("Auto-import: tools dir {:?} does not exist", tools_dir);
         return Ok(0);

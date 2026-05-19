@@ -106,7 +106,7 @@ pub fn extract_static_signals(prompt: &str, agent_role: Option<&str>) -> StaticS
 
     StaticSignals {
         description_length,
-        keyword_indicators: keyword_indicators.clone(),
+        keyword_indicators,
         has_cross_module_refs,
         dependency_depth,
         scope_file_count,
@@ -121,7 +121,7 @@ pub fn score_static_signals(signals: &StaticSignals) -> ComplexityScore {
     // description_length (weight 0.15) - normalized to [0,1]
     numeric += (signals.description_length as f64 / 2000.0).clamp(0.0, 1.0) * 0.15;
 
-    // keyword_indicators (weight 0.25)
+    // keyword_indicators (weight 0.35)
     let mut keyword_score: f64 = 0.5; // neutral baseline
     for kw in &signals.keyword_indicators {
         if HIGH_COMPLEXITY_KEYWORDS.contains(&kw.as_str()) {
@@ -132,7 +132,7 @@ pub fn score_static_signals(signals: &StaticSignals) -> ComplexityScore {
         }
     }
     keyword_score = keyword_score.clamp(0.0, 1.0);
-    numeric += keyword_score * 0.25;
+    numeric += keyword_score * 0.35;
 
     // has_cross_module_refs (weight 0.20)
     if signals.has_cross_module_refs {
@@ -209,7 +209,7 @@ pub fn score_dynamic_signals(
     static_signals: &StaticSignals,
     dynamic_signals: &DynamicSignals,
 ) -> ComplexityScore {
-    let mut score = score_static_signals(static_signals);
+    let score = score_static_signals(static_signals);
     let mut numeric = score.numeric;
 
     // dynamic signals influence

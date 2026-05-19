@@ -91,7 +91,7 @@ impl Default for ProviderFile {
 /// Thread-safe via `RwLock`. Persists to disk for daemon restarts.
 pub struct ProviderRegistry {
     inner: RwLock<RegistryInner>,
-    agents_dir: String,
+    loom_dir: String,
 }
 
 struct RegistryInner {
@@ -101,19 +101,19 @@ struct RegistryInner {
 
 impl ProviderRegistry {
     /// Create a new empty provider registry.
-    pub fn new(agents_dir: &str) -> Self {
+    pub fn new(loom_dir: &str) -> Self {
         Self {
             inner: RwLock::new(RegistryInner {
                 providers: HashMap::new(),
                 dirty: false,
             }),
-            agents_dir: agents_dir.to_string(),
+            loom_dir: loom_dir.to_string(),
         }
     }
 
     /// Load provider registry from disk.
-    pub fn load(agents_dir: &str) -> Result<Self> {
-        let registry = Self::new(agents_dir);
+    pub fn load(loom_dir: &str) -> Result<Self> {
+        let registry = Self::new(loom_dir);
         registry.reload()?;
         Ok(registry)
     }
@@ -222,7 +222,7 @@ impl ProviderRegistry {
     // ─── Persistence ───────────────────────────────────────────────
 
     fn registry_path(&self) -> std::path::PathBuf {
-        Path::new(&self.agents_dir).join("auth").join("providers.json")
+        Path::new(&self.loom_dir).join("auth").join("providers.json")
     }
 
     /// Save provider registry to disk.

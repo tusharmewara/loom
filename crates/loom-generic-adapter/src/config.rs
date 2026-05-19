@@ -1,6 +1,6 @@
 //! TOML configuration types for the GenericAdapter.
 //!
-//! Each tool registers itself with a single TOML file in `~/.agents/tools/{name}.toml`.
+//! Each tool registers itself with a single TOML file in `~/.loom/tools/{name}.toml`.
 //! Sections map 1:1 to Loom traits; absent sections produce no-op implementations.
 
 use serde::{Deserialize, Serialize};

@@ -53,15 +53,15 @@ pub struct HookRegistry {
 pub struct HooksEngine {
     registry: HookRegistry,
     audit_log: HookAuditLog,
-    agents_dir: String,
+    loom_dir: String,
 }
 
 impl HooksEngine {
-    pub fn new(agents_dir: &str) -> Self {
+    pub fn new(loom_dir: &str) -> Self {
         Self {
             registry: HookRegistry::new(),
             audit_log: HookAuditLog::new(),
-            agents_dir: agents_dir.to_string(),
+            loom_dir: loom_dir.to_string(),
         }
     }
 
@@ -74,7 +74,7 @@ impl HooksEngine {
     }
 
     pub async fn load_hooks(&self) -> anyhow::Result<()> {
-        let hooks_dir = std::path::Path::new(&self.agents_dir).join("hooks");
+        let hooks_dir = std::path::Path::new(&self.loom_dir).join("hooks");
         self.registry.load_from_dir(&hooks_dir).await
     }
 

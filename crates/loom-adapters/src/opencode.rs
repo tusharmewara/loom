@@ -51,7 +51,7 @@ impl LoomToolAdapter for OpencodeAdapter {
         Ok(())
     }
 
-    fn sync_from_native(&self, agents_dir: &str, _home: &str) -> Result<SyncReport> {
-        crate::sync_tools_dir(agents_dir)
+    fn sync_from_native(&self, loom_dir: &str, _home: &str) -> Result<SyncReport> {
+        crate::sync_tools_dir(loom_dir)
     }
 }

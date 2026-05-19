@@ -12,7 +12,7 @@ use loom_core::{
     McpServerEntry, ModelEntry, ModelTier, ProviderEntry, RoutingTarget, SessionExportable,
     SessionManifest, SkillEntry, SkillProvider,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::config::ToolToml;
 
@@ -179,7 +179,7 @@ impl RoutingTarget for GenericRoutingTarget {
     }
 
     fn current_tier(&self) -> anyhow::Result<ModelTier> {
-        Ok(self.tier.clone())
+        Ok(self.tier)
     }
 }
 
@@ -203,14 +203,14 @@ impl SessionExportable for GenericSessionExportable {
 /// Builds concrete trait implementations from a ToolToml config.
 pub struct TraitBuilder {
     config: ToolToml,
-    agents_dir: PathBuf,
+    loom_dir: PathBuf,
 }
 
 impl TraitBuilder {
-    pub fn new(config: &ToolToml, agents_dir: &PathBuf) -> Self {
+    pub fn new(config: &ToolToml, loom_dir: &Path) -> Self {
         Self {
             config: config.clone(),
-            agents_dir: agents_dir.clone(),
+            loom_dir: loom_dir.to_path_buf(),
         }
     }
 
@@ -222,7 +222,7 @@ impl TraitBuilder {
                     .native_dir
                     .as_ref()
                     .map(|d| PathBuf::from(shellexpand::tilde(d).as_ref()))
-                    .unwrap_or_else(|| self.agents_dir.join("skills"));
+                    .unwrap_or_else(|| self.loom_dir.join("skills"));
                 ImplSwitch::some(GenericSkillProvider { native_dir })
             }
             None => ImplSwitch::none(),

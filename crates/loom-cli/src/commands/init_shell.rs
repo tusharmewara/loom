@@ -43,7 +43,7 @@ fn generate_zsh() -> String {
 # Add to ~/.zshrc: eval "$(loom init-shell)"
 
 # Loom environment
-export LOOM_AGENTS_DIR="${LOOM_AGENTS_DIR:-$HOME/.agents}"
+export LOOM_AGENTS_DIR="${LOOM_AGENTS_DIR:-$HOME/.loom}"
 export LOOM_ENABLED=1
 
 # Auto-detect and register tools on first use
@@ -96,7 +96,7 @@ fn generate_bash() -> String {
 # Add to ~/.bashrc: eval "$(loom init-shell)"
 
 # Loom environment
-export LOOM_AGENTS_DIR="${LOOM_AGENTS_DIR:-$HOME/.agents}"
+export LOOM_AGENTS_DIR="${LOOM_AGENTS_DIR:-$HOME/.loom}"
 export LOOM_ENABLED=1
 
 # Auto-detect and register tools on first use
@@ -149,7 +149,7 @@ fn generate_fish() -> String {
 # Add to ~/.config/fish/config.fish: loom init-shell | source
 
 # Loom environment
-set -gx LOOM_AGENTS_DIR (test -n "$LOOM_AGENTS_DIR"; and echo $LOOM_AGENTS_DIR; or echo $HOME/.agents)
+set -gx LOOM_AGENTS_DIR (test -n "$LOOM_AGENTS_DIR"; and echo $LOOM_AGENTS_DIR; or echo $HOME/.loom)
 set -gx LOOM_ENABLED 1
 
 # Auto-detect and register tools on first use

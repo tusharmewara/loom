@@ -52,26 +52,26 @@ struct ToolConfig {
 /// Scans tool TOML configuration files and auto-imports auth provider entries.
 ///
 /// The import process:
-/// 1. Scans all `.toml` files in `{agents_dir}/tools/`
+/// 1. Scans all `.toml` files in `{loom_dir}/tools/`
 /// 2. Parses `auth` and `provider` sections for credential info
 /// 3. Imports credentials into the vault if an unlocked vault is provided
 /// 4. Registers providers in the registry
 ///
 /// Also supports importing from explicit `auth_store` paths referenced in tool configs.
 pub struct AutoImporter {
-    agents_dir: String,
+    loom_dir: String,
 }
 
 impl AutoImporter {
-    pub fn new(agents_dir: &str) -> Self {
+    pub fn new(loom_dir: &str) -> Self {
         Self {
-            agents_dir: agents_dir.to_string(),
+            loom_dir: loom_dir.to_string(),
         }
     }
 
     /// Scan all tool TOML files and discover auth provider configurations.
     pub fn scan_tools(&self) -> Result<Vec<ScannedProvider>> {
-        let tools_dir = Path::new(&self.agents_dir).join("tools");
+        let tools_dir = Path::new(&self.loom_dir).join("tools");
         if !tools_dir.exists() {
             debug!("tools dir does not exist: {:?}", tools_dir);
             return Ok(Vec::new());
@@ -83,7 +83,7 @@ impl AutoImporter {
         for entry in fs::read_dir(&tools_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().map_or(false, |e| e == "toml") {
+            if path.extension().is_some_and(|e| e == "toml") {
                 match self.scan_tool_file(&path) {
                     Ok(mut discovered) => {
                         let tool_name = path
@@ -187,8 +187,8 @@ impl AutoImporter {
                         .to_string(),
                 )
             } else {
-                // Resolve relative to agents_dir
-                let abs_path = Path::new(&self.agents_dir).join(cred_file);
+                // Resolve relative to loom_dir
+                let abs_path = Path::new(&self.loom_dir).join(cred_file);
                 Some(
                     fs::read_to_string(&abs_path)
                         .with_context(|| {
@@ -301,7 +301,7 @@ impl AutoImporter {
         let resolved = if path.is_absolute() {
             path.to_path_buf()
         } else {
-            Path::new(&self.agents_dir).join(auth_store_path)
+            Path::new(&self.loom_dir).join(auth_store_path)
         };
 
         let content = fs::read_to_string(&resolved)

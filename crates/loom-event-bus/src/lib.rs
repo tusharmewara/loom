@@ -16,7 +16,7 @@
 //!   │   └──────────────────┘  │  └─────────┘  │
 //!   │   ┌──────────────────┐  │  ┌─────────┐  │
 //!   │   │ CrossProcessBus  │  │  │ ZeroMQ  │  │  ◄── other-process subscribers
-//!   │   │ (zmq ipc://)     │──┼─►│ PUB     │──┼──► ipc://~/.agents/.loom-events
+//!   │   │ (zmq ipc://)     │──┼─►│ PUB     │──┼──► ipc://~/.loom/.loom-events
 //!   │   └──────────────────┘  │  └─────────┘  │
 //!   │                          └──────────────┘
 //!   │
@@ -53,7 +53,7 @@ const DEFAULT_CHANNEL_CAP: usize = 4096;
 /// ```ignore
 /// use loom_event_bus::{EventBus, LoomEvent};
 ///
-/// let bus = EventBus::new("/tmp/.agents", 4096);
+/// let bus = EventBus::new("/tmp/.loom", 4096);
 /// let mut rx = bus.subscribe();
 ///
 /// bus.publish(LoomEvent::SkillsAdded { count: 3 }).unwrap();
@@ -81,15 +81,15 @@ pub struct EventBus {
 impl EventBus {
     /// Create a new `EventBus` with the given channel capacity.
     ///
-    /// `agents_dir` is used to derive the ZeroMQ ipc:// endpoint when
+    /// `loom_dir` is used to derive the ZeroMQ ipc:// endpoint when
     /// the `cross-process` feature is enabled.
-    pub fn new(agents_dir: &str, channel_cap: usize) -> Self {
+    pub fn new(loom_dir: &str, channel_cap: usize) -> Self {
         let inner = InProcessBus::new(channel_cap);
         let metrics = Arc::new(BusMetrics::new());
 
         #[cfg(feature = "cross-process")]
         let (xproc_pub, xproc_endpoint) = {
-            let endpoint = format!("ipc://{}/.loom-events", agents_dir.trim_end_matches('/'));
+            let endpoint = format!("ipc://{}/.loom-events", loom_dir.trim_end_matches('/'));
             // Remove stale socket file
             let sock_path = endpoint.strip_prefix("ipc://").unwrap_or(&endpoint);
             let _ = std::fs::remove_file(sock_path);
@@ -123,8 +123,8 @@ impl EventBus {
     }
 
     /// Create a new `EventBus` with default capacity (4096).
-    pub fn with_defaults(agents_dir: &str) -> Self {
-        Self::new(agents_dir, DEFAULT_CHANNEL_CAP)
+    pub fn with_defaults(loom_dir: &str) -> Self {
+        Self::new(loom_dir, DEFAULT_CHANNEL_CAP)
     }
 
     /// Publish an event to all subscribers (in-process + cross-process).
@@ -184,10 +184,10 @@ impl EventBus {
     /// tokio task that reads from ZMQ and forwards to the channel.
     #[cfg(feature = "cross-process")]
     pub fn cross_subscribe(
-        agents_dir: &str,
+        loom_dir: &str,
         cap: usize,
     ) -> Result<tokio::sync::mpsc::Receiver<LoomEvent>, EventBusError> {
-        let endpoint = format!("ipc://{}/.loom-events", agents_dir.trim_end_matches('/'));
+        let endpoint = format!("ipc://{}/.loom-events", loom_dir.trim_end_matches('/'));
         let (tx, rx) = tokio::sync::mpsc::channel(cap);
 
         std::thread::spawn(move || {

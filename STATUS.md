@@ -97,7 +97,7 @@ loom --help
 
 ## Configuration
 
-Main config: `~/.agents/config.toml`
+Main config: `~/.loom/config.toml`
 
 ## Known Issues
 

@@ -142,7 +142,7 @@ fn days_to_date(z: i64) -> (i64, u32, u32) {
 /// The vault can be locked and unlocked with a master password. Sensitive keys
 /// are zeroized on drop and when the vault is locked.
 pub struct CredentialVault {
-    agents_dir: String,
+    loom_dir: String,
     locked: bool,
     /// Derived encryption key (32 bytes). Zeroized on lock/drop.
     master_key: Option<[u8; 32]>,
@@ -154,9 +154,9 @@ pub struct CredentialVault {
 
 impl CredentialVault {
     /// Create a new vault. Starts locked.
-    pub fn new(agents_dir: &str) -> Self {
+    pub fn new(loom_dir: &str) -> Self {
         Self {
-            agents_dir: agents_dir.to_string(),
+            loom_dir: loom_dir.to_string(),
             locked: true,
             master_key: None,
             failed_attempts: 0,
@@ -172,7 +172,7 @@ impl CredentialVault {
         let elapsed = self.window_start.elapsed();
         if elapsed.as_millis() < 60_000 && self.failed_attempts >= 5 {
             let remaining_ms = (60_000 - elapsed.as_millis() as u64).max(1);
-            let remaining_secs = (remaining_ms + 999) / 1000;
+            let remaining_secs = remaining_ms.div_ceil(1000);
             anyhow::bail!(
                 "too many failed unlock attempts; retry in {} seconds",
                 remaining_secs
@@ -241,7 +241,7 @@ impl CredentialVault {
 
         let blob = EncryptedBlob::new(provider_id, credential, key)?;
 
-        let auth_dir = Path::new(&self.agents_dir).join("auth");
+        let auth_dir = Path::new(&self.loom_dir).join("auth");
         std::fs::create_dir_all(&auth_dir)
             .with_context(|| format!("failed to create auth dir: {:?}", auth_dir))?;
 
@@ -264,7 +264,7 @@ impl CredentialVault {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("master key not available"))?;
 
-        let cred_path = Path::new(&self.agents_dir)
+        let cred_path = Path::new(&self.loom_dir)
             .join("auth")
             .join(format!("{}.enc", provider_id));
 
@@ -283,7 +283,7 @@ impl CredentialVault {
 
     /// List all stored credential provider IDs.
     pub fn list_credentials(&self) -> Result<Vec<String>> {
-        let auth_dir = Path::new(&self.agents_dir).join("auth");
+        let auth_dir = Path::new(&self.loom_dir).join("auth");
         if !auth_dir.exists() {
             return Ok(Vec::new());
         }
@@ -302,7 +302,7 @@ impl CredentialVault {
 
     /// Delete a stored credential.
     pub fn delete_credential(&self, provider_id: &str) -> Result<bool> {
-        let cred_path = Path::new(&self.agents_dir)
+        let cred_path = Path::new(&self.loom_dir)
             .join("auth")
             .join(format!("{}.enc", provider_id));
         if cred_path.exists() {
@@ -383,7 +383,7 @@ mod hex {
 
     pub fn decode(hex_str: &str) -> Result<Vec<u8>, String> {
         let hex_bytes = hex_str.as_bytes();
-        if hex_bytes.len() % 2 != 0 {
+        if !hex_bytes.len().is_multiple_of(2) {
             return Err("odd hex string length".to_string());
         }
         let mut result = Vec::with_capacity(hex_bytes.len() / 2);
@@ -410,7 +410,7 @@ mod base64 {
     const B64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
     pub fn encode(bytes: &[u8]) -> String {
-        let mut result = Vec::with_capacity(((bytes.len() + 2) / 3) * 4);
+        let mut result = Vec::with_capacity(bytes.len().div_ceil(3) * 4);
         for chunk in bytes.chunks(3) {
             let b0 = chunk[0] as u32;
             let b1 = chunk.get(1).copied().unwrap_or(0) as u32;

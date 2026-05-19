@@ -51,7 +51,7 @@ fn test_jsonl_roundtrip() {
 fn test_export_import() {
     let dir = tempdir().unwrap();
     let agents = dir.path().to_str().unwrap();
-    let mut store = SessionStore::new(agents);
+    let store = SessionStore::new(agents);
     store.save_manifest(&sample_manifest("sess-2")).unwrap();
     store.replace_messages("sess-2", &[sample_message()]).unwrap();
 

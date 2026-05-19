@@ -128,7 +128,7 @@ fn test_parse_sessions_section() {
 
 #[test]
 fn test_adapter_from_toml_full() {
-    let adapter = GenericAdapter::from_toml("/tmp/.agents", "cursor", FULL_TOML).unwrap();
+    let adapter = GenericAdapter::from_toml("/tmp/.loom", "cursor", FULL_TOML).unwrap();
     assert_eq!(adapter.tool_name(), "cursor");
     assert_eq!(adapter.tool_version(), "0.45.0");
 
@@ -145,7 +145,7 @@ fn test_adapter_from_toml_full() {
 
 #[test]
 fn test_adapter_from_toml_minimal() {
-    let adapter = GenericAdapter::from_toml("/tmp/.agents", "minimal", MINIMAL_TOML).unwrap();
+    let adapter = GenericAdapter::from_toml("/tmp/.loom", "minimal", MINIMAL_TOML).unwrap();
     assert_eq!(adapter.tool_name(), "minimal");
 
     let ts = adapter.build();
@@ -162,7 +162,7 @@ fn test_adapter_from_toml_minimal() {
 #[test]
 fn test_adapter_from_toml_skills_only() {
     let adapter =
-        GenericAdapter::from_toml("/tmp/.agents", "skill-only", SKILLS_ONLY_TOML).unwrap();
+        GenericAdapter::from_toml("/tmp/.loom", "skill-only", SKILLS_ONLY_TOML).unwrap();
 
     let ts = adapter.build();
     assert!(ts.has_skills());
@@ -175,7 +175,7 @@ fn test_adapter_from_toml_skills_only() {
 
 #[test]
 fn test_adapter_invalid_toml() {
-    let result = GenericAdapter::from_toml("/tmp/.agents", "bad", "not valid toml [[[");
+    let result = GenericAdapter::from_toml("/tmp/.loom", "bad", "not valid toml [[[");
     assert!(result.is_err());
 }
 
@@ -286,7 +286,7 @@ fn test_scanner_parse_file() {
 
 #[test]
 fn test_adapter_health() {
-    let adapter = GenericAdapter::from_toml("/tmp/.agents", "health-test", FULL_TOML).unwrap();
+    let adapter = GenericAdapter::from_toml("/tmp/.loom", "health-test", FULL_TOML).unwrap();
     let health = adapter.health().expect("health should succeed");
     assert_eq!(health.crate_name, "loom-generic-adapter");
     assert!(!health.version.is_empty());

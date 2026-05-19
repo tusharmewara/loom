@@ -176,20 +176,20 @@ fn test_topic_from_event() {
 #[test]
 fn test_topic_from_str() {
     for topic_name in Topic::all() {
-        let topic = Topic::from_str(topic_name);
+        let topic = Topic::parse(topic_name);
         assert!(topic.is_some(), "{} should be a valid topic", topic_name);
         assert_eq!(topic.unwrap().as_str(), topic_name);
     }
 
-    assert!(Topic::from_str("invalid:topic").is_none());
-    assert!(Topic::from_str("").is_none());
+    assert!(Topic::parse("invalid:topic").is_none());
+    assert!(Topic::parse("").is_none());
 }
 
 #[test]
 fn test_topic_matches() {
-    let a = Topic::from_str("skills:added").unwrap();
-    let b = Topic::from_str("skills:added").unwrap();
-    let c = Topic::from_str("skills:removed").unwrap();
+    let a = Topic::parse("skills:added").unwrap();
+    let b = Topic::parse("skills:added").unwrap();
+    let c = Topic::parse("skills:removed").unwrap();
 
     assert!(a.matches(&b));
     assert!(!a.matches(&c));

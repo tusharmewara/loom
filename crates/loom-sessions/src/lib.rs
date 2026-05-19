@@ -22,7 +22,7 @@ pub use acp_client::AcpClient;
 pub use acp_client::AgentMetadata;
 
 pub struct SessionManager {
-    agents_dir: String,
+    loom_dir: String,
     store: store::SessionStore,
     #[cfg(feature = "integration-acp")]
     acp_client: Option<AcpClient>,
@@ -30,10 +30,10 @@ pub struct SessionManager {
 }
 
 impl SessionManager {
-    pub fn new(agents_dir: &str) -> Self {
+    pub fn new(loom_dir: &str) -> Self {
         Self {
-            agents_dir: agents_dir.to_string(),
-            store: store::SessionStore::new(agents_dir),
+            loom_dir: loom_dir.to_string(),
+            store: store::SessionStore::new(loom_dir),
             #[cfg(feature = "integration-acp")]
             acp_client: None,
             custom_agents: Default::default(),
@@ -41,11 +41,11 @@ impl SessionManager {
     }
 
     #[cfg(feature = "integration-acp")]
-    pub async fn new_with_acp(agents_dir: &str, registry_url: &str) -> anyhow::Result<Self> {
+    pub async fn new_with_acp(loom_dir: &str, registry_url: &str) -> anyhow::Result<Self> {
         let client = AcpClient::new(registry_url, std::time::Duration::from_secs(300)).await?;
         Ok(Self {
-            agents_dir: agents_dir.to_string(),
-            store: store::SessionStore::new(agents_dir),
+            loom_dir: loom_dir.to_string(),
+            store: store::SessionStore::new(loom_dir),
             acp_client: Some(client),
             custom_agents: Default::default(),
         })
@@ -55,8 +55,8 @@ impl SessionManager {
         self.custom_agents.insert(name.to_string(), agent);
     }
 
-    pub fn agents_dir(&self) -> &str {
-        &self.agents_dir
+    pub fn loom_dir(&self) -> &str {
+        &self.loom_dir
     }
 
     pub fn store(&self) -> &store::SessionStore {
@@ -74,7 +74,7 @@ impl SessionManager {
 
     /// Run legacy JSON → JSONL migration.
     pub fn migrate(&self) -> anyhow::Result<usize> {
-        migrate::migrate_if_needed(&self.agents_dir)
+        migrate::migrate_if_needed(&self.loom_dir)
     }
 
     #[cfg(feature = "integration-acp")]

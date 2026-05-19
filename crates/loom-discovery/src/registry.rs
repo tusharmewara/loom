@@ -10,7 +10,7 @@ use loom_core::HealthCheck;
 /// Tables: skills, mcp_servers, sessions, providers, tools
 /// Uses WAL mode for concurrent reads.
 pub struct SnapshotDb {
-    agents_dir: String,
+    loom_dir: String,
     conn: Mutex<Connection>,
 }
 
@@ -20,8 +20,8 @@ pub struct CachedResult {
 }
 
 impl SnapshotDb {
-    pub fn new(agents_dir: &str) -> Self {
-        let db_path = Path::new(agents_dir).join(".cache").join("snapshot.db");
+    pub fn new(loom_dir: &str) -> Self {
+        let db_path = Path::new(loom_dir).join(".cache").join("snapshot.db");
         if let Some(parent) = db_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -34,7 +34,7 @@ impl SnapshotDb {
             .ok();
 
         Self {
-            agents_dir: agents_dir.to_string(),
+            loom_dir: loom_dir.to_string(),
             conn: Mutex::new(conn),
         }
     }
@@ -171,7 +171,7 @@ impl SnapshotDb {
         }
 
         // Check for base layers even if empty
-        let path = Path::new(&self.agents_dir);
+        let path = Path::new(&self.loom_dir);
         if path.join("config.toml").exists() { layers.push("config".into()); }
         if path.join("tools").exists() { layers.push("tools".into()); }
 

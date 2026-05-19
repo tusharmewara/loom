@@ -4,14 +4,14 @@ use std::collections::HashMap;
 use std::path::Path;
 
 pub struct HookRegistry {
-    agents_dir: String,
+    loom_dir: String,
     hooks: HashMap<String, HookEntry>,
 }
 
 impl HookRegistry {
-    pub fn new(agents_dir: &str) -> Self {
+    pub fn new(loom_dir: &str) -> Self {
         let mut registry = Self {
-            agents_dir: agents_dir.to_string(),
+            loom_dir: loom_dir.to_string(),
             hooks: HashMap::new(),
         };
         registry.reload();
@@ -20,7 +20,7 @@ impl HookRegistry {
 
     pub fn reload(&mut self) {
         self.hooks.clear();
-        let hooks_dir = Path::new(&self.agents_dir).join("hooks");
+        let hooks_dir = Path::new(&self.loom_dir).join("hooks");
         if !hooks_dir.exists() {
             return;
         }
@@ -53,7 +53,7 @@ impl HookRegistry {
     }
 
     pub fn register(&mut self, entry: &HookEntry) -> Result<()> {
-        let hooks_dir = Path::new(&self.agents_dir).join("hooks");
+        let hooks_dir = Path::new(&self.loom_dir).join("hooks");
         std::fs::create_dir_all(&hooks_dir)?;
         let path = hooks_dir.join(format!("{}.toml", entry.id));
         let raw = toml::to_string_pretty(entry)?;
@@ -63,7 +63,7 @@ impl HookRegistry {
     }
 
     pub fn remove(&mut self, id: &str) -> Result<bool> {
-        let path = Path::new(&self.agents_dir)
+        let path = Path::new(&self.loom_dir)
             .join("hooks")
             .join(format!("{id}.toml"));
         let removed = if path.exists() {

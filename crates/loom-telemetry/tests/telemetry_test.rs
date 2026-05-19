@@ -127,13 +127,13 @@ fn test_histogram_reset() {
 
 #[test]
 fn test_telemetry_collector_creation() {
-    let t = TelemetryCollector::new("/tmp/.agents");
+    let t = TelemetryCollector::new("/tmp/.loom");
     assert_eq!(t.metrics().get("rpc_calls"), 0);
 }
 
 #[test]
 fn test_telemetry_record_latency() {
-    let t = TelemetryCollector::new("/tmp/.agents");
+    let t = TelemetryCollector::new("/tmp/.loom");
 
     for _ in 0..10 {
         t.record_latency("test_rpc", 100.0);
@@ -146,7 +146,7 @@ fn test_telemetry_record_latency() {
 
 #[test]
 fn test_telemetry_anomaly_flag() {
-    let t = TelemetryCollector::new("/tmp/.agents");
+    let t = TelemetryCollector::new("/tmp/.loom");
 
     for _ in 0..5 {
         t.record_latency("anomaly_test", 50.0);
@@ -158,7 +158,7 @@ fn test_telemetry_anomaly_flag() {
 
 #[test]
 fn test_telemetry_snapshot() {
-    let t = TelemetryCollector::new("/tmp/.agents");
+    let t = TelemetryCollector::new("/tmp/.loom");
     t.metrics().increment("rpc_calls");
     t.metrics().increment("rpc_calls");
 
@@ -170,7 +170,7 @@ fn test_telemetry_snapshot() {
 
 #[test]
 fn test_telemetry_health() {
-    let t = TelemetryCollector::new("/tmp/.agents");
+    let t = TelemetryCollector::new("/tmp/.loom");
     let health = t.health().expect("health should succeed");
     assert_eq!(health.crate_name, "loom-telemetry");
     assert!(!health.version.is_empty());

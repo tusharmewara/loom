@@ -8,9 +8,9 @@ use std::collections::HashMap;
 use std::path::Path;
 
 /// Load claude_code config from tool's `mcp.toml`
-pub fn load_claude_code_config(agents_dir: &str) -> Result<(McpServerEntry, SkillEntry)> {
+pub fn load_claude_code_config(loom_dir: &str) -> Result<(McpServerEntry, SkillEntry)> {
     // 1. Find claude_code's config path
-    let config_path = Path::new(agents_dir).join(".claude/mcp.toml");
+    let config_path = Path::new(loom_dir).join(".claude/mcp.toml");
     if !config_path.exists() {
         return Err(anyhow::anyhow!("claude_code config not found: {}", config_path.display()));
     }

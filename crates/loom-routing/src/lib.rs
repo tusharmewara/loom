@@ -19,7 +19,7 @@ pub struct RoutingEngine {
 }
 
 impl RoutingEngine {
-    pub fn new(_agents_dir: &str) -> Self {
+    pub fn new(_loom_dir: &str) -> Self {
         let decision = DecisionEngine::new();
         Self {
             classifier: Classifier::new(),

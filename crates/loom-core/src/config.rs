@@ -8,21 +8,21 @@ struct AcpConfig {
     registry_url: Option<String>,
 }
 
-/// Load and merge config from ~/.agents/config.toml
-/// with layer-specific overlays from ~/.agents/config/{routing,mcp,hooks}.toml
+/// Load and merge config from ~/.loom/config.toml
+/// with layer-specific overlays from ~/.loom/config/{routing,mcp,hooks}.toml
 pub struct ConfigReader {
-    agents_dir: String,
+    loom_dir: String,
 }
 
 impl ConfigReader {
-    pub fn new(agents_dir: &str) -> Self {
+    pub fn new(loom_dir: &str) -> Self {
         Self {
-            agents_dir: agents_dir.to_string(),
+            loom_dir: loom_dir.to_string(),
         }
     }
 
     pub fn load(&self) -> Result<LoomConfig> {
-        let config_path = Path::new(&self.agents_dir).join("config.toml");
+        let config_path = Path::new(&self.loom_dir).join("config.toml");
         let mut config: LoomConfig = if config_path.exists() {
             let raw = std::fs::read_to_string(&config_path)?;
             toml::from_str(&raw)?
@@ -31,7 +31,7 @@ impl ConfigReader {
         };
 
         // Overlay layer-specific configs
-        let config_dir = Path::new(&self.agents_dir).join("config");
+        let config_dir = Path::new(&self.loom_dir).join("config");
         if config_dir.exists() {
             if let Ok(raw) = std::fs::read_to_string(config_dir.join("routing.toml")) {
                 if let Ok(routing) = toml::from_str(&raw) {

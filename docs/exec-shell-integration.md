@@ -44,7 +44,7 @@ This is useful when:
 | Variable | Description |
 |----------|-------------|
 | `LOOM_ENABLED` | Set to `1` when loom is active |
-| `LOOM_AGENTS_DIR` | Path to `~/.agents/` ecosystem |
+| `LOOM_AGENTS_DIR` | Path to `~/.loom/` ecosystem |
 | `LOOM_SKILLS_DIR` | Shared skills directory |
 | `LOOM_MCP_DIR` | Shared MCP servers directory |
 | `LOOM_SESSIONS_DIR` | Shared sessions directory |
@@ -92,7 +92,7 @@ Create a `.loom` file in your project root:
 ```toml
 [project]
 name = "my-project"
-agents_dir = "~/.agents"
+loom_dir = "~/.loom"
 
 [tools]
 enabled = ["opencode", "claude-code"]

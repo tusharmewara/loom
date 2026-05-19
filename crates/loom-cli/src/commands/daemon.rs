@@ -4,20 +4,21 @@ use std::process::{Command, Stdio};
 
 const PID_FILE: &str = "loomd.pid";
 const DAEMON_SOCKET: &str = "loomd.sock";
+#[cfg(target_os = "macos")]
 const SERVICE_LABEL: &str = "com.loom.loomd";
 
-pub fn start_daemon(agents_dir: &Path) -> anyhow::Result<()> {
-    let socket_path = agents_dir.join(DAEMON_SOCKET);
-    let pid_path = agents_dir.join(".cache").join(PID_FILE);
+pub fn start_daemon(loom_dir: &Path) -> anyhow::Result<()> {
+    let socket_path = loom_dir.join(DAEMON_SOCKET);
+    let pid_path = loom_dir.join(".cache").join(PID_FILE);
 
     if socket_path.exists() {
         println!("loomd already appears to be running ({})", socket_path.display());
         return Ok(());
     }
-    std::fs::create_dir_all(agents_dir.join(".cache"))?;
+    std::fs::create_dir_all(loom_dir.join(".cache"))?;
 
     let child = Command::new("loomd")
-        .env("LOOM_AGENTS_DIR", agents_dir)
+        .env("LOOM_AGENTS_DIR", loom_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -35,9 +36,9 @@ pub fn start_daemon(agents_dir: &Path) -> anyhow::Result<()> {
     }
 }
 
-fn stop_daemon(agents_dir: &Path) {
-    let socket_path = agents_dir.join(DAEMON_SOCKET);
-    let pid_path = agents_dir.join(".cache").join(PID_FILE);
+fn stop_daemon(loom_dir: &Path) {
+    let socket_path = loom_dir.join(DAEMON_SOCKET);
+    let pid_path = loom_dir.join(".cache").join(PID_FILE);
 
     if let Ok(pid_str) = std::fs::read_to_string(&pid_path) {
         if let Ok(pid) = pid_str.trim().parse::<u32>() {
@@ -53,14 +54,14 @@ fn stop_daemon(agents_dir: &Path) {
 }
 
 #[cfg(target_os = "macos")]
-fn install_service(agents_dir: &Path) -> anyhow::Result<()> {
+fn install_service(loom_dir: &Path) -> anyhow::Result<()> {
     let home = home_dir().ok_or_else(|| anyhow::anyhow!("HOME not set"))?;
     let launch_agents_dir = home.join("Library").join("LaunchAgents");
     std::fs::create_dir_all(&launch_agents_dir)?;
 
     let plist_path = launch_agents_dir.join(format!("{SERVICE_LABEL}.plist"));
     let loomed_bin = resolve_loomd_binary()?;
-    let cache_dir = agents_dir.join(".cache");
+    let cache_dir = loom_dir.join(".cache");
     std::fs::create_dir_all(&cache_dir)?;
     let stdout_log = cache_dir.join("loomd.stdout.log");
     let stderr_log = cache_dir.join("loomd.stderr.log");
@@ -68,7 +69,7 @@ fn install_service(agents_dir: &Path) -> anyhow::Result<()> {
     let plist = render_launchd_plist(
         SERVICE_LABEL,
         &loomed_bin,
-        agents_dir,
+        loom_dir,
         &stdout_log,
         &stderr_log,
     );
@@ -116,14 +117,14 @@ fn install_service(agents_dir: &Path) -> anyhow::Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn install_service(agents_dir: &Path) -> anyhow::Result<()> {
+fn install_service(loom_dir: &Path) -> anyhow::Result<()> {
     let home = home_dir().ok_or_else(|| anyhow::anyhow!("HOME not set"))?;
     let systemd_user_dir = home.join(".config").join("systemd").join("user");
     std::fs::create_dir_all(&systemd_user_dir)?;
 
     let unit_path = systemd_user_dir.join("loomd.service");
     let loomed_bin = resolve_loomd_binary()?;
-    let unit = render_systemd_unit(&loomed_bin, agents_dir);
+    let unit = render_systemd_unit(&loomed_bin, loom_dir);
     std::fs::write(&unit_path, unit)?;
 
     run_systemctl_user(["daemon-reload"])?;
@@ -138,7 +139,7 @@ fn install_service(agents_dir: &Path) -> anyhow::Result<()> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn install_service(_agents_dir: &Path) -> anyhow::Result<()> {
+fn install_service(_loom_dir: &Path) -> anyhow::Result<()> {
     anyhow::bail!("Service installation is not supported on this operating system yet.")
 }
 
@@ -202,6 +203,7 @@ fn run_systemctl_user<const N: usize>(args: [&str; N]) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn detect_uid() -> anyhow::Result<String> {
     let out = Command::new("id").arg("-u").output()?;
     if !out.status.success() {
@@ -236,9 +238,9 @@ fn is_executable(path: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        return std::fs::metadata(path)
+        std::fs::metadata(path)
             .map(|m| m.permissions().mode() & 0o111 != 0)
-            .unwrap_or(false);
+            .unwrap_or(false)
     }
 
     #[cfg(not(unix))]
@@ -257,7 +259,7 @@ fn home_dir() -> Option<PathBuf> {
 fn render_launchd_plist(
     label: &str,
     loomed_bin: &Path,
-    agents_dir: &Path,
+    loom_dir: &Path,
     stdout_log: &Path,
     stderr_log: &Path,
 ) -> String {
@@ -289,14 +291,14 @@ fn render_launchd_plist(
 </plist>
 "#,
         loomed_bin.display(),
-        agents_dir.display(),
+        loom_dir.display(),
         stdout_log.display(),
         stderr_log.display(),
     )
 }
 
 #[cfg(target_os = "linux")]
-fn render_systemd_unit(loomd_bin: &Path, agents_dir: &Path) -> String {
+fn render_systemd_unit(loomd_bin: &Path, loom_dir: &Path) -> String {
     format!(
         r#"[Unit]
 Description=Loom Daemon
@@ -312,21 +314,21 @@ Environment=LOOM_AGENTS_DIR={}
 [Install]
 WantedBy=default.target
 "#,
-        loomed_bin.display(),
-        agents_dir.display(),
+        loomd_bin.display(),
+        loom_dir.display(),
     )
 }
 
-pub async fn run(agents_dir: &Path, action: &DaemonAction) -> anyhow::Result<()> {
-    let socket_path = agents_dir.join(DAEMON_SOCKET);
+pub async fn run(loom_dir: &Path, action: &DaemonAction) -> anyhow::Result<()> {
+    let socket_path = loom_dir.join(DAEMON_SOCKET);
 
     match action {
-        DaemonAction::Start => start_daemon(agents_dir)?,
-        DaemonAction::Stop => stop_daemon(agents_dir),
+        DaemonAction::Start => start_daemon(loom_dir)?,
+        DaemonAction::Stop => stop_daemon(loom_dir),
         DaemonAction::Status { json } => {
             if socket_path.exists() {
                 let req = loom_ipc::IpcRequest::new("health.check");
-                match crate::ipc_client::send_daemon_command(agents_dir, req).await {
+                match crate::ipc_client::send_daemon_command(loom_dir, req).await {
                     Ok(resp) if resp.status == "ok" => {
                         let data = resp.data.unwrap_or(serde_json::Value::Null);
                         if *json {
@@ -399,10 +401,10 @@ pub async fn run(agents_dir: &Path, action: &DaemonAction) -> anyhow::Result<()>
             }
         }
         DaemonAction::Restart => {
-            stop_daemon(agents_dir);
-            start_daemon(agents_dir)?;
+            stop_daemon(loom_dir);
+            start_daemon(loom_dir)?;
         }
-        DaemonAction::InstallService => install_service(agents_dir)?,
+        DaemonAction::InstallService => install_service(loom_dir)?,
         DaemonAction::UninstallService => uninstall_service()?,
     }
     Ok(())
@@ -423,9 +425,9 @@ mod tests {
         let plist = render_launchd_plist(
             "com.loom.test",
             Path::new("/usr/local/bin/loomd"),
-            Path::new("/tmp/.agents"),
-            Path::new("/tmp/.agents/.cache/out.log"),
-            Path::new("/tmp/.agents/.cache/err.log"),
+            Path::new("/tmp/.loom"),
+            Path::new("/tmp/.loom/.cache/out.log"),
+            Path::new("/tmp/.loom/.cache/err.log"),
         );
         assert!(plist.contains("com.loom.test"));
         assert!(plist.contains("/usr/local/bin/loomd"));
@@ -437,10 +439,10 @@ mod tests {
     fn test_render_systemd_unit() {
         let unit = render_systemd_unit(
             Path::new("/usr/local/bin/loomd"),
-            Path::new("/tmp/.agents"),
+            Path::new("/tmp/.loom"),
         );
         assert!(unit.contains("ExecStart=\"/usr/local/bin/loomd\""));
-        assert!(unit.contains("LOOM_AGENTS_DIR=/tmp/.agents"));
+        assert!(unit.contains("LOOM_AGENTS_DIR=/tmp/.loom"));
         assert!(unit.contains("Restart=always"));
     }
 }

@@ -5,7 +5,7 @@ use serde_json::json;
 
 pub struct LoomdIpcHandler {
     version: &'static str,
-    agents_dir: String,
+    loom_dir: String,
     discovery: std::sync::Arc<loom_discovery::DiscoveryEngine>,
     skills: std::sync::Arc<loom_skills::SkillsEngine>,
     sessions: std::sync::Arc<loom_sessions::SessionManager>,
@@ -17,7 +17,7 @@ impl LoomdIpcHandler {
     pub fn new(loomd: &Loomd) -> Self {
         Self {
             version: env!("CARGO_PKG_VERSION"),
-            agents_dir: loomd.agents_dir().to_string(),
+            loom_dir: loomd.loom_dir().to_string(),
             discovery: loomd.discovery().clone(),
             skills: loomd.skills().clone(),
             sessions: loomd.sessions().clone(),
@@ -67,14 +67,14 @@ impl IpcHandler for LoomdIpcHandler {
                     }
                 }
             }
-            "mcp.list" => match loom_mcp::McpRegistry::new(&self.agents_dir) {
+            "mcp.list" => match loom_mcp::McpRegistry::new(&self.loom_dir) {
                 Ok(registry) => match registry.list() {
                     Ok(servers) => IpcResponse::ok(req.request_id, json!({ "servers": servers })),
                     Err(e) => IpcResponse::error(req.request_id, e.to_string()),
                 },
                 Err(e) => IpcResponse::error(req.request_id, e.to_string()),
             },
-            "mcp.health" => match loom_mcp::McpRegistry::new(&self.agents_dir) {
+            "mcp.health" => match loom_mcp::McpRegistry::new(&self.loom_dir) {
                 Ok(registry) => match registry.list() {
                     Ok(servers) => {
                         let all_healthy = servers.iter().all(|s| {
@@ -114,12 +114,12 @@ impl IpcHandler for LoomdIpcHandler {
                 if let Some(adapter) = loom_adapters::adapter_for(name) {
                     let _ = loom_adapters::write_tool_registration(
                         adapter.as_ref(),
-                        &self.agents_dir,
+                        &self.loom_dir,
                         &home,
                     );
-                    let _ = adapter.sync_from_native(&self.agents_dir, &home);
+                    let _ = adapter.sync_from_native(&self.loom_dir, &home);
                     if let Ok(ga) =
-                        loom_generic_adapter::GenericAdapter::new(&self.agents_dir, name)
+                        loom_generic_adapter::GenericAdapter::new(&self.loom_dir, name)
                     {
                         features = ga
                             .build()

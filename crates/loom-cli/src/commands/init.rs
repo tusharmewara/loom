@@ -6,32 +6,32 @@ use std::path::Path;
 
 /// `loom init [--import]`
 ///
-/// Creates the `~/.agents/` directory tree (skills, mcp, sessions, auth,
+/// Creates the `~/.loom/` directory tree (skills, mcp, sessions, auth,
 /// hooks, tools, config, .cache), a minimal default `config.toml`, and
 /// initializes the SQLite snapshot schema.
 ///
 /// When `--import` is passed, also walks the filesystem to build the
 /// initial snapshot from existing resources.
-pub async fn run(import: bool, agents_dir: &str) -> Result<()> {
+pub async fn run(import: bool, loom_dir: &str) -> Result<()> {
     // 1. Create the full directory tree
-    let builder = SnapshotBuilder::new(agents_dir);
+    let builder = SnapshotBuilder::new(loom_dir);
     builder
         .create_agents_tree()
-        .context("Failed to create ~/.agents/ directory tree")?;
-    println!("✓ Initialized ecosystem at ~/.agents/");
+        .context("Failed to create ~/.loom/ directory tree")?;
+    println!("✓ Initialized ecosystem at ~/.loom/");
 
     // 2. Initialize the SQLite snapshot schema (idempotent)
-    let db = SnapshotDb::new(agents_dir);
+    let db = SnapshotDb::new(loom_dir);
     db.initialize_schema()
         .with_context(|| {
             format!(
                 "Failed to initialize snapshot database schema at {}/.cache/snapshot.db",
-                agents_dir
+                loom_dir
             )
         })?;
 
     // 3. Write a default config.toml if one doesn't exist
-    let config_path = Path::new(agents_dir).join("config.toml");
+    let config_path = Path::new(loom_dir).join("config.toml");
     if !config_path.exists() {
         let config = loom_core::LoomConfig::default();
         let toml_str = toml::to_string_pretty(&config)
@@ -44,13 +44,13 @@ pub async fn run(import: bool, agents_dir: &str) -> Result<()> {
     }
 
     // 4. Migrate legacy session JSON files to JSONL layout
-    let sessions = SessionManager::new(agents_dir);
+    let sessions = SessionManager::new(loom_dir);
     let migrated = sessions.migrate().unwrap_or(0);
     if migrated > 0 {
         println!("✓ Migrated {migrated} legacy session(s) to JSONL layout");
     }
 
-    install_example_hooks(agents_dir)?;
+    install_example_hooks(loom_dir)?;
 
     // 5. Optionally import existing resources
     if import {
@@ -63,12 +63,12 @@ pub async fn run(import: bool, agents_dir: &str) -> Result<()> {
     Ok(())
 }
 
-fn install_example_hooks(agents_dir: &str) -> Result<()> {
+fn install_example_hooks(loom_dir: &str) -> Result<()> {
     let examples_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/hooks");
     if !examples_dir.exists() {
         return Ok(());
     }
-    let hooks_dir = Path::new(agents_dir).join("hooks");
+    let hooks_dir = Path::new(loom_dir).join("hooks");
     std::fs::create_dir_all(&hooks_dir)?;
     let mut installed = 0;
     for entry in std::fs::read_dir(&examples_dir)? {
@@ -104,9 +104,9 @@ mod tests {
     #[tokio::test]
     async fn test_init_creates_tree() {
         let dir = tempfile::tempdir().unwrap();
-        let agents_dir = dir.path().to_str().unwrap();
+        let loom_dir = dir.path().to_str().unwrap();
 
-        run(false, agents_dir).await.unwrap();
+        run(false, loom_dir).await.unwrap();
 
         // Verify key directories exist
         assert!(dir.path().join("config").exists());
@@ -129,17 +129,17 @@ mod tests {
     #[tokio::test]
     async fn test_init_is_idempotent() {
         let dir = tempfile::tempdir().unwrap();
-        let agents_dir = dir.path().to_str().unwrap();
+        let loom_dir = dir.path().to_str().unwrap();
 
         // Run twice
-        run(false, agents_dir).await.unwrap();
-        run(false, agents_dir).await.unwrap();
+        run(false, loom_dir).await.unwrap();
+        run(false, loom_dir).await.unwrap();
     }
 
     #[tokio::test]
     async fn test_init_with_import() {
         let dir = tempfile::tempdir().unwrap();
-        let agents_dir = dir.path().to_str().unwrap();
+        let loom_dir = dir.path().to_str().unwrap();
 
         // Pre-populate a skill and tool TOML
         let skill_dir = dir.path().join("skills").join("test-skill");
@@ -152,10 +152,10 @@ mod tests {
         ).unwrap();
 
         // Run with --import
-        run(true, agents_dir).await.unwrap();
+        run(true, loom_dir).await.unwrap();
 
         // Snapshot should have entries
-        let db = SnapshotDb::new(agents_dir);
+        let db = SnapshotDb::new(loom_dir);
         let counts = db.count_resources().unwrap();
         assert_eq!(*counts.get("skills").unwrap_or(&0), 1);
         assert_eq!(*counts.get("tools").unwrap_or(&0), 1);

@@ -1,16 +1,18 @@
 mod activity;
 mod ipc_handler;
 use activity::{now_ms, ActivityHandler};
-use loom_core::{constants::DAEMON_DEFAULT_IDLE_TIMEOUT_MS, ConfigReader, HealthCheck, LoomConfig};
+use loom_core::{constants::DAEMON_DEFAULT_IDLE_TIMEOUT_MS, HealthCheck};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::sync::broadcast;
 
 pub struct Loomd {
-    agents_dir: String,
+    loom_dir: String,
+    #[allow(dead_code)]
     event_bus: Arc<loom_event_bus::EventBus>,
     discovery: Arc<loom_discovery::DiscoveryEngine>,
+    #[allow(clippy::arc_with_non_send_sync)]
     mcp: Arc<loom_mcp::McpManager>,
     skills: Arc<loom_skills::SkillsEngine>,
     sessions: Arc<loom_sessions::SessionManager>,
@@ -21,28 +23,29 @@ pub struct Loomd {
 }
 
 impl Loomd {
-    pub fn new(agents_dir: &str) -> anyhow::Result<Self> {
-        let event_bus = loom_event_bus::EventBus::with_defaults(agents_dir).as_arc();
-        let telemetry = Arc::new(loom_telemetry::TelemetryCollector::new(agents_dir));
+    #[allow(clippy::arc_with_non_send_sync)]
+    pub fn new(loom_dir: &str) -> anyhow::Result<Self> {
+        let event_bus = loom_event_bus::EventBus::with_defaults(loom_dir).as_arc();
+        let telemetry = Arc::new(loom_telemetry::TelemetryCollector::new(loom_dir));
         telemetry.init_tracing();
         let (shutdown_tx, _) = broadcast::channel(1);
 
         Ok(Self {
-            agents_dir: agents_dir.to_string(),
+            loom_dir: loom_dir.to_string(),
             event_bus: event_bus.clone(),
-            discovery: Arc::new(loom_discovery::DiscoveryEngine::new(agents_dir)),
-            mcp: Arc::new(loom_mcp::McpManager::new(agents_dir)?),
-            skills: Arc::new(loom_skills::SkillsEngine::new(agents_dir)?),
-            sessions: Arc::new(loom_sessions::SessionManager::new(agents_dir)),
-            auth: Arc::new(loom_auth::AuthManager::new(agents_dir)),
-            hooks: Arc::new(loom_hooks::HooksEngine::new(agents_dir)),
+            discovery: Arc::new(loom_discovery::DiscoveryEngine::new(loom_dir)),
+            mcp: Arc::new(loom_mcp::McpManager::new(loom_dir)?),
+            skills: Arc::new(loom_skills::SkillsEngine::new(loom_dir)?),
+            sessions: Arc::new(loom_sessions::SessionManager::new(loom_dir)),
+            auth: Arc::new(loom_auth::AuthManager::new(loom_dir)),
+            hooks: Arc::new(loom_hooks::HooksEngine::new(loom_dir)),
             telemetry: telemetry.clone(),
             shutdown_tx,
         })
     }
 
-    pub fn agents_dir(&self) -> &str {
-        &self.agents_dir
+    pub fn loom_dir(&self) -> &str {
+        &self.loom_dir
     }
 
     pub fn discovery(&self) -> &Arc<loom_discovery::DiscoveryEngine> {
@@ -91,7 +94,7 @@ impl Loomd {
             }
         }
 
-        let socket_path = Path::new(&self.agents_dir).join("loomd.sock");
+        let socket_path = Path::new(&self.loom_dir).join("loomd.sock");
         let socket_path_str = socket_path.to_str().unwrap().to_string();
 
         let last_activity = Arc::new(AtomicU64::new(now_ms()));
@@ -127,7 +130,7 @@ impl Loomd {
         let serve_fut = async move { serve(&s, ipc_handler, shutdown).await.unwrap() };
         let serve_handle = tokio::spawn(serve_fut);
 
-        tracing::info!("Loom daemon running on {}", self.agents_dir);
+        tracing::info!("Loom daemon running on {}", self.loom_dir);
 
         let mut idle_shutdown_rx = self.shutdown_tx.subscribe();
         tokio::select! {

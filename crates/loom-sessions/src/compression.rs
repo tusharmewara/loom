@@ -12,7 +12,7 @@ pub fn compress_jsonl(path: &Path, max_messages: usize) -> Result<usize> {
 
     let file = File::open(path)?;
     let reader = BufReader::new(file);
-    let lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+    let lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
 
     if lines.len() <= max_messages {
         return Ok(0);

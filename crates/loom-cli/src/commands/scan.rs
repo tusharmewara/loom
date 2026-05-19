@@ -98,14 +98,14 @@ impl SystemAudit {
 ///
 /// Runs the two-phase discovery engine and prints a formatted table
 /// showing available layers, resource counts, and any warnings.
-pub async fn run(agents_dir: &str, json: bool) -> Result<()> {
+pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
     // Check that the ecosystem is initialized
-    let agents_path = std::path::Path::new(agents_dir);
+    let agents_path = std::path::Path::new(loom_dir);
     if !agents_path.exists() {
-        anyhow::bail!("Ecosystem not initialized at ~/.agents/. Run 'loom init' first.");
+        anyhow::bail!("Ecosystem not initialized at ~/.loom/. Run 'loom init' first.");
     }
 
-    let engine = DiscoveryEngine::new(agents_dir);
+    let engine = DiscoveryEngine::new(loom_dir);
 
     // Ensure the snapshot schema exists (idempotent)
     engine
@@ -129,7 +129,7 @@ pub async fn run(agents_dir: &str, json: bool) -> Result<()> {
     warnings.extend(system_audit.warnings.clone());
 
     if json {
-        print_scan_json(agents_dir, &phase1, &phase2, total, &system_audit, &warnings)?;
+        print_scan_json(loom_dir, &phase1, &phase2, total, &system_audit, &warnings)?;
         return Ok(());
     }
 
@@ -167,7 +167,7 @@ pub async fn run(agents_dir: &str, json: bool) -> Result<()> {
 }
 
 fn print_scan_json(
-    agents_dir: &str,
+    loom_dir: &str,
     phase1: &loom_discovery::Phase1Result,
     phase2: &loom_discovery::Phase2Result,
     total_resources: usize,
@@ -179,7 +179,7 @@ fn print_scan_json(
         serde_json::to_string_pretty(&serde_json::json!({
             "schema_version": 1,
             "command": "scan",
-            "agents_dir": agents_dir,
+            "loom_dir": loom_dir,
             "ecosystem": {
                 "version": phase1.ecosystem_version,
                 "resource_counts": phase1.resource_counts,
@@ -308,20 +308,20 @@ fn print_system_audit(audit: &SystemAudit) {
     }
 }
 
-fn scan_system(agents_dir: &Path) -> SystemAudit {
+fn scan_system(loom_dir: &Path) -> SystemAudit {
     let mut audit = SystemAudit::default();
     let home = home_dir();
 
     audit.tool_hits = detect_agentic_tools(None);
-    audit.tool_config_count = count_tool_configs(agents_dir, &mut audit.warnings);
-    audit.mcp_sources = detect_mcp_sources(agents_dir, home.as_deref(), &mut audit.warnings);
-    audit.skill_sources = detect_skill_sources(agents_dir, home.as_deref(), &mut audit.warnings);
+    audit.tool_config_count = count_tool_configs(loom_dir, &mut audit.warnings);
+    audit.mcp_sources = detect_mcp_sources(loom_dir, home.as_deref(), &mut audit.warnings);
+    audit.skill_sources = detect_skill_sources(loom_dir, home.as_deref(), &mut audit.warnings);
 
     audit
 }
 
-fn count_tool_configs(agents_dir: &Path, warnings: &mut Vec<String>) -> usize {
-    let tools_dir = agents_dir.join("tools");
+fn count_tool_configs(loom_dir: &Path, warnings: &mut Vec<String>) -> usize {
+    let tools_dir = loom_dir.join("tools");
     if !tools_dir.exists() {
         return 0;
     }
@@ -372,7 +372,7 @@ fn detect_agentic_tools(path_override: Option<&OsStr>) -> Vec<AgenticToolHit> {
 }
 
 fn detect_mcp_sources(
-    agents_dir: &Path,
+    loom_dir: &Path,
     home: Option<&Path>,
     warnings: &mut Vec<String>,
 ) -> Vec<McpSourceHit> {
@@ -380,8 +380,8 @@ fn detect_mcp_sources(
     let mut seen = BTreeSet::new();
 
     let mut file_candidates: Vec<(String, PathBuf)> = vec![
-        ("loom project".to_string(), agents_dir.join(".mcp.json")),
-        ("loom mcp_config".to_string(), agents_dir.join("mcp_config.json")),
+        ("loom project".to_string(), loom_dir.join(".mcp.json")),
+        ("loom mcp_config".to_string(), loom_dir.join("mcp_config.json")),
     ];
 
     if let Some(home) = home {
@@ -444,7 +444,7 @@ fn detect_mcp_sources(
         }
     }
 
-    let mut dir_candidates = vec![("loom mcp directory".to_string(), agents_dir.join("mcp"))];
+    let mut dir_candidates = vec![("loom mcp directory".to_string(), loom_dir.join("mcp"))];
     if let Some(home) = home {
         dir_candidates.extend([
             (
@@ -507,7 +507,7 @@ fn detect_mcp_sources(
 }
 
 fn detect_skill_sources(
-    agents_dir: &Path,
+    loom_dir: &Path,
     home: Option<&Path>,
     warnings: &mut Vec<String>,
 ) -> Vec<SkillSourceHit> {
@@ -515,7 +515,7 @@ fn detect_skill_sources(
     let mut seen = BTreeSet::new();
 
     let mut skill_dir_candidates: Vec<(String, PathBuf)> =
-        vec![("loom skills".to_string(), agents_dir.join("skills"))];
+        vec![("loom skills".to_string(), loom_dir.join("skills"))];
 
     if let Some(home) = home {
         skill_dir_candidates.extend([
@@ -707,9 +707,9 @@ fn is_executable(path: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        return std::fs::metadata(path)
+        std::fs::metadata(path)
             .map(|meta| meta.permissions().mode() & 0o111 != 0)
-            .unwrap_or(false);
+            .unwrap_or(false)
     }
 
     #[cfg(not(unix))]
@@ -740,16 +740,16 @@ mod tests {
     #[tokio::test]
     async fn test_scan_empty_ecosystem() {
         let dir = tempfile::tempdir().unwrap();
-        let agents_dir = dir.path().to_str().unwrap();
+        let loom_dir = dir.path().to_str().unwrap();
 
         // Initialize first
-        init::run(false, agents_dir).await.unwrap();
+        init::run(false, loom_dir).await.unwrap();
 
         // Scan should succeed with empty counts
-        run(agents_dir, false).await.unwrap();
+        run(loom_dir, false).await.unwrap();
 
         // Verify by checking snapshot directly
-        let db = SnapshotDb::new(agents_dir);
+        let db = SnapshotDb::new(loom_dir);
         let counts = db.count_resources().unwrap();
         assert!(counts.values().all(|c| *c == 0));
     }
@@ -757,7 +757,7 @@ mod tests {
     #[tokio::test]
     async fn test_scan_with_resources() {
         let dir = tempfile::tempdir().unwrap();
-        let agents_dir = dir.path().to_str().unwrap();
+        let loom_dir = dir.path().to_str().unwrap();
 
         // Pre-populate resources
         let skill_dir = dir.path().join("skills").join("test-skill");
@@ -771,13 +771,13 @@ mod tests {
         .unwrap();
 
         // Init with import
-        init::run(true, agents_dir).await.unwrap();
+        init::run(true, loom_dir).await.unwrap();
 
         // Scan should find resources
-        run(agents_dir, false).await.unwrap();
+        run(loom_dir, false).await.unwrap();
 
         // Verify counts
-        let db = SnapshotDb::new(agents_dir);
+        let db = SnapshotDb::new(loom_dir);
         let counts = db.count_resources().unwrap();
         assert_eq!(*counts.get("skills").unwrap_or(&0), 1);
         assert_eq!(*counts.get("tools").unwrap_or(&0), 1);
@@ -786,13 +786,13 @@ mod tests {
     #[tokio::test]
     async fn test_scan_without_init_proceeds_with_empty_state() {
         let dir = tempfile::tempdir().unwrap();
-        let agents_dir = dir.path().to_str().unwrap();
+        let loom_dir = dir.path().to_str().unwrap();
 
         // Should succeed because scan creates schema on the fly
-        run(agents_dir, false).await.unwrap();
+        run(loom_dir, false).await.unwrap();
 
         // Snapshot should have schema with empty counts
-        let db = SnapshotDb::new(agents_dir);
+        let db = SnapshotDb::new(loom_dir);
         let counts = db.count_resources().unwrap();
         assert!(counts.values().all(|c| *c == 0));
     }

@@ -8,9 +8,9 @@ use std::collections::HashMap;
 use std::path::Path;
 
 /// Load opencode config from tool's `mcp.toml`
-pub fn load_opencode_config(agents_dir: &str) -> Result<(McpServerEntry, SkillEntry)> {
+pub fn load_opencode_config(loom_dir: &str) -> Result<(McpServerEntry, SkillEntry)> {
     // 1. Find opencode's config path
-    let config_path = Path::new(agents_dir).join(".opencode/mcp.toml");
+    let config_path = Path::new(loom_dir).join(".opencode/mcp.toml");
     if !config_path.exists() {
         return Err(anyhow::anyhow!("opencode config not found: {}", config_path.display()));
     }

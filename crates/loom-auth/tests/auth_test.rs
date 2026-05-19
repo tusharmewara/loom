@@ -213,8 +213,6 @@ fn test_acl_deny_overrides_allow() {
 #[test]
 fn test_audit_structured_read_write_denied() {
     let dir = tempfile::TempDir::new().unwrap();
-    // Reset threshold to a large value to avoid rotation in this test
-    std::env::set_var("LOOM_AUDIT_MAX_SIZE", "104857600"); // 100MB
     let logger = AuditLogger::new(dir.path().to_str().unwrap());
 
     logger.log_read("tool-a", "provider-1", true).unwrap();
@@ -242,48 +240,32 @@ fn test_audit_structured_read_write_denied() {
 #[test]
 fn test_audit_rotation_and_list_all() {
     let dir = tempfile::TempDir::new().unwrap();
-    // Set a small rotation threshold for testing (100 bytes)
-    std::env::set_var("LOOM_AUDIT_MAX_SIZE", "100");
     let log_dir = dir.path().join("auth");
     std::fs::create_dir_all(&log_dir).unwrap();
     let log_path = log_dir.join("audit.log");
 
-    // Seed a large log file (~12MB)
+    // Seed a large log file (>10MB default threshold) to force rotation.
     let mut file = std::fs::File::create(&log_path).unwrap();
-    // Create valid JSON audit entries instead of just "x" repeated
+    let padded_result = format!("granted-{}", "x".repeat(8 * 1024));
     let valid_entry = serde_json::json!({
         "timestamp": "2024-01-01T00:00:00Z",
         "requesting_tool": "test-tool",
         "provider_id": "test-provider",
         "access_type": "read",
-        "result": "granted"
+        "result": padded_result
     });
     let line = valid_entry.to_string();
-    // Write enough entries to trigger rotation but not too many
-    for _ in 0..1000 {
+    for _ in 0..1300 {
         writeln!(file, "{}", line).unwrap();
     }
     file.flush().unwrap();
     drop(file);
-
-    // Debug: check seeded file size
-    let metadata = std::fs::metadata(&log_path).unwrap();
-    eprintln!("Seeded file size: {} bytes", metadata.len());
 
     let logger = AuditLogger::new(dir.path().to_str().unwrap());
 
     // This write should trigger rotation
     logger.log_read("new-tool", "new-provider", true).unwrap();
 
-    // The rotated file should exist
-    eprintln!(
-        "DEBUG: Rotated file exists: {}",
-        log_dir.join("audit.log.1").exists()
-    );
-    eprintln!(
-        "DEBUG: Current file exists: {}",
-        log_dir.join("audit.log").exists()
-    );
     assert!(log_dir.join("audit.log.1").exists());
 
     // list_all should see entries from both current and rotated
@@ -294,9 +276,7 @@ fn test_audit_rotation_and_list_all() {
     assert_eq!(current.len(), 1);
     assert_eq!(current[0].requesting_tool, "new-tool");
 
-    // All logs combined should include the seeded ones plus new one
-    eprintln!("DEBUG: all.len() = {}", all.len());
-    eprintln!("DEBUG: current.len() = {}", current.len());
+    // All logs combined should include the seeded ones plus new one.
     assert!(all.len() > 1);
 }
 

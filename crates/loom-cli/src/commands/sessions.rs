@@ -2,8 +2,8 @@ use crate::cli::SessionsAction;
 use loom_sessions::{export_session, import_session, write_export, SessionManager};
 use std::path::Path;
 
-pub async fn run(agents_dir: &Path, action: &SessionsAction) -> anyhow::Result<()> {
-    let manager = SessionManager::new(agents_dir.to_str().unwrap());
+pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()> {
+    let manager = SessionManager::new(loom_dir.to_str().unwrap());
     let store = manager.store();
 
     match action {
@@ -60,7 +60,7 @@ pub async fn run(agents_dir: &Path, action: &SessionsAction) -> anyhow::Result<(
                 .map(Path::new)
                 .map(|p| p.to_path_buf())
                 .unwrap_or_else(|| {
-                    agents_dir
+                    loom_dir
                         .join("sessions")
                         .join("exports")
                         .join(format!("{id}.loom.json"))

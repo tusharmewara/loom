@@ -488,7 +488,7 @@ fn mcp_body(app: &App) -> String {
     if let Some(srvs) = servers {
         if srvs.is_empty() {
             lines.push("".to_string());
-            lines.push("No MCP servers registered in ~/.agents/mcp/".to_string());
+            lines.push("No MCP servers registered in ~/.loom/mcp/".to_string());
             lines.push("".to_string());
             lines.push("Tip: Add MCP server configs or import from tool configs".to_string());
         } else {
@@ -523,7 +523,7 @@ fn skills_body(app: &App) -> String {
             lines.push("".to_string());
             lines.push("No skills in daemon registry.".to_string());
             lines.push("".to_string());
-            lines.push("Check ~/.agents/skills/ for local skills.".to_string());
+            lines.push("Check ~/.loom/skills/ for local skills.".to_string());
         } else {
             for s in sk {
                 lines.push("".to_string());

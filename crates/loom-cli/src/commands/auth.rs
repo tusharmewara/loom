@@ -1,10 +1,10 @@
 use crate::cli::AuthAction;
 use std::path::Path;
 
-pub async fn run(agents_dir: &Path, action: &AuthAction) -> anyhow::Result<()> {
+pub async fn run(loom_dir: &Path, action: &AuthAction) -> anyhow::Result<()> {
     match action {
         AuthAction::List { json } => {
-            let auth_dir = agents_dir.join("auth");
+            let auth_dir = loom_dir.join("auth");
             let mut providers = Vec::new();
             if auth_dir.exists() {
                 for entry in std::fs::read_dir(&auth_dir)? {
@@ -31,7 +31,7 @@ pub async fn run(agents_dir: &Path, action: &AuthAction) -> anyhow::Result<()> {
             }
         }
         AuthAction::Show { provider_id, json } => {
-            let path = agents_dir.join("auth").join(format!("{}.toml", provider_id));
+            let path = loom_dir.join("auth").join(format!("{}.toml", provider_id));
             if path.exists() {
                 let content = std::fs::read_to_string(&path)?;
                 if *json {

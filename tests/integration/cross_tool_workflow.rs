@@ -11,8 +11,8 @@ use tempfile::tempdir;
 #[tokio::test]
 async fn test_session_sharing_between_tools() -> anyhow::Result<()> {
     // Create temporary directory for agents
-    let agents_dir = tempdir()?;
-    let agents_path = agents_dir.path().to_str().unwrap();
+    let loom_dir = tempdir()?;
+    let agents_path = loom_dir.path().to_str().unwrap();
 
     // Initialize Loom ecosystem
     let session_manager = loom_sessions::SessionManager::new(agents_path);
@@ -57,11 +57,11 @@ async fn test_session_sharing_between_tools() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_skill_portability_between_tools() -> anyhow::Result<()> {
-    let agents_dir = tempdir()?;
-    let agents_path = agents_dir.path().to_str().unwrap();
+    let loom_dir = tempdir()?;
+    let agents_path = loom_dir.path().to_str().unwrap();
 
     // Initialize skills engine
-    let skills_engine = loom_skills::SkillsEngine::new(agents_dir)?;
+    let skills_engine = loom_skills::SkillsEngine::new(loom_dir)?;
 
     // Create a skill in jcode
     let skill_id = "test-skill-1";
@@ -91,11 +91,11 @@ async fn test_skill_portability_between_tools() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_mcp_communication_between_tools() -> anyhow::Result<()> {
-    let agents_dir = tempdir()?;
-    let agents_path = agents_dir.path().to_str().unwrap();
+    let loom_dir = tempdir()?;
+    let agents_path = loom_dir.path().to_str().unwrap();
 
     // Initialize MCP manager
-    let mcp_manager = loom_mcp::McpManager::new(agents_dir)?;
+    let mcp_manager = loom_mcp::McpManager::new(loom_dir)?;
 
     // Register MCP server from jcode
     let jcode_mcp = loom_mcp::McpServerEntry {

@@ -1,10 +1,10 @@
 use crate::cli::McpAction;
 use std::path::Path;
 
-pub async fn run(agents_dir: &Path, action: &McpAction) -> anyhow::Result<()> {
+pub async fn run(loom_dir: &Path, action: &McpAction) -> anyhow::Result<()> {
     match action {
         McpAction::List { json } => {
-            let mcp_dir = agents_dir.join("mcp");
+            let mcp_dir = loom_dir.join("mcp");
             let mut servers = Vec::new();
             if mcp_dir.exists() {
                 for entry in std::fs::read_dir(&mcp_dir)? {
@@ -39,7 +39,7 @@ pub async fn run(agents_dir: &Path, action: &McpAction) -> anyhow::Result<()> {
             }
         }
         McpAction::Show { id, json } => {
-            let path = agents_dir.join("mcp").join(format!("{}.toml", id));
+            let path = loom_dir.join("mcp").join(format!("{}.toml", id));
             if path.exists() {
                 let content = std::fs::read_to_string(&path)?;
                 if *json {
@@ -58,7 +58,7 @@ pub async fn run(agents_dir: &Path, action: &McpAction) -> anyhow::Result<()> {
             }
         }
         McpAction::Add { name } => {
-            let path = agents_dir.join("mcp").join(format!("{}.toml", name));
+            let path = loom_dir.join("mcp").join(format!("{}.toml", name));
             if path.exists() {
                 anyhow::bail!("MCP server '{}' already exists", name);
             }
@@ -73,7 +73,7 @@ command = ""
             println!("Added MCP server '{}'", name);
         }
         McpAction::Remove { id } => {
-            let path = agents_dir.join("mcp").join(format!("{}.toml", id));
+            let path = loom_dir.join("mcp").join(format!("{}.toml", id));
             if path.exists() {
                 std::fs::remove_file(&path)?;
                 println!("Removed MCP server '{}'", id);

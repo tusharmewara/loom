@@ -2,9 +2,9 @@ use std::path::Path;
 use sha2::{Sha256, Digest};
 use crate::registry::SnapshotDb;
 
-/// Creates the ~/.agents/ directory tree and builds the initial SQLite snapshot.
+/// Creates the ~/.loom/ directory tree and builds the initial SQLite snapshot.
 pub struct SnapshotBuilder {
-    agents_dir: String,
+    loom_dir: String,
 }
 
 /// Validation result from Phase 2 entry checking.
@@ -20,39 +20,39 @@ pub struct ValidationError {
 }
 
 impl SnapshotBuilder {
-    pub fn new(agents_dir: &str) -> Self {
-        Self { agents_dir: agents_dir.to_string() }
+    pub fn new(loom_dir: &str) -> Self {
+        Self { loom_dir: loom_dir.to_string() }
     }
 
-    /// Create the full ~/.agents/ directory tree.
+    /// Create the full ~/.loom/ directory tree.
     pub fn create_agents_tree(&self) -> anyhow::Result<()> {
         let dirs = [
             "", "config", "skills", "mcp", "sessions", "auth",
             "hooks", "tools", ".cache",
         ];
         for dir in &dirs {
-            let path = Path::new(&self.agents_dir).join(dir);
+            let path = Path::new(&self.loom_dir).join(dir);
             std::fs::create_dir_all(&path)?;
         }
 
         // Write VERSION file
-        let version_path = Path::new(&self.agents_dir).join("VERSION");
+        let version_path = Path::new(&self.loom_dir).join("VERSION");
         if !version_path.exists() {
             std::fs::write(&version_path, format!("{}\n", loom_core::ECOSYSTEM_VERSION))?;
         }
 
-        tracing::info!("Created ~/.agents/ directory tree at {}", self.agents_dir);
+        tracing::info!("Created ~/.loom/ directory tree at {}", self.loom_dir);
         Ok(())
     }
 
-    /// Build initial SQLite snapshot by walking the ~/.agents/ directory.
+    /// Build initial SQLite snapshot by walking the ~/.loom/ directory.
     /// Completes in <50ms for 1000 resources.
     pub fn build_initial(&self) -> anyhow::Result<()> {
-        let db = SnapshotDb::new(&self.agents_dir);
+        let db = SnapshotDb::new(&self.loom_dir);
         db.initialize_schema()?;
 
         // Walk skills/
-        let skills_dir = Path::new(&self.agents_dir).join("skills");
+        let skills_dir = Path::new(&self.loom_dir).join("skills");
         if skills_dir.exists() {
             for entry in std::fs::read_dir(&skills_dir)? {
                 let entry = entry?;
@@ -70,12 +70,12 @@ impl SnapshotBuilder {
         }
 
         // Walk mcp/
-        let mcp_dir = Path::new(&self.agents_dir).join("mcp");
+        let mcp_dir = Path::new(&self.loom_dir).join("mcp");
         if mcp_dir.exists() {
             for entry in std::fs::read_dir(&mcp_dir)? {
                 let entry = entry?;
                 let path = entry.path();
-                if path.extension().map_or(false, |e| e == "json" || e == "toml") {
+                if path.extension().is_some_and(|e| e == "json" || e == "toml") {
                     let name = path.file_stem().unwrap().to_str().unwrap();
                     db.insert_mcp_server(name, "stdio", true)?;
                 }
@@ -83,19 +83,19 @@ impl SnapshotBuilder {
         }
 
         // Walk tools/
-        let tools_dir = Path::new(&self.agents_dir).join("tools");
+        let tools_dir = Path::new(&self.loom_dir).join("tools");
         if tools_dir.exists() {
             for entry in std::fs::read_dir(&tools_dir)? {
                 let entry = entry?;
                 let path = entry.path();
-                if path.extension().map_or(false, |e| e == "toml") {
+                if path.extension().is_some_and(|e| e == "toml") {
                     let name = path.file_stem().unwrap().to_str().unwrap();
                     db.insert_tool(name, path.to_str().unwrap())?;
                 }
             }
         }
 
-        tracing::info!("Initial snapshot built at {}", self.agents_dir);
+        tracing::info!("Initial snapshot built at {}", self.loom_dir);
         Ok(())
     }
 
@@ -106,7 +106,7 @@ impl SnapshotBuilder {
         _conflicts: &[crate::merger::Conflict],
     ) -> anyhow::Result<()> {
         if validation.entries_updated > 0 {
-            let db = SnapshotDb::new(&self.agents_dir);
+            let db = SnapshotDb::new(&self.loom_dir);
             db.clean_stale_entries()?;
         }
         Ok(())

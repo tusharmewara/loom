@@ -16,9 +16,9 @@ pub struct McpRegistry {
 }
 
 impl McpRegistry {
-    /// Open (or create) the SQLite database at `agents_dir / mcp_registry.db`.
-    pub fn new(agents_dir: &str) -> Result<Self> {
-        let db_dir = Path::new(agents_dir);
+    /// Open (or create) the SQLite database at `loom_dir / mcp_registry.db`.
+    pub fn new(loom_dir: &str) -> Result<Self> {
+        let db_dir = Path::new(loom_dir);
         std::fs::create_dir_all(db_dir).context("Failed to create agents dir for registry")?;
 
         let db_path = db_dir.join("mcp_registry.db");
@@ -189,7 +189,13 @@ impl McpRegistry {
             )?;
         if affected > 0 {
             // Also update the JSON data field so the full entry stays consistent
-            if let Some(mut entry) = self.get(id)? {
+            // Get the current data directly using the existing connection
+            let mut stmt = conn.prepare("SELECT data FROM mcp_servers WHERE id = ?1")?;
+            let mut rows = stmt.query(params![id])?;
+            if let Some(row) = rows.next()? {
+                let data: String = row.get(0)?;
+                let mut entry: McpServerEntry =
+                    serde_json::from_str(&data).context("Failed to deserialise McpServerEntry")?;
                 entry.health_status = status.clone();
                 entry.last_health_check = chrono_now();
                 let full_data = serde_json::to_string(&entry)?;
@@ -256,7 +262,7 @@ fn secs_to_datetime(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
     let mut d = days as i64;
 
     // Approx year
-    y += (d / 365) as i64;
+    y += d / 365;
     d %= 365;
 
     // Adjust for leap years

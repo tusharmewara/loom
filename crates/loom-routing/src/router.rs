@@ -10,9 +10,9 @@ pub struct ModelRouter {
 }
 
 impl ModelRouter {
-    pub fn new(agents_dir: &str, config: Option<RoutingConfig>) -> Result<Self> {
+    pub fn new(loom_dir: &str, config: Option<RoutingConfig>) -> Result<Self> {
         Ok(Self {
-            catalog: CatalogManager::load(agents_dir)?,
+            catalog: CatalogManager::load(loom_dir)?,
             config,
         })
     }
