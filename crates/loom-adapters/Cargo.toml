@@ -1,0 +1,16 @@
+[package]
+name = "loom-adapters"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+loom-generic-adapter = { path = "../loom-generic-adapter" }
+loom-auth = { path = "../loom-auth" }
+loom-mcp = { path = "../loom-mcp" }
+loom-skills = { path = "../loom-skills" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+tracing.workspace = true

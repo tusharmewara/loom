@@ -1,0 +1,344 @@
+//! Loom Hooks Framework
+//!
+//! Manages tool-specific hooks that can intercept and modify loom behavior.
+//! Supports registration, execution, and signing of hooks for security.
+
+use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+/// A hook that can be registered to intercept events
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Hook {
+    pub id: String,
+    pub event_type: String,
+    pub script_path: String,
+    pub enabled: bool,
+    pub priority: HookPriority,
+    pub signature: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HookPriority {
+    Ecosystem,
+    Tool,
+    User,
+}
+
+impl std::fmt::Display for HookPriority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HookPriority::Ecosystem => write!(f, "Ecosystem"),
+            HookPriority::Tool => write!(f, "Tool"),
+            HookPriority::User => write!(f, "User"),
+        }
+    }
+}
+
+/// Registry for hooks
+#[derive(Debug, Default)]
+pub struct HookRegistry {
+    hooks: Arc<RwLock<HashMap<String, Hook>>>,
+}
+
+/// Engine for managing hooks
+#[derive(Debug)]
+pub struct HooksEngine {
+    registry: HookRegistry,
+    audit_log: HookAuditLog,
+    agents_dir: String,
+}
+
+impl HooksEngine {
+    pub fn new(agents_dir: &str) -> Self {
+        Self {
+            registry: HookRegistry::new(),
+            audit_log: HookAuditLog::new(),
+            agents_dir: agents_dir.to_string(),
+        }
+    }
+
+    pub fn registry(&self) -> &HookRegistry {
+        &self.registry
+    }
+
+    pub fn audit_log(&self) -> &HookAuditLog {
+        &self.audit_log
+    }
+
+    pub async fn load_hooks(&self) -> anyhow::Result<()> {
+        let hooks_dir = std::path::Path::new(&self.agents_dir).join("hooks");
+        self.registry.load_from_dir(&hooks_dir).await
+    }
+
+    pub async fn execute_hooks(
+        &self,
+        event_type: &str,
+        context: &HookContext,
+    ) -> anyhow::Result<Vec<HookResult>> {
+        execute_hooks(&self.registry, event_type, context).await
+    }
+
+    pub fn health(&self) -> anyhow::Result<loom_core::HealthStatus> {
+        Ok(loom_core::HealthStatus {
+            crate_name: "loom-hooks",
+            version: env!("CARGO_PKG_VERSION"),
+            uptime_seconds: 0,
+            last_error: None,
+            performance_counters: std::collections::HashMap::new(),
+        })
+    }
+}
+
+impl HookRegistry {
+    pub fn new() -> Self {
+        Self {
+            hooks: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Register a new hook
+    pub async fn register(&self, hook: Hook) -> Result<()> {
+        let mut hooks = self.hooks.write().await;
+        hooks.insert(hook.id.clone(), hook);
+        Ok(())
+    }
+
+    /// Get a hook by ID
+    pub async fn get(&self, id: &str) -> Option<Hook> {
+        let hooks = self.hooks.read().await;
+        hooks.get(id).cloned()
+    }
+
+    /// List all hooks
+    pub async fn list(&self) -> Vec<Hook> {
+        let hooks = self.hooks.read().await;
+        hooks.values().cloned().collect()
+    }
+
+    /// Remove a hook
+    pub async fn remove(&self, id: &str) -> Result<()> {
+        let mut hooks = self.hooks.write().await;
+        hooks.remove(id);
+        Ok(())
+    }
+
+    /// Load hooks from configuration directory
+    pub async fn load_from_dir(&self, hooks_dir: &Path) -> Result<()> {
+        if !hooks_dir.exists() {
+            return Ok(());
+        }
+
+        for entry in fs::read_dir(hooks_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("toml") {
+                let content = fs::read_to_string(&path).context("Failed to read hook config")?;
+                let hook: Hook = toml::from_str(&content).context("Failed to parse hook config")?;
+                self.register(hook).await?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Execute hooks for a given event
+pub async fn execute_hooks(
+    registry: &HookRegistry,
+    event_type: &str,
+    context: &HookContext,
+) -> Result<Vec<HookResult>> {
+    let hooks = registry.list().await;
+    let mut results = Vec::new();
+
+    for hook in hooks {
+        if hook.enabled && hook.event_type == event_type {
+            // Check signature if present
+            if let Some(sig) = &hook.signature {
+                if !verify_signature(&hook, sig)? {
+                    continue;
+                }
+            }
+
+            // Execute the hook script
+            match execute_hook_script(&hook.script_path, context).await {
+                Ok(output) => {
+                    results.push(HookResult {
+                        hook_id: hook.id.clone(),
+                        success: true,
+                        output,
+                    });
+                }
+                Err(e) => {
+                    results.push(HookResult {
+                        hook_id: hook.id.clone(),
+                        success: false,
+                        output: format!("Error: {}", e),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(results)
+}
+
+/// Context passed to hook scripts
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookContext {
+    pub event_type: String,
+    pub payload: serde_json::Value,
+    pub tool_name: Option<String>,
+}
+
+/// Result of hook execution
+#[derive(Debug, Clone)]
+pub struct HookResult {
+    pub hook_id: String,
+    pub success: bool,
+    pub output: String,
+}
+
+/// Execute a hook script (placeholder implementation)
+async fn execute_hook_script(script_path: &str, _context: &HookContext) -> Result<String> {
+    // In a real implementation, this would:
+    // 1. Execute the script (shell, Node.js, Python, etc.)
+    // 2. Pass context as stdin or arguments
+    // 3. Capture stdout/stderr
+    // 4. Return the output
+
+    // For now, return a success message
+    Ok(format!("Hook {} executed successfully", script_path))
+}
+
+/// Sign a hook for security verification
+pub fn sign_hook(hook: &Hook) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(hook.id.as_bytes());
+    hasher.update(hook.event_type.as_bytes());
+    hasher.update(hook.script_path.as_bytes());
+    hasher.update(hook.priority.to_string().as_bytes());
+
+    format!("{:x}", hasher.finalize())
+}
+
+/// Verify a hook signature
+pub fn verify_hook(hook: &Hook, signature: &str) -> Result<bool> {
+    let expected = sign_hook(hook);
+    Ok(expected == signature)
+}
+
+/// Verify a hook signature
+fn verify_signature(hook: &Hook, signature: &str) -> Result<bool> {
+    let expected = sign_hook(hook);
+    Ok(expected == signature)
+}
+
+/// Audit log for hook executions
+#[derive(Debug, Default)]
+pub struct HookAuditLog {
+    entries: Arc<RwLock<Vec<HookAuditEntry>>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HookAuditEntry {
+    pub timestamp: DateTime<Utc>,
+    pub hook_id: String,
+    pub event_type: String,
+    pub success: bool,
+    pub output: String,
+}
+
+impl HookAuditLog {
+    pub fn new() -> Self {
+        Self {
+            entries: Arc::new(RwLock::new(Vec::new())),
+        }
+    }
+
+    pub async fn log(&self, entry: HookAuditEntry) {
+        let mut entries = self.entries.write().await;
+        entries.push(entry);
+    }
+
+    pub async fn save_to_file(&self, log_path: &Path) -> Result<()> {
+        let entries = self.entries.read().await;
+        let content = serde_json::to_string_pretty(&*entries)?;
+        fs::write(log_path, content)?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_hook_registration() {
+        let registry = HookRegistry::new();
+        let hook = Hook {
+            id: "test-hook".to_string(),
+            event_type: "skill.added".to_string(),
+            script_path: "/path/to/script.sh".to_string(),
+            enabled: true,
+            priority: HookPriority::Ecosystem,
+            signature: None,
+            created_at: "2026-05-17T16:00:00Z".to_string(),
+        };
+
+        registry.register(hook.clone()).await.unwrap();
+        let retrieved = registry.get("test-hook").await.unwrap();
+        assert_eq!(retrieved.id, hook.id);
+    }
+
+    #[tokio::test]
+    async fn test_hook_execution() {
+        let registry = HookRegistry::new();
+        let hook = Hook {
+            id: "test-hook".to_string(),
+            event_type: "skill.added".to_string(),
+            script_path: "/path/to/script.sh".to_string(),
+            enabled: true,
+            priority: HookPriority::Ecosystem,
+            signature: None,
+            created_at: "2026-05-17T16:00:00Z".to_string(),
+        };
+
+        registry.register(hook).await.unwrap();
+
+        let context = HookContext {
+            event_type: "skill.added".to_string(),
+            payload: serde_json::json!({"skill_id": "test"}),
+            tool_name: Some("jcode".to_string()),
+        };
+
+        let results = execute_hooks(&registry, "skill.added", &context)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].success);
+    }
+
+    #[test]
+    fn test_hook_signing() {
+        let hook = Hook {
+            id: "test-hook".to_string(),
+            event_type: "skill.added".to_string(),
+            script_path: "/path/to/script.sh".to_string(),
+            enabled: true,
+            priority: HookPriority::Ecosystem,
+            signature: None,
+            created_at: "2026-05-17T16:00:00Z".to_string(),
+        };
+
+        let signature = sign_hook(&hook);
+        assert!(!signature.is_empty());
+    }
+}

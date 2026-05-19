@@ -1,0 +1,16 @@
+[package]
+name = "loom-tui"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "loom-tui"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+ratatui = { version = "0.28", default-features = false, features = ["crossterm"] }
+crossterm = "0.28"

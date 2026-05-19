@@ -1,0 +1,16 @@
+[package]
+name = "loom-ffi"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen.workspace = true

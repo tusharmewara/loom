@@ -1,0 +1,22 @@
+[package]
+name = "loom-integration-tests"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dev-dependencies]
+loom-core = { path = "../loom-core" }
+loom-hooks = { path = "../loom-hooks" }
+loom-mcp = { path = "../loom-mcp" }
+loom-routing = { path = "../loom-routing" }
+loom-sessions = { path = "../loom-sessions" }
+loom-skills = { path = "../loom-skills" }
+loom-auth = { path = "../loom-auth" }
+loom-workflow = { path = "../loom-workflow" }
+loom-adapters = { path = "../loom-adapters" }
+anyhow.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+chrono.workspace = true

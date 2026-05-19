@@ -1,0 +1,23 @@
+[package]
+name = "loom-sessions"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+anyhow.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+reqwest = { version = "0.12", features = ["json"], optional = true }
+async-trait = "0.1"
+tokio = { workspace = true }
+
+[features]
+default = []
+integration-acp = ["reqwest"]
+
+[dev-dependencies]
+tempfile = { workspace = true }

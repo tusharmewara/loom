@@ -1,0 +1,17 @@
+[package]
+name = "loom-discovery"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+loom-event-bus = { path = "../loom-event-bus" }
+anyhow.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+notify.workspace = true
+sha2.workspace = true
+shellexpand = "3"
+toml.workspace = true

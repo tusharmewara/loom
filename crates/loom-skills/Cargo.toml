@@ -1,0 +1,20 @@
+[package]
+name = "loom-skills"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+loom-event-bus = { path = "../loom-event-bus" }
+loom-generic-adapter = { path = "../loom-generic-adapter" }
+anyhow.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tracing.workspace = true
+notify.workspace = true
+yaml-rust = "0.4"
+
+[dev-dependencies]
+tempfile.workspace = true

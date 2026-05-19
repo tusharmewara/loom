@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/loom-core",
+    "crates/loom-cli",
+    "crates/loomd",
+    "crates/loom-discovery",
+    "crates/loom-event-bus",
+    "crates/loom-mcp",
+    "crates/loom-skills",
+    "crates/loom-sessions",
+    "crates/loom-auth",
+    "crates/loom-hooks",
+    "crates/loom-workflow",
+    "crates/loom-routing",
+    "crates/loom-generic-adapter",
+    "crates/loom-telemetry",
+    "crates/loom-ffi",
+    "crates/loom-ipc",
+    "crates/loom-integration-tests",
+    "crates/loom-adapters",
+    "crates/loom-tui",
+]
+
+[workspace.package]
+version = "2.0.0"
+edition = "2021"
+license = "MIT"
+description = "Loom — The Shared Agentic Ecosystem"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+anyhow = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json"] }
+clap = { version = "4", features = ["derive"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+capnp = "0.19"
+capnpc = "0.19"
+chacha20poly1305 = "0.10"
+argon2 = "0.5"
+ed25519-dalek = "2"
+sha2 = "0.10"
+zeroize = { version = "1", features = ["zeroize_derive"] }
+notify = "6"
+comfy-table = "7"
+wasm-bindgen = "0.2"
+criterion = { version = "0.5", features = ["html_reports"] }
+zmq = "0.10"
+tempfile = "3"
+chrono = { version = "0.4", features = ["clock", "std"] }
+reqwest = { version = "0.12", features = ["json"] }

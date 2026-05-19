@@ -1,0 +1,40 @@
+[package]
+name = "loom-cli"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "loom_cli"
+
+[[bin]]
+name = "loom-cli"
+path = "src/main.rs"
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+loom-discovery = { path = "../loom-discovery" }
+loom-event-bus = { path = "../loom-event-bus" }
+loom-generic-adapter = { path = "../loom-generic-adapter" }
+loom-ipc = { path = "../loom-ipc" }
+loom-routing = { path = "../loom-routing" }
+loom-sessions = { path = "../loom-sessions" }
+loom-workflow = { path = "../loom-workflow" }
+loom-hooks = { path = "../loom-hooks" }
+loom-adapters = { path = "../loom-adapters" }
+clap.workspace = true
+comfy-table.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+toml.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[features]
+integration-acp = ["loom-sessions/integration-acp"]

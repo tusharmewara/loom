@@ -1,0 +1,25 @@
+[package]
+name = "loomd"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+loom-discovery = { path = "../loom-discovery" }
+loom-event-bus = { path = "../loom-event-bus" }
+loom-mcp = { path = "../loom-mcp" }
+loom-skills = { path = "../loom-skills" }
+loom-sessions = { path = "../loom-sessions" }
+loom-auth = { path = "../loom-auth" }
+loom-hooks = { path = "../loom-hooks" }
+loom-telemetry = { path = "../loom-telemetry" }
+loom-ipc = { path = "../loom-ipc" }
+loom-adapters = { path = "../loom-adapters" }
+loom-generic-adapter = { path = "../loom-generic-adapter" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+rusqlite.workspace = true
+capnp.workspace = true
+tracing.workspace = true
