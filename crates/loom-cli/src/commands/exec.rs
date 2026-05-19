@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::process::Command;
-use std::path::Path;
 
 /// `loom exec <tool1> [tool2 ...] [-- tool-args...]`
 ///

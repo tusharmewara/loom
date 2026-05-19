@@ -38,7 +38,7 @@ jobs:
 
       - name: Build binaries
         run: |
-          cargo build --release --bins -p loom -p loomd --target ${{ matrix.target }}
+          cargo build --release --bins -p loom-cli -p loomd --target ${{ matrix.target }}
           mkdir -p bottle/loom/bin
           cp "target/${{ matrix.target }}/release/loom" "target/${{ matrix.target }}/release/loomd" bottle/loom/bin/
 

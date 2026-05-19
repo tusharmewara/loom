@@ -1,8 +1,6 @@
 use crate::cli::RoutingAction;
-use anyhow::{anyhow, bail, Context, Result};
-use chrono::Utc;
 use loom_core::config::ConfigReader;
-use loom_core::types::{CostEstimate, ModelTier, RoutingDecision, Task};
+use loom_core::types::{ModelTier, RoutingDecision, Task};
 use loom_routing::{CatalogManager, Classifier, DecisionEngine};
 use serde_json::json;
 use std::fs;
@@ -170,7 +168,7 @@ pub async fn run(agents_dir: &Path, action: &RoutingAction) -> anyhow::Result<()
             let forced_tier = parse_tier(tier)?;
 
             // Ensure we have a complexity score
-            let score = if let Some(score) = task.complexity_score.clone() {
+            let _score = if let Some(score) = task.complexity_score.clone() {
                 score
             } else {
                 classifier.classify(&task.description)
