@@ -241,7 +241,7 @@ impl App {
     }
 
     pub fn dispatch_menu_next(&mut self) {
-        if self.dispatch_menu_selected + 1 < 3 {
+        if self.dispatch_menu_selected + 1 < crate::dispatch::DISPATCHER_COUNT {
             self.dispatch_menu_selected += 1;
         }
     }

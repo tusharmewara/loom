@@ -1,17 +1,16 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub const DISPATCHER_COUNT: usize = 3;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DispatchResult {
     pub success: bool,
     pub message: String,
-    pub detail: Option<String>,
 }
 
-#[allow(dead_code)]
 pub trait Dispatcher: Send + Sync {
     fn name(&self) -> &'static str;
-    fn description(&self) -> &'static str;
     fn shortcut(&self) -> char;
     fn available(&self) -> bool;
     fn dispatch(&self, task: &serde_json::Value) -> DispatchResult;
@@ -69,10 +68,6 @@ impl Dispatcher for TerminalLaunch {
         "Terminal Launch"
     }
 
-    fn description(&self) -> &'static str {
-        "Open a new terminal window with the agent"
-    }
-
     fn shortcut(&self) -> char {
         't'
     }
@@ -88,7 +83,6 @@ impl Dispatcher for TerminalLaunch {
                 return DispatchResult {
                     success: false,
                     message: "No agent binary found on PATH (opencode, claude-code, jcode, crush)".to_string(),
-                    detail: None,
                 };
             }
         };
@@ -99,19 +93,17 @@ impl Dispatcher for TerminalLaunch {
                 return DispatchResult {
                     success: false,
                     message: "No terminal emulator found".to_string(),
-                    detail: None,
                 };
             }
         };
 
         let task_id = task.pointer("/task_id").and_then(Value::as_str).unwrap_or("");
-        let title = task.pointer("/title").and_then(Value::as_str).unwrap_or("");
+        let _title = task.pointer("/title").and_then(Value::as_str).unwrap_or("");
 
         if !Self::is_safe_task_id(task_id) {
             return DispatchResult {
                 success: false,
                 message: "Invalid task ID: contains unsafe characters".to_string(),
-                detail: None,
             };
         }
 
@@ -124,7 +116,6 @@ impl Dispatcher for TerminalLaunch {
             return DispatchResult {
                 success: false,
                 message: "Working directory contains unsafe characters".to_string(),
-                detail: None,
             };
         }
 
@@ -145,12 +136,10 @@ impl Dispatcher for TerminalLaunch {
             Ok(child) => DispatchResult {
                 success: true,
                 message: format!("Opened {} in terminal (pid {})", agent, child.id()),
-                detail: Some(format!("Task: {}", title)),
             },
             Err(e) => DispatchResult {
                 success: false,
                 message: format!("Failed to launch terminal: {}", e),
-                detail: None,
             },
         }
     }
@@ -173,10 +162,6 @@ impl Dispatcher for ACPDispatch {
         "ACP Dispatch"
     }
 
-    fn description(&self) -> &'static str {
-        "Dispatch via daemon ACP protocol"
-    }
-
     fn shortcut(&self) -> char {
         'a'
     }
@@ -189,7 +174,6 @@ impl Dispatcher for ACPDispatch {
         DispatchResult {
             success: false,
             message: "ACP dispatch requires daemon IPC (not yet wired)".to_string(),
-            detail: Some("Use Terminal Launch for now".to_string()),
         }
     }
 }
@@ -199,10 +183,6 @@ pub struct EmbeddedPane;
 impl Dispatcher for EmbeddedPane {
     fn name(&self) -> &'static str {
         "Embedded Pane"
-    }
-
-    fn description(&self) -> &'static str {
-        "Run agent inline in TUI (future)"
     }
 
     fn shortcut(&self) -> char {
@@ -217,7 +197,6 @@ impl Dispatcher for EmbeddedPane {
         DispatchResult {
             success: false,
             message: "Embedded Pane is not yet implemented".to_string(),
-            detail: None,
         }
     }
 }
@@ -243,7 +222,6 @@ mod tests {
         let result = DispatchResult {
             success: true,
             message: "ok".to_string(),
-            detail: Some("detail".to_string()),
         };
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains("success"));
