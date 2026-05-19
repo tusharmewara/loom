@@ -9,6 +9,8 @@ pub mod scan;
 pub mod sessions;
 pub mod skills;
 pub mod status;
+pub mod exec;
+pub mod init_shell;
 pub mod thread;
 #[cfg(feature = "integration-acp")]
 pub mod tools_acp;

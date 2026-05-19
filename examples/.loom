@@ -1,0 +1,24 @@
+# Loom Project Configuration
+# This file enables loom ecosystem integration for this project.
+# Place it at the root of your project directory.
+
+[project]
+name = "my-project"
+agents_dir = "~/.agents"
+
+# Tools enabled for this project
+[tools]
+enabled = ["opencode", "claude-code"]
+
+# Routing configuration (optional)
+[routing]
+default_tier = "mid"
+strategy = "balanced"
+
+# MCP servers to share (optional)
+[mcp]
+shared = ["filesystem", "github"]
+
+# Skills to activate (optional)
+[skills]
+auto_load = true

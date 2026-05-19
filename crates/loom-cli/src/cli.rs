@@ -83,6 +83,24 @@ pub enum Command {
         #[command(subcommand)]
         action: RoutingAction,
     },
+    /// Execute agentic tool(s) with loom ecosystem integration
+    Exec {
+        /// Tool name(s) to enable ecosystem for (last one is launched)
+        #[arg(required = true)]
+        tools: Vec<String>,
+        /// Arguments passed to the launched tool (after --)
+        #[arg(last = true)]
+        args: Vec<String>,
+        /// Dry run: show env vars without executing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Generate shell integration script for transparent loom activation
+    InitShell {
+        /// Shell type (bash, zsh, fish)
+        #[arg(long, default_value = "auto")]
+        shell: String,
+    },
     /// Add an agentic tool from the ACP registry (requires integration-acp feature)
     #[cfg(feature = "integration-acp")]
     AddAcpAgent {
@@ -327,6 +345,12 @@ impl Cli {
             Command::Hooks { action } => crate::commands::hooks::run(&agents_path, &action).await,
             Command::Workflow { action } => crate::commands::workflow::run(&agents_path, &action).await,
             Command::Routing { action } => crate::commands::routing::run(&agents_path, &action).await,
+            Command::Exec {
+                tools,
+                args,
+                dry_run,
+            } => crate::commands::exec::run(&tools, &args, dry_run, &agents_dir).await,
+            Command::InitShell { shell } => crate::commands::init_shell::run(&shell),
 
             #[cfg(feature = "integration-acp")]
             Command::AddAcpAgent { agent_id } => {
