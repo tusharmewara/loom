@@ -50,7 +50,7 @@ const DEFAULT_CHANNEL_CAP: usize = 4096;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
 /// use loom_event_bus::{EventBus, LoomEvent};
 ///
 /// let bus = EventBus::new("/tmp/.loom", 4096);

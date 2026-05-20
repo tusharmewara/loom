@@ -333,7 +333,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "This test hangs and needs investigation"]
     fn test_persistence() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("acl.json");
@@ -362,7 +361,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "This test hangs and needs investigation"]
     fn test_reload() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("acl.json");
