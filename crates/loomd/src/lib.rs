@@ -25,6 +25,13 @@ pub struct Loomd {
 impl Loomd {
     #[allow(clippy::arc_with_non_send_sync)]
     pub fn new(loom_dir: &str) -> anyhow::Result<Self> {
+        // Create ~/.loom directory tree if it doesn't exist
+        if !std::path::Path::new(loom_dir).exists() {
+            loom_discovery::initializer::SnapshotBuilder::new(loom_dir)
+                .create_agents_tree()
+                .map_err(|e| anyhow::anyhow!("Failed to create loom directory: {}", e))?;
+        }
+
         let event_bus = loom_event_bus::EventBus::with_defaults(loom_dir).as_arc();
         let telemetry = Arc::new(loom_telemetry::TelemetryCollector::new(loom_dir));
         telemetry.init_tracing();
