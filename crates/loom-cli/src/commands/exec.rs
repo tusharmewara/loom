@@ -156,6 +156,28 @@ pub async fn run(
         return Ok(());
     }
 
+    // Create a session manifest in the shared sessions directory
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let session_store = loom_sessions::store::SessionStore::new(loom_dir);
+    let manifest = loom_core::SessionManifest {
+        session_id: session_id.clone(),
+        source_tool: launch_tool.to_string(),
+        source_version: env!("CARGO_PKG_VERSION").to_string(),
+        exported_at: chrono::Utc::now().to_rfc3339(),
+        topic: format!("loom exec {}", tools.join(" ")),
+        message_count: 0,
+        active_skills: vec![],
+        active_mcp_servers: vec![],
+        working_directory: std::env::current_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        model_provider: std::env::var("LOOM_ROUTING_PROVIDER").unwrap_or_default(),
+        files_modified: vec![],
+        compatibility_note: None,
+    };
+    session_store.save_manifest(&manifest)?;
+    env_vars.insert("LOOM_SESSION_ID".to_string(), session_id);
+
     // Build and execute command
     let mut cmd = Command::new(&binary_path);
     cmd.args(tool_args);
