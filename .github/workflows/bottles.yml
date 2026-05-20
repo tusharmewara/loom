@@ -65,6 +65,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Upload bottle to homebrew-loom
+        run: |
+          gh release upload v${{ steps.vars.outputs.version }} \
+            "loom--${{ steps.vars.outputs.version }}--${{ matrix.platform }}.tar.gz" \
+            --repo tusharmewara/homebrew-loom --clobber || \
+          gh release create v${{ steps.vars.outputs.version }} \
+            --repo tusharmewara/homebrew-loom \
+            --generate-notes \
+            "loom--${{ steps.vars.outputs.version }}--${{ matrix.platform }}.tar.gz"
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_LOOM_PAT }}
+
       - name: Save checksum
         run: |
           echo "@sha256_${{ matrix.platform }} = \"${{ steps.checksum.outputs.sha256 }}\"" >> checksums.txt
