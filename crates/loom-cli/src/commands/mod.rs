@@ -6,12 +6,12 @@ pub mod init;
 pub mod mcp;
 pub mod routing;
 pub mod scan;
+pub mod resume;
 pub mod sessions;
 pub mod skills;
 pub mod status;
 pub mod exec;
 pub mod init_shell;
 pub mod thread;
-#[cfg(feature = "integration-acp")]
 pub mod tools_acp;
 pub mod workflow;

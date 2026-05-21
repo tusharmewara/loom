@@ -434,7 +434,7 @@ mod tests {
     async fn test_doctor_initialized_dir_has_no_failures() {
         let dir = tempfile::tempdir().unwrap();
         let loom_dir = dir.path().to_str().unwrap();
-        init::run(false, loom_dir).await.unwrap();
+        init::run(false, false, loom_dir).await.unwrap();
         let result = run(loom_dir, false).await;
         assert!(result.is_ok(), "doctor should pass, got: {result:?}");
     }

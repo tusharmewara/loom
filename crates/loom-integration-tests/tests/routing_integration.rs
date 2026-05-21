@@ -231,7 +231,7 @@ fn test_manual_override_persists() -> Result<()> {
     // Load, modify, and save task
     let mut task = manager.get(&task_id)?.unwrap();
     task.routing_decision = Some(override_decision.clone());
-    task.assigned_agent = Some(model.provider_id.clone());
+    task.routed_provider = Some(model.provider_id.clone());
     let task_path = std::path::Path::new(&agents)
         .join("workflow")
         .join("tasks")
@@ -245,7 +245,7 @@ fn test_manual_override_persists() -> Result<()> {
     let rd = reloaded.routing_decision.as_ref().unwrap();
     assert!(matches!(rd.recommended_tier, ModelTier::Slm));
     assert!(rd.overrides_role_default);
-    assert_eq!(reloaded.assigned_agent.as_ref().unwrap(), &model.provider_id);
+    assert_eq!(reloaded.routed_provider.as_ref().unwrap(), &model.provider_id);
 
     Ok(())
 }

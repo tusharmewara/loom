@@ -3,6 +3,10 @@ name = "loom-tui"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "loom_tui"
+path = "src/lib.rs"
+
 [[bin]]
 name = "loom-tui"
 path = "src/main.rs"

@@ -8,6 +8,7 @@
 pub mod client;
 pub mod health;
 pub mod import;
+pub mod known;
 pub mod pool;
 pub mod registry;
 
@@ -59,6 +60,7 @@ impl McpManager {
     /// The registry database is stored at `loom_dir / mcp_registry.db`.
     pub fn new(loom_dir: &str) -> Result<Self> {
         let registry = McpRegistry::new(loom_dir)?;
+        registry.seed_defaults()?;
         let pool = McpPool::new();
         let health_checker = McpHealthChecker::with_defaults();
         let client_pool = McpClientPool::with_defaults();
@@ -78,6 +80,7 @@ impl McpManager {
     /// Create a new `McpManager` with an event bus for change notifications.
     pub fn with_event_bus(loom_dir: &str, event_bus: Arc<EventBus>) -> Result<Self> {
         let registry = McpRegistry::new(loom_dir)?;
+        registry.seed_defaults()?;
         let pool = McpPool::new();
 
         // Wire up health changes to publish on the event bus
@@ -280,6 +283,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let bus = Arc::new(EventBus::new(dir.path().to_str().unwrap(), 64));
         let mgr = McpManager::with_event_bus(dir.path().to_str().unwrap(), bus).unwrap();
-        assert!(mgr.registry().count().unwrap() == 0);
+        // Default servers (context-mode, rtk) are seeded on creation
+        assert!(mgr.registry().count().unwrap() == 2);
     }
 }

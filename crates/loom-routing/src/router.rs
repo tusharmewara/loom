@@ -97,4 +97,9 @@ impl ModelRouter {
     pub fn config(&self) -> Option<&RoutingConfig> {
         self.config.as_ref()
     }
+
+    /// Access the underlying model catalog.
+    pub fn catalog(&self) -> &loom_core::ModelCatalog {
+        self.catalog.catalog()
+    }
 }

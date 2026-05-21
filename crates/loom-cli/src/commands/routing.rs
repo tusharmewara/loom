@@ -205,7 +205,7 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
             };
 
             task.routing_decision = Some(decision.clone());
-            task.assigned_agent = Some(model.provider_id.clone());
+            task.routed_provider = Some(model.provider_id.clone());
             task.updated_at = now;
 
             // Update the latest phase history entry if present

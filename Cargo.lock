@@ -1477,9 +1477,12 @@ dependencies = [
  "loom-generic-adapter",
  "loom-hooks",
  "loom-ipc",
+ "loom-mcp",
  "loom-routing",
  "loom-sessions",
+ "loom-tui",
  "loom-workflow",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",
@@ -1668,8 +1671,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "loom-core",
+ "reqwest",
  "serde",
  "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

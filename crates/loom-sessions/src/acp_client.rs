@@ -1,5 +1,3 @@
-#![cfg(feature = "integration-acp")]
-
 use anyhow::Result;
 use reqwest::Client;
 use serde::Deserialize;

@@ -191,6 +191,8 @@ fn routing_cost_optimize_prefers_slm_for_simple_tasks() {
     let config = loom_core::RoutingConfig {
         strategy: RoutingStrategy::CostOptimize,
         default_tier: None,
+        default_provider: None,
+        default_model: None,
         overrides: Default::default(),
         complexity_thresholds: Default::default(),
     };

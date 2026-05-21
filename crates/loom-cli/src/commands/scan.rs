@@ -743,7 +743,7 @@ mod tests {
         let loom_dir = dir.path().to_str().unwrap();
 
         // Initialize first
-        init::run(false, loom_dir).await.unwrap();
+        init::run(false, false, loom_dir).await.unwrap();
 
         // Scan should succeed with empty counts
         run(loom_dir, false).await.unwrap();
@@ -771,7 +771,7 @@ mod tests {
         .unwrap();
 
         // Init with import
-        init::run(true, loom_dir).await.unwrap();
+        init::run(true, false, loom_dir).await.unwrap();
 
         // Scan should find resources
         run(loom_dir, false).await.unwrap();

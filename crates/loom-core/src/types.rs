@@ -99,6 +99,12 @@ pub struct RoutingConfig {
     pub strategy: RoutingStrategy,
     #[serde(default)]
     pub default_tier: Option<ModelTier>,
+    /// Default LLM provider name (e.g. "openai", "anthropic").
+    #[serde(default)]
+    pub default_provider: Option<String>,
+    /// Default model name (e.g. "gpt-4", "claude-sonnet-4-20250514").
+    #[serde(default)]
+    pub default_model: Option<String>,
     #[serde(default)]
     pub overrides: HashMap<String, ModelTier>,
     #[serde(default)]
@@ -414,7 +420,7 @@ pub struct RoutingDecision {
     pub cost_estimate: CostEstimate,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CostEstimate {
     pub input_tokens_estimated: u32,
     pub output_tokens_estimated: u32,
@@ -496,11 +502,16 @@ pub struct Task {
     pub prd_path: Option<String>,
     #[serde(default)]
     pub context_files: Vec<String>,
-    pub assigned_agent: Option<String>,
+    #[serde(alias = "assigned_agent")]
+    pub routed_provider: Option<String>,
     #[serde(default)]
     pub files_modified: Vec<String>,
     pub complexity_score: Option<ComplexityScore>,
     pub routing_decision: Option<RoutingDecision>,
+    /// Name of the last agent tool that worked on this task (e.g. "opencode", "goose").
+    /// Used as default for `loom workflow dispatch` when `--agent` is omitted.
+    #[serde(default)]
+    pub last_agent: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub status: TaskStatus,

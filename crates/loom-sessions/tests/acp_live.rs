@@ -1,5 +1,3 @@
-#![cfg(feature = "integration-acp")]
-
 use loom_sessions::SessionManager;
 use reqwest::Client;
 

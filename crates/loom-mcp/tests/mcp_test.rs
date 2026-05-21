@@ -402,9 +402,9 @@ async fn test_manager_full_lifecycle() {
     let dir = tempfile::tempdir().unwrap();
     let mut mgr = McpManager::new(dir.path().to_str().unwrap()).unwrap();
 
-    // 1. Registry
+    // 1. Registry (defaults: context-mode, rtk are seeded on creation)
     mgr.registry().upsert(&sample_entry("integ-srv")).unwrap();
-    assert_eq!(mgr.registry().count().unwrap(), 1);
+    assert_eq!(mgr.registry().count().unwrap(), 3);
 
     // 2. Pool
     let entry = mgr.registry().get("integ-srv").unwrap().unwrap();

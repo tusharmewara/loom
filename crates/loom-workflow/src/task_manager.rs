@@ -2,8 +2,8 @@ use crate::phases::{default_model_tier, next_phase};
 use crate::routing::{Classifier, DecisionEngine};
 use anyhow::{Context, Result};
 use loom_core::{
-    config::ConfigReader, ComplexityLevel, ModelTier, PhaseHistoryEntry, Task, TaskPhase,
-    TaskStatus,
+    config::ConfigReader, ComplexityLevel, ModelTier, PhaseHistoryEntry, RoutingDecision, Task,
+    TaskPhase, TaskStatus,
 };
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -121,10 +121,11 @@ impl TaskManager {
             }],
             prd_path: None,
             context_files: vec![],
-            assigned_agent: None,
+            routed_provider: None,
             files_modified: vec![],
             complexity_score: Some(complexity),
             routing_decision: Some(routing_decision),
+            last_agent: None,
             created_at: now.clone(),
             updated_at: now,
             status: TaskStatus::Pending,
@@ -255,20 +256,101 @@ impl TaskManager {
         Ok(task)
     }
 
-    pub fn assign_agent(&self, task_id: &str) -> Result<Task> {
+    pub fn assign_routing(&self, task_id: &str) -> Result<Task> {
+        self.assign_routing_with_overrides(task_id, None, None)
+    }
+
+    pub fn assign_routing_with_overrides(
+        &self,
+        task_id: &str,
+        provider: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<Task> {
         let mut task = self
             .get(task_id)?
             .with_context(|| format!("task '{task_id}' not found"))?;
 
-        if let Some(routing_decision) = &task.routing_decision {
-            task.assigned_agent = Some(routing_decision.recommended_provider.clone());
-        } else {
-            let complexity = self.classifier.classify(&task.description);
-            let routing_decision = self.router.decide(complexity);
-            task.assigned_agent = Some(routing_decision.recommended_provider.clone());
-            task.routing_decision = Some(routing_decision);
+        match (provider, model) {
+            (Some(prov), Some(modl)) => {
+                // User overrode both provider and model
+                let decision = RoutingDecision {
+                    recommended_tier: task
+                        .routing_decision
+                        .as_ref()
+                        .map(|d| d.recommended_tier)
+                        .unwrap_or(ModelTier::Mid),
+                    recommended_provider: prov.to_string(),
+                    recommended_model: modl.to_string(),
+                    reason: format!("User override: provider={prov}, model={modl}"),
+                    overrides_role_default: true,
+                    decided_at: rfc3339_now(),
+                    cost_estimate: task
+                        .routing_decision
+                        .as_ref()
+                        .map(|d| d.cost_estimate.clone())
+                        .unwrap_or_default(),
+                };
+                task.routing_decision = Some(decision.clone());
+                task.routed_provider = Some(decision.recommended_provider.clone());
+            }
+            (Some(prov), None) => {
+                // User overrode provider — decide model based on provider
+                let catalog = self.router.catalog();
+                let model_entry = catalog
+                    .models
+                    .iter()
+                    .find(|m| m.provider_id == prov && m.available)
+                    .or_else(|| catalog.models.iter().find(|m| m.provider_id == prov));
+                let model_id = model_entry
+                    .map(|m| m.model_id.clone())
+                    .unwrap_or_else(|| format!("{prov}/default"));
+                let decision = RoutingDecision {
+                    recommended_tier: model_entry
+                        .as_ref()
+                        .map(|m| m.tier)
+                        .or_else(|| {
+                            task.routing_decision
+                                .as_ref()
+                                .map(|d| d.recommended_tier)
+                        })
+                        .unwrap_or(ModelTier::Mid),
+                    recommended_provider: prov.to_string(),
+                    recommended_model: model_id,
+                    reason: format!("User override: provider={prov}"),
+                    overrides_role_default: true,
+                    decided_at: rfc3339_now(),
+                    cost_estimate: task
+                        .routing_decision
+                        .as_ref()
+                        .map(|d| d.cost_estimate.clone())
+                        .unwrap_or_default(),
+                };
+                task.routing_decision = Some(decision.clone());
+                task.routed_provider = Some(decision.recommended_provider.clone());
+            }
+            (None, _) => {
+                // No provider override — run classifier as before
+                if let Some(routing_decision) = &task.routing_decision {
+                    task.routed_provider = Some(routing_decision.recommended_provider.clone());
+                } else {
+                    let complexity = self.classifier.classify(&task.description);
+                    let routing_decision = self.router.decide(complexity);
+                    task.routed_provider = Some(routing_decision.recommended_provider.clone());
+                    task.routing_decision = Some(routing_decision);
+                }
+            }
         }
 
+        task.updated_at = rfc3339_now();
+        self.write_task(&task)?;
+        Ok(task)
+    }
+
+    pub fn set_last_agent(&self, task_id: &str, agent: &str) -> Result<Task> {
+        let mut task = self
+            .get(task_id)?
+            .with_context(|| format!("task '{task_id}' not found"))?;
+        task.last_agent = Some(agent.to_string());
         task.updated_at = rfc3339_now();
         self.write_task(&task)?;
         Ok(task)

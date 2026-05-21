@@ -1,4 +1,5 @@
 use crate::cli::SessionsAction;
+use crate::commands::resume;
 use loom_sessions::{export_session, import_session, write_export, SessionManager};
 use std::path::Path;
 
@@ -71,6 +72,21 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
         SessionsAction::Import { path } => {
             let session_id = import_session(store, Path::new(path))?;
             println!("Imported session '{session_id}'");
+        }
+        SessionsAction::Resume {
+            id,
+            provider,
+            model,
+            agent,
+        } => {
+            resume::resume_session(
+                loom_dir,
+                id,
+                provider.as_deref(),
+                model.as_deref(),
+                agent.as_deref(),
+            )
+            .await?;
         }
     }
     Ok(())

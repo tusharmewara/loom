@@ -16,6 +16,9 @@ pub enum Command {
         /// Scan for existing resources and build the initial snapshot
         #[arg(long, short)]
         import: bool,
+        /// Install recommended MCP servers (filesystem, github, playwright, agentmemory)
+        #[arg(long, short)]
+        recommended: bool,
     },
     /// Scan the ecosystem and display discovered resources
     Scan {
@@ -101,11 +104,13 @@ pub enum Command {
         #[arg(long, default_value = "auto")]
         shell: String,
     },
-    /// Add an agentic tool from the ACP registry (requires integration-acp feature)
-    #[cfg(feature = "integration-acp")]
+    /// Add an agentic tool from the ACP registry (cdn.agentclientprotocol.com)
     AddAcpAgent {
         agent_id: String,
     },
+    /// Launch the terminal UI dashboard
+    #[cfg(feature = "tui")]
+    Tui,
 }
 
 #[derive(Subcommand)]
@@ -147,6 +152,25 @@ pub enum McpAction {
     Add { name: String },
     /// Remove an MCP server
     Remove { id: String },
+    /// Install a known MCP server (npm-based)
+    Install {
+        name: String,
+        /// Also pre-warm the npm cache (slower now, blazing fast later)
+        #[arg(long, short)]
+        prewarm: bool,
+    },
+    /// Install all recommended MCP servers
+    InstallRecommended {
+        /// Also pre-warm the npm cache
+        #[arg(long, short)]
+        prewarm: bool,
+    },
+    /// List known MCP servers available for install
+    ListKnown {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -194,12 +218,36 @@ pub enum SessionsAction {
     },
     /// Import a session from a portable export file
     Import { path: String },
+    /// Resume a session interactively with an LLM provider or launch an agent tool
+    Resume {
+        id: String,
+        /// LLM provider (openai, anthropic, or custom endpoint URL).
+        /// Falls back to LOOM_ROUTING_PROVIDER env var, then
+        /// routing.default_provider in config.
+        #[arg(long, short)]
+        provider: Option<String>,
+        /// Model name (e.g. gpt-4, claude-sonnet-4-20250514).
+        /// Falls back to routing.default_model in config, then
+        /// per-provider defaults.
+        #[arg(long, short)]
+        model: Option<String>,
+        /// Agent tool to launch with session context (e.g. "opencode", "goose").
+        /// When set, launches the tool instead of the interactive REPL.
+        #[arg(long)]
+        agent: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
 pub enum AuthAction {
-    /// List auth provider entries
+    /// List auth entries in the auth directory
     List {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// List registered LLM providers from the provider registry
+    Providers {
         /// Output machine-readable JSON
         #[arg(long)]
         json: bool,
@@ -276,6 +324,33 @@ pub enum WorkflowAction {
     },
     /// Advance a task to the next phase
     Advance { task_id: String },
+    /// Assign a routed provider to a task (with optional overrides)
+    Assign {
+        task_id: String,
+        /// Override the provider (e.g., "anthropic", "openai")
+        #[arg(long)]
+        provider: Option<String>,
+        /// Override the model (e.g., "claude-opus-4", "gpt-4o")
+        #[arg(long)]
+        model: Option<String>,
+        /// Set the last agent tool for this task
+        #[arg(long)]
+        last_agent: Option<String>,
+    },
+    /// Dispatch a task to an agent tool (e.g., "opencode", "goose").
+    /// Defaults to the last agent that worked on the task.
+    Dispatch {
+        task_id: String,
+        /// Agent tool to dispatch to (default: task.last_agent)
+        #[arg(long)]
+        agent: Option<String>,
+        /// Additional args to pass to the agent tool
+        #[arg(last = true)]
+        tool_args: Vec<String>,
+        /// Dry run (print env vars without launching)
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -329,7 +404,9 @@ impl Cli {
         let loom_dir = crate::loom_dir();
         let agents_path = PathBuf::from(&loom_dir);
         match self.command {
-            Command::Init { import } => crate::commands::init::run(import, &loom_dir).await,
+            Command::Init { import, recommended } => {
+                crate::commands::init::run(import, recommended, &loom_dir).await
+            }
             Command::Scan { json } => crate::commands::scan::run(&loom_dir, json).await,
             Command::Status { json } => crate::commands::status::run(&loom_dir, json).await,
             Command::Doctor { json } => crate::commands::doctor::run(&loom_dir, json).await,
@@ -352,7 +429,6 @@ impl Cli {
             } => crate::commands::exec::run(&tools, &args, dry_run, &loom_dir).await,
             Command::InitShell { shell } => crate::commands::init_shell::run(&shell),
 
-            #[cfg(feature = "integration-acp")]
             Command::AddAcpAgent { agent_id } => {
                 crate::commands::tools_acp::AddArgs {
                     agent_id,
@@ -360,6 +436,8 @@ impl Cli {
                 .handle(&loom_dir)
                 .await
             }
+            #[cfg(feature = "tui")]
+            Command::Tui => loom_tui::run().await,
         }
     }
 }

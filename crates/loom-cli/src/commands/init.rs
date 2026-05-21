@@ -4,7 +4,7 @@ use loom_discovery::registry::SnapshotDb;
 use loom_sessions::SessionManager;
 use std::path::Path;
 
-/// `loom init [--import]`
+/// `loom init [--import] [--recommended]`
 ///
 /// Creates the `~/.loom/` directory tree (skills, mcp, sessions, auth,
 /// hooks, tools, config, .cache), a minimal default `config.toml`, and
@@ -12,7 +12,10 @@ use std::path::Path;
 ///
 /// When `--import` is passed, also walks the filesystem to build the
 /// initial snapshot from existing resources.
-pub async fn run(import: bool, loom_dir: &str) -> Result<()> {
+///
+/// When `--recommended` is passed, also installs recommended MCP servers
+/// (filesystem, github, playwright, agentmemory) into the registry.
+pub async fn run(import: bool, recommended: bool, loom_dir: &str) -> Result<()> {
     // 1. Create the full directory tree
     let builder = SnapshotBuilder::new(loom_dir);
     builder
@@ -58,6 +61,24 @@ pub async fn run(import: bool, loom_dir: &str) -> Result<()> {
             .build_initial()
             .context("Failed to build initial snapshot from existing resources")?;
         println!("✓ Imported existing resources into snapshot");
+    }
+
+    // 6. Optionally install recommended MCP servers
+    if recommended {
+        let n_recommended = loom_mcp::known::recommended().len();
+        for server in loom_mcp::known::recommended() {
+            let loom_dir_str = loom_dir.to_string();
+            let registry = loom_mcp::McpRegistry::new(&loom_dir_str)?;
+            if registry.get(server.id).ok().flatten().is_none() {
+                let entry = server.to_entry();
+                if let Err(e) = registry.upsert(&entry) {
+                    eprintln!("  ⚠ Failed to register '{}': {e}", server.id);
+                } else {
+                    println!("  ✓ Registered MCP server: {} ({})", server.id, server.name);
+                }
+            }
+        }
+        println!("✓ Installed {n_recommended} recommended MCP server(s)");
     }
 
     Ok(())
@@ -106,7 +127,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let loom_dir = dir.path().to_str().unwrap();
 
-        run(false, loom_dir).await.unwrap();
+        run(false, false, loom_dir).await.unwrap();
 
         // Verify key directories exist
         assert!(dir.path().join("config").exists());
@@ -132,8 +153,8 @@ mod tests {
         let loom_dir = dir.path().to_str().unwrap();
 
         // Run twice
-        run(false, loom_dir).await.unwrap();
-        run(false, loom_dir).await.unwrap();
+        run(false, false, loom_dir).await.unwrap();
+        run(false, false, loom_dir).await.unwrap();
     }
 
     #[tokio::test]
@@ -152,12 +173,26 @@ mod tests {
         ).unwrap();
 
         // Run with --import
-        run(true, loom_dir).await.unwrap();
+        run(true, false, loom_dir).await.unwrap();
 
         // Snapshot should have entries
         let db = SnapshotDb::new(loom_dir);
         let counts = db.count_resources().unwrap();
         assert_eq!(*counts.get("skills").unwrap_or(&0), 1);
         assert_eq!(*counts.get("tools").unwrap_or(&0), 1);
+    }
+
+    #[tokio::test]
+    async fn test_init_with_recommended_mcp() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom_dir = dir.path().to_str().unwrap();
+
+        run(false, true, loom_dir).await.unwrap();
+
+        // Registry should contain the recommended MCP servers
+        let registry = loom_mcp::McpRegistry::new(loom_dir).unwrap();
+        let n_recommended = loom_mcp::known::recommended().len();
+        assert!(n_recommended >= 4, "expected at least 4 recommended servers"); // filesystem, github, playwright, agentmemory
+        assert_eq!(registry.count().unwrap(), n_recommended);
     }
 }

@@ -13,18 +13,13 @@ pub use exporter::{export_session, write_export, SessionExport};
 pub use importer::{import_session, import_session_json};
 pub use migrate::migrate_if_needed;
 
-// Conditionally compile ACP support
-#[cfg(feature = "integration-acp")]
 pub mod acp_client;
-#[cfg(feature = "integration-acp")]
 pub use acp_client::AcpClient;
-#[cfg(feature = "integration-acp")]
 pub use acp_client::AgentMetadata;
 
 pub struct SessionManager {
     loom_dir: String,
     store: store::SessionStore,
-    #[cfg(feature = "integration-acp")]
     acp_client: Option<AcpClient>,
     custom_agents: HashMap<String, Box<dyn agent_provider::AgentProvider>>,
 }
@@ -34,13 +29,11 @@ impl SessionManager {
         Self {
             loom_dir: loom_dir.to_string(),
             store: store::SessionStore::new(loom_dir),
-            #[cfg(feature = "integration-acp")]
             acp_client: None,
             custom_agents: Default::default(),
         }
     }
 
-    #[cfg(feature = "integration-acp")]
     pub async fn new_with_acp(loom_dir: &str, registry_url: &str) -> anyhow::Result<Self> {
         let client = AcpClient::new(registry_url, std::time::Duration::from_secs(300)).await?;
         Ok(Self {
@@ -63,7 +56,6 @@ impl SessionManager {
         &self.store
     }
 
-    #[cfg(feature = "integration-acp")]
     pub fn acp_client(&self) -> Option<&AcpClient> {
         self.acp_client.as_ref()
     }
@@ -77,7 +69,6 @@ impl SessionManager {
         migrate::migrate_if_needed(&self.loom_dir)
     }
 
-    #[cfg(feature = "integration-acp")]
     pub async fn discover_acp_agents(&self) -> anyhow::Result<Vec<AgentMetadata>> {
         if let Some(client) = &self.acp_client {
             client.discover_agents().await.map_err(|e| anyhow::anyhow!(e))
@@ -86,7 +77,6 @@ impl SessionManager {
         }
     }
 
-    #[cfg(feature = "integration-acp")]
     /// List all agent names (ACP + custom).
     pub async fn list_all_agents(&self) -> anyhow::Result<Vec<String>> {
         let mut names = Vec::new();
@@ -102,7 +92,6 @@ impl SessionManager {
         Ok(names)
     }
 
-    #[cfg(feature = "integration-acp")]
     /// Refresh the ACP registry cache.
     pub async fn refresh_acp_registry(&self) -> anyhow::Result<()> {
         if let Some(client) = &self.acp_client {

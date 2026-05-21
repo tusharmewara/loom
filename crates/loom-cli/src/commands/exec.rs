@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use std::collections::HashMap;
+use std::path::Path;
 use std::process::Command;
 
 /// `loom exec <tool1> [tool2 ...] [-- tool-args...]`
@@ -71,8 +72,16 @@ pub async fn run(
     }
 
     // Set up the launch tool
+    let mut native_mcp_config = None;
+    let mut native_skills_dir = None;
+    let mut native_sessions_dir = None;
+
     let tool_binary = if let Some(adapter) = loom_adapters::adapter_for(launch_tool) {
         let toml = adapter.default_toml(&home);
+
+        native_mcp_config = toml.mcp.as_ref().and_then(|m| m.config_path.clone());
+        native_skills_dir = toml.skills.as_ref().and_then(|s| s.native_dir.clone());
+        native_sessions_dir = toml.sessions.as_ref().and_then(|s| s.store_path.clone());
 
         // Skills
         if let Some(ref skills) = toml.skills {
@@ -178,6 +187,18 @@ pub async fn run(
     session_store.save_manifest(&manifest)?;
     env_vars.insert("LOOM_SESSION_ID".to_string(), session_id);
 
+    // Inject loom's shared ecosystem resources into the tool's native config
+    if let Some(ref mcp_path) = native_mcp_config {
+        if let Err(e) = inject_shared_mcp(loom_dir, mcp_path) {
+            eprintln!("⚠ Failed to inject shared MCP servers: {e}");
+        }
+    }
+    if let Some(ref skills_dir) = native_skills_dir {
+        if let Err(e) = inject_shared_skills(loom_dir, skills_dir) {
+            eprintln!("⚠ Failed to inject shared skills: {e}");
+        }
+    }
+
     // Build and execute command
     let mut cmd = Command::new(&binary_path);
     cmd.args(tool_args);
@@ -200,7 +221,182 @@ pub async fn run(
         anyhow::bail!("'{}' exited with status: {}", launch_tool, status);
     }
 
+    // Extract sessions from the tool's native session directory into loom
+    if let Some(ref sessions_dir) = native_sessions_dir {
+        if let Err(e) = extract_tool_sessions(loom_dir, sessions_dir) {
+            eprintln!("⚠ Failed to extract tool sessions: {e}");
+        }
+    }
+
     Ok(())
+}
+
+// ─── Ecosystem Integration Helpers ────────────────────────────────────
+
+/// Inject loom's shared MCP servers into the tool's native MCP config.
+///
+/// Reads all registered MCP servers from `mcp_registry.db` and merges them
+/// into the tool's native `mcpServers` JSON config. Native servers take
+/// precedence — shared servers are only added if not already present.
+fn inject_shared_mcp(loom_dir: &str, native_config_path: &str) -> Result<()> {
+    let path = Path::new(native_config_path);
+    if path.is_dir() {
+        return Ok(());
+    }
+
+    let registry = match loom_mcp::McpRegistry::new(loom_dir) {
+        Ok(r) => r,
+        Err(_) => return Ok(()),
+    };
+    let shared_servers = registry.filter_shared(true).unwrap_or_default();
+    if shared_servers.is_empty() {
+        return Ok(());
+    }
+
+    // Read existing native config (standard MCP JSON format)
+    let raw = if path.exists() {
+        std::fs::read_to_string(path).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let mut config: serde_json::Value = serde_json::from_str(&raw)
+        .unwrap_or(serde_json::json!({"mcpServers": {}}));
+
+    if !config.is_object() {
+        config = serde_json::json!({"mcpServers": {}});
+    }
+    let config_obj = config.as_object_mut().unwrap();
+    if !config_obj.contains_key("mcpServers") {
+        config_obj.insert("mcpServers".into(), serde_json::json!({}));
+    }
+    let Some(servers) = config_obj.get_mut("mcpServers").and_then(|v| v.as_object_mut()) else {
+        return Ok(());
+    };
+
+    let mut count = 0;
+    for entry in &shared_servers {
+        if servers.contains_key(&entry.id) {
+            continue;
+        }
+        let mut sv = serde_json::json!({});
+        if let Some(cmd) = &entry.transport.command {
+            sv["command"] = serde_json::json!(cmd);
+        }
+        if !entry.transport.args.is_empty() {
+            sv["args"] = serde_json::json!(entry.transport.args);
+        }
+        if !entry.transport.env.is_empty() {
+            sv["env"] = serde_json::json!(entry.transport.env);
+        }
+        servers.insert(entry.id.clone(), sv);
+        count += 1;
+    }
+
+    if count > 0 {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        std::fs::write(path, serde_json::to_string_pretty(&config)?)?;
+        println!("✓ Injected {count} shared MCP server(s) into {native_config_path}");
+    }
+
+    Ok(())
+}
+
+/// Inject loom's shared skills into the tool's native skills directory.
+///
+/// Symlinks `.md` skill files from `~/.loom/skills/` into the tool's native
+/// skills directory, skipping any that already exist (native takes precedence).
+fn inject_shared_skills(loom_dir: &str, native_skills_dir: &str) -> Result<()> {
+    let shared_dir = Path::new(loom_dir).join("skills");
+    if !shared_dir.is_dir() {
+        return Ok(());
+    }
+
+    let native_dir = Path::new(native_skills_dir);
+    std::fs::create_dir_all(native_dir)?;
+
+    let mut count = 0;
+    for entry in std::fs::read_dir(&shared_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        let name = match path.file_name() {
+            Some(n) => n.to_os_string(),
+            None => continue,
+        };
+        let target = native_dir.join(&name);
+        if target.exists() {
+            continue;
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&path, &target).or_else(|_| {
+                std::fs::copy(&path, &target).map(|_| ())
+            })?;
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::copy(&path, &target)?;
+        }
+        count += 1;
+    }
+
+    if count > 0 {
+        println!("✓ Injected {count} shared skill(s) into {native_skills_dir}");
+    }
+
+    Ok(())
+}
+
+/// Extract sessions from the tool's native session directory into loom's store.
+///
+/// Scans the tool's native session dir for exported session manifests and
+/// imports any that aren't already in loom's `~/.loom/sessions/` store.
+fn extract_tool_sessions(loom_dir: &str, native_session_dir: &str) -> Result<usize> {
+    let session_dir = Path::new(native_session_dir);
+    if !session_dir.is_dir() {
+        return Ok(0);
+    }
+
+    let store = loom_sessions::store::SessionStore::new(loom_dir);
+    let mut count = 0;
+
+    for entry in std::fs::read_dir(session_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let manifest_path = path.join("manifest.json");
+        if !manifest_path.exists() {
+            continue;
+        }
+        let content = match std::fs::read_to_string(&manifest_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let manifest: loom_core::SessionManifest = match serde_json::from_str(&content) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if store.get(&manifest.session_id).is_some() {
+            continue;
+        }
+        if let Err(e) = store.save_manifest(&manifest) {
+            eprintln!("⚠ Failed to import session '{}': {e}", manifest.session_id);
+            continue;
+        }
+        count += 1;
+    }
+
+    if count > 0 {
+        println!("✓ Imported {count} session(s) from {native_session_dir}");
+    }
+
+    Ok(count)
 }
 
 /// Project configuration from .loom file

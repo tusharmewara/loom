@@ -210,6 +210,62 @@ impl McpRegistry {
 
     // ── Internals ─────────────────────────────────────────────────────
 
+    /// Seed well-known ecosystem MCP servers into the registry if they
+    /// are not already registered.  Existing entries are never overwritten
+    /// so users can customise or remove them.
+    pub fn seed_defaults(&self) -> Result<()> {
+        use loom_core::{McpTransport, McpTransportType};
+
+        let defaults: Vec<McpServerEntry> = vec![
+            McpServerEntry {
+                id: "context-mode".into(),
+                name: "Context Mode".into(),
+                transport: McpTransport {
+                    transport_type: McpTransportType::Stdio,
+                    command: Some("/usr/local/bin/context-mode".into()),
+                    args: vec![],
+                    url: None,
+                    env: Default::default(),
+                },
+                shared: true,
+                tools_filter: vec![],
+                health_status: HealthStatusStr::Unknown,
+                last_health_check: String::new(),
+                tags: vec!["ecosystem".into(), "shared".into()],
+                compatible_tools: vec![],
+                required_by_skills: vec![],
+            },
+            McpServerEntry {
+                id: "rtk".into(),
+                name: "Reading Toolkit".into(),
+                transport: McpTransport {
+                    transport_type: McpTransportType::Stdio,
+                    command: Some("/usr/local/bin/rtk".into()),
+                    args: vec![],
+                    url: None,
+                    env: Default::default(),
+                },
+                shared: true,
+                tools_filter: vec![],
+                health_status: HealthStatusStr::Unknown,
+                last_health_check: String::new(),
+                tags: vec!["ecosystem".into(), "shared".into()],
+                compatible_tools: vec![],
+                required_by_skills: vec![],
+            },
+        ];
+
+        for entry in &defaults {
+            if self.get(&entry.id).ok().flatten().is_none() {
+                if let Err(e) = self.upsert(entry) {
+                    tracing::warn!("Failed to seed default MCP server '{}': {e}", entry.id);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     fn query_by_column(&self, column: &str, value: &str) -> Result<Vec<McpServerEntry>> {
         let conn = self.conn.lock().unwrap();
         let sql = format!(

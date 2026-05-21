@@ -11,13 +11,9 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 tracing.workspace = true
-reqwest = { version = "0.12", features = ["json"], optional = true }
+reqwest = { version = "0.12", features = ["json"] }
 async-trait = "0.1"
 tokio = { workspace = true }
-
-[features]
-default = []
-integration-acp = ["reqwest"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

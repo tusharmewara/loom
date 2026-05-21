@@ -32,4 +32,22 @@ impl TaskOrchestrator {
     pub fn get_task(&self, task_id: &str) -> Result<Option<Task>> {
         self.manager.get(task_id)
     }
+
+    pub fn assign_routing(&self, task_id: &str) -> Result<Task> {
+        self.manager.assign_routing(task_id)
+    }
+
+    pub fn set_last_agent(&self, task_id: &str, agent: &str) -> Result<Task> {
+        self.manager.set_last_agent(task_id, agent)
+    }
+
+    pub fn assign_routing_with_overrides(
+        &self,
+        task_id: &str,
+        provider: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<Task> {
+        self.manager
+            .assign_routing_with_overrides(task_id, provider, model)
+    }
 }

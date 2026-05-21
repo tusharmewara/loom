@@ -131,7 +131,7 @@ mod tests {
         let loom_dir = dir.path().to_str().unwrap();
 
         // Initialize first
-        init::run(false, loom_dir).await.unwrap();
+        init::run(false, false, loom_dir).await.unwrap();
 
         // Should succeed with daemon-not-reachable + snapshot counts
         run(loom_dir, false).await.unwrap();

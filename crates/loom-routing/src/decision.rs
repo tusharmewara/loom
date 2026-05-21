@@ -33,4 +33,9 @@ impl DecisionEngine {
     pub fn thresholds(&self) -> Option<&ComplexityThresholds> {
         self.router.config().map(|c| &c.complexity_thresholds)
     }
+
+    /// Access the underlying model catalog.
+    pub fn catalog(&self) -> &loom_core::ModelCatalog {
+        self.router.catalog()
+    }
 }
