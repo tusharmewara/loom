@@ -1,4 +1,5 @@
 use crate::adapter::{CommandResult, LoomCliAdapter};
+use crate::theme::Theme;
 use anyhow::Result;
 use serde_json::Value;
 use std::time::Instant;
@@ -29,11 +30,19 @@ pub struct App {
     pub task_selection_index: usize,
     pub dispatch_menu_open: bool,
     pub dispatch_menu_selected: usize,
+    pub command_palette_open: bool,
+    pub command_palette_query: String,
+    pub command_palette_selected: usize,
+    pub theme: Theme,
+    pub sidebar_visible: bool,
+    theme_manager: crate::theme::ThemeManager,
     adapter: LoomCliAdapter,
 }
 
 impl App {
     pub fn new(adapter: LoomCliAdapter) -> Self {
+        let theme_manager = crate::theme::ThemeManager::new();
+        let theme = theme_manager.current();
         Self {
             tabs: vec!["Dashboard", "Daemon", "Discovery", "MCP", "Skills", "Sessions", "Logs"],
             tab_index: 0,
@@ -58,6 +67,12 @@ impl App {
             task_selection_index: 0,
             dispatch_menu_open: false,
             dispatch_menu_selected: 0,
+            command_palette_open: false,
+            command_palette_query: String::new(),
+            command_palette_selected: 0,
+            theme,
+            sidebar_visible: true,
+            theme_manager,
             adapter,
         }
     }
@@ -194,6 +209,22 @@ impl App {
         self.refresh_safe().await;
     }
 
+    pub fn toggle_sidebar(&mut self) {
+        self.sidebar_visible = !self.sidebar_visible;
+    }
+
+    pub fn next_theme(&mut self) {
+        self.theme = self.theme_manager.cycle_next();
+    }
+
+    pub fn prev_theme(&mut self) {
+        self.theme = self.theme_manager.cycle_prev();
+    }
+
+    pub fn theme_name(&self) -> &'static str {
+        self.theme_manager.current_name()
+    }
+
     pub fn task_count(&self) -> usize {
         self.workflow
             .pointer("/tasks")
@@ -252,7 +283,103 @@ impl App {
         }
     }
 
+    pub fn toggle_command_palette(&mut self) {
+        self.command_palette_open = !self.command_palette_open;
+        if self.command_palette_open {
+            self.command_palette_query.clear();
+            self.command_palette_selected = 0;
+        }
+    }
+
+    pub fn close_command_palette(&mut self) {
+        self.command_palette_open = false;
+        self.command_palette_query.clear();
+        self.command_palette_selected = 0;
+    }
+
+    pub fn command_palette_next(&mut self) {
+        self.command_palette_selected = self.command_palette_selected.saturating_add(1);
+    }
+
+    pub fn command_palette_prev(&mut self) {
+        self.command_palette_selected = self.command_palette_selected.saturating_sub(1);
+    }
+
+    pub fn command_palette_append(&mut self, c: char) {
+        self.command_palette_query.push(c);
+        self.command_palette_selected = 0;
+    }
+
+    pub fn command_palette_backspace(&mut self) {
+        self.command_palette_query.pop();
+        self.command_palette_selected = 0;
+    }
+
+    pub fn command_palette_count(&self) -> usize {
+        use crate::ui::overlays::all_commands;
+        all_commands()
+            .iter()
+            .filter(|cmd| crate::ui::overlays::fuzzy_match(&self.command_palette_query, cmd.name))
+            .count()
+    }
+
+    pub fn command_palette_selected_name(&self) -> Option<String> {
+        use crate::ui::overlays::{all_commands, fuzzy_match};
+        let commands = all_commands();
+        let filtered: Vec<_> = commands
+            .iter()
+            .filter(|cmd| fuzzy_match(&self.command_palette_query, cmd.name))
+            .collect();
+        filtered
+            .get(self.command_palette_selected)
+            .map(|cmd| cmd.name.to_string())
+    }
+
     pub fn is_task_tab(&self) -> bool {
         self.tab_index == 5 || self.tab_index == 6
+    }
+
+    pub async fn execute_named_command(&mut self, cmd_name: &str) -> bool {
+        match cmd_name {
+            "daemon start" => {
+                self.last_action_result = Some(self.adapter.daemon_start().await);
+            }
+            "daemon stop" => {
+                self.last_action_result = Some(self.adapter.daemon_stop().await);
+            }
+            "daemon restart" => {
+                self.last_action_result = Some(self.adapter.daemon_restart().await);
+            }
+            "daemon install-service" => {
+                self.last_action_result = Some(self.adapter.daemon_install_service().await);
+            }
+            "daemon uninstall-service" => {
+                self.last_action_result = Some(self.adapter.daemon_uninstall_service().await);
+            }
+            "theme next" => self.next_theme(),
+            "theme prev" => self.prev_theme(),
+            "sidebar toggle" => self.toggle_sidebar(),
+            "tab 1" => self.set_tab_from_digit(0),
+            "tab 2" => self.set_tab_from_digit(1),
+            "tab 3" => self.set_tab_from_digit(2),
+            "tab 4" => self.set_tab_from_digit(3),
+            "tab 5" => self.set_tab_from_digit(4),
+            "tab 6" => self.set_tab_from_digit(5),
+            "tab 7" => self.set_tab_from_digit(6),
+            "refresh" => self.refresh_safe().await,
+            "scan" => {
+                self.last_action_result = Some(self.adapter.run_scan().await);
+            }
+            "doctor" => {
+                self.last_action_result = Some(self.adapter.run_doctor().await);
+            }
+            "help" => self.toggle_help(),
+            "quit" => {
+                self.close_command_palette();
+                return false;
+            }
+            _ => {}
+        }
+        true
     }
 }

@@ -1,7 +1,7 @@
 pub mod adapter;
 pub mod app;
-#[allow(dead_code)]
 pub mod dispatch;
+pub mod theme;
 pub mod ui;
 
 use crate::adapter::LoomCliAdapter;
@@ -74,15 +74,21 @@ async fn run_loop(
                             let dispatchers: Vec<Box<dyn crate::dispatch::Dispatcher>> = vec![
                                 Box::new(crate::dispatch::TerminalLaunch),
                                 Box::new(crate::dispatch::ACPDispatch::new(
-                                    app.status.pointer("/daemon/reachable").and_then(Value::as_bool).unwrap_or(false),
+                                    app.status
+                                        .pointer("/daemon/reachable")
+                                        .and_then(Value::as_bool)
+                                        .unwrap_or(false),
                                 )),
                                 Box::new(crate::dispatch::EmbeddedPane),
                             ];
                             if app.dispatch_menu_selected < dispatchers.len() {
                                 if let Some(task) = app.selected_task() {
-                                    let result = dispatchers[app.dispatch_menu_selected].dispatch(task);
+                                    let result =
+                                        dispatchers[app.dispatch_menu_selected].dispatch(task);
                                     app.last_action_result = Some(crate::adapter::CommandResult {
-                                        action: dispatchers[app.dispatch_menu_selected].name().to_string(),
+                                        action: dispatchers[app.dispatch_menu_selected]
+                                            .name()
+                                            .to_string(),
                                         success: result.success,
                                         message: result.message,
                                     });
@@ -121,6 +127,50 @@ async fn run_loop(
                     continue;
                 }
 
+                if app.command_palette_open {
+                    match key.code {
+                        KeyCode::Esc => {
+                            app.close_command_palette();
+                        }
+                        KeyCode::Enter => {
+                            if let Some(cmd_name) = app.command_palette_selected_name() {
+                                let should_continue = app.execute_named_command(&cmd_name).await;
+                                app.close_command_palette();
+                                if !should_continue {
+                                    break;
+                                }
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            let max = app.command_palette_count();
+                            if max > 0 {
+                                app.command_palette_selected = (app.command_palette_selected + 1) % max;
+                            }
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            let max = app.command_palette_count();
+                            if max > 0 {
+                                app.command_palette_selected = if app.command_palette_selected == 0 {
+                                    max - 1
+                                } else {
+                                    app.command_palette_selected - 1
+                                };
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            app.command_palette_backspace();
+                        }
+                        KeyCode::Delete => {
+                            app.command_palette_backspace();
+                        }
+                        KeyCode::Char(c) if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' => {
+                            app.command_palette_append(c);
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+
                 match key.code {
                     KeyCode::Char('q') => break,
                     KeyCode::Char('r') => app.refresh_safe().await,
@@ -152,6 +202,12 @@ async fn run_loop(
                     KeyCode::Char('7') => app.set_tab_from_digit(6),
                     KeyCode::Char('D') => app.toggle_action_palette(),
                     KeyCode::Char('a') if app.is_task_tab() => app.open_dispatch_menu(),
+                    KeyCode::Char(']') => app.next_theme(),
+                    KeyCode::Char('[') => app.prev_theme(),
+                    KeyCode::Char('S') => app.toggle_sidebar(),
+                    KeyCode::Char('p') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+                        app.toggle_command_palette();
+                    }
                     _ => {}
                 }
             }
