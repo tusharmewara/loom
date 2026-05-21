@@ -1,0 +1,16 @@
+#!/bin/bash
+set -e
+
+echo "=== pre-push: Running cargo clippy ==="
+cargo clippy --workspace
+
+echo ""
+echo "=== pre-push: Running all tests ==="
+cargo test --workspace
+
+echo ""
+echo "=== pre-push: Running integration test ==="
+bash run_integration_test.sh
+
+echo ""
+echo "=== pre-push: All checks passed ==="
