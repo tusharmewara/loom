@@ -47,12 +47,12 @@ jobs:
 
       - name: Create bottle tarball
         run: |
-          tar -czf "loom--${{ steps.vars.outputs.version }}--${{ matrix.platform }}.tar.gz" -C bottle loom
+          tar -czf "loom--${{ steps.vars.outputs.version }}.${{ matrix.platform }}.bottle.tar.gz" -C bottle loom
 
       - name: Compute checksums
         id: checksum
         run: |
-          TARBALL="loom--${{ steps.vars.outputs.version }}--${{ matrix.platform }}.tar.gz"
+          TARBALL="loom--${{ steps.vars.outputs.version }}.${{ matrix.platform }}.bottle.tar.gz"
           echo "sha256=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)" >> $GITHUB_OUTPUT
 
       - name: Wait for release to be ready
@@ -61,28 +61,48 @@ jobs:
       - name: Upload bottle asset
         uses: softprops/action-gh-release@v3
         with:
-          files: "loom--${{ steps.vars.outputs.version }}--${{ matrix.platform }}.tar.gz"
+          files: "loom--${{ steps.vars.outputs.version }}.${{ matrix.platform }}.bottle.tar.gz"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload bottle to homebrew-loom
-        run: |
-          gh release upload v${{ steps.vars.outputs.version }} \
-            "loom--${{ steps.vars.outputs.version }}--${{ matrix.platform }}.tar.gz" \
-            --repo tusharmewara/homebrew-loom --clobber || \
-          gh release create v${{ steps.vars.outputs.version }} \
-            --repo tusharmewara/homebrew-loom \
-            --generate-notes \
-            "loom--${{ steps.vars.outputs.version }}--${{ matrix.platform }}.tar.gz"
-        env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_LOOM_PAT }}
-
       - name: Save checksum
         run: |
-          echo "@sha256_${{ matrix.platform }} = \"${{ steps.checksum.outputs.sha256 }}\"" >> checksums.txt
+          echo "@sha256_${{ matrix.platform }} = \"${{ steps.checksum.outputs.sha256 }}\"" > checksum-${{ matrix.platform }}.txt
 
-      - name: Upload checksum file as artifact
+      - name: Upload checksum artifact
         uses: actions/upload-artifact@v4
         with:
-          name: checksums
-          path: checksums.txt
+          name: checksum-${{ matrix.platform }}
+          path: checksum-${{ matrix.platform }}.txt
+
+  publish-bottles:
+    needs: build-bottles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Determine version
+        id: vars
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Download tarballs from release
+        run: |
+          gh release download v${{ steps.vars.outputs.version }} \
+            --pattern "loom--*.bottle.tar.gz"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload bottles to homebrew-loom
+        run: |
+          for tarball in loom--*.bottle.tar.gz; do
+            echo "Uploading $tarball..."
+            gh release upload v${{ steps.vars.outputs.version }} \
+              "$tarball" \
+              --repo tusharmewara/homebrew-loom --clobber || \
+            gh release create v${{ steps.vars.outputs.version }} \
+              --repo tusharmewara/homebrew-loom \
+              --generate-notes \
+              "$tarball"
+          done
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_LOOM_PAT }}
