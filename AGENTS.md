@@ -12,6 +12,8 @@ cargo build --workspace --release
 # Run all tests (crate-scoped)
 cargo test -p loom-mcp
 cargo test -p loom-auth
+cargo test -p loom-routing
+cargo test -p loom-integration-tests
 # ... etc for each crate
 
 # Run integration test
@@ -44,12 +46,15 @@ loom-generic-adapter + loom-adapters  — tool integration
 loom-cli     — CLI frontend (binary + lib)
 loomd        — daemon (aggregates all subsystems)
 loom-tui     — TUI (ratatui + crossterm)
+loom-ffi     — Foreign function interface
 ```
 
 ### Two-Tier Architecture
 
 - **loom-cli** (`crates/loom-cli/`): CLI binary with 20+ subcommands. Connects to daemon via Unix socket when available, or runs standalone (slower, runs Phase 2 discovery inline).
-- **loomd** (`crates/loomd/`): Background daemon.agents_dir/`): Background daemon. Aggregates all subsystem crates, provides IPC over Unix domain socket (`~/.loom/loomd.sock`). Auto-shutdown after 5 min idle.
+- **loomd** (`crates/loomd/`): Background daemon. Aggregates all subsystem crates, provides IPC over Unix domain socket (`~/.loom/loomd.sock`). Auto-shutdown after 5 min idle.
+- **loom-tui** (`crates/loom-tui/`): Terminal UI with 7 tabs (Dashboard, Daemon, Discovery, MCP, Skills, Sessions, Logs). 1s auto-refresh. Keybindings: D (action palette), a (dispatch menu on task tabs), ? (help).
+- **loom-ffi** (`crates/loom-ffi/`): C FFI exports for external tool integration.
 
 ### IPC Protocol
 
@@ -65,9 +70,8 @@ Commands: `health.check`, `discovery.scan`, `skills.list`, `skills.show`, `mcp.l
 ### Event Bus
 
 - **In-process**: tokio broadcast channel (cap 4096)
-- **Cross-process**: ZeroMQ PUB/SUB via `ipc://~/.loom/.loom-events`
-- Cross-process is behind `#[cfg(feature = "cross-process")]`
-- Events: `SkillsAdded`, `McpHealthChanged`, `SessionExported`, etc. (all in `LoomEvent` enum)
+- **Cross-process**: ZeroMQ PUB/SUB via `ipc://~/.loom/.loom-events` (behind `#[cfg(feature = "cross-process")]`)
+- Events: `SkillsAdded`, `McpHealthChanged`, `SessionExported`, `RoutingUpdated`, `AuthProviderAdded`, `HooksRegistered`, `TaskPhaseChanged`, `TaskCreated`
 
 ### Filesystem Layout
 
@@ -79,21 +83,25 @@ Everything lives in `~/.loom/` (AGENTS_DIR constant in `loom-core`):
 ├── config/
 │   ├── routing.toml         # Overlays merged on top of config.toml
 │   ├── mcp.toml
-│   └── hooks.toml
+│   ├── hooks.toml
+│   └── acp.toml             # ACP registry URL
 ├── skills/                   # Shared skills (skills.db SQLite)
 ├── mcp/                      # MCP server configs
 ├── sessions/                 # Session exports (JSONL)
 ├── auth/                     # Encrypted vault + audit logs
 ├── hooks/                    # Hook TOML configs and scripts
 ├── tools/                    # Tool TOML registration files
+├── workflow/                 # Task orchestration
+│   └── tasks/               # Task manifests
 ├── mcp_registry.db           # SQLite MCP server registry
 ├── loomd.sock                # Daemon IPC socket
-└── .loom-events              # ZeroMQ cross-process event socket
+├── .loom-events              # ZeroMQ cross-process event socket
+└── .cache/                   # Snapshot cache
 ```
 
-### Common configuration schema: `config.toml + config/{routing|mcp|hooks}.toml` overlays
-  Session: JSON → JSONL migration (compress after 20 messages, full fidelity for first 10)
-```
+### Session Compression
+
+After `SESSION_COMPRESSION_THRESHOLD` (20) messages, session data uses compression. First `SESSION_FULL_FIDELITY_COUNT` (10) messages are stored uncompressed.
 
 ## Key Patterns
 
@@ -113,40 +121,113 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 
 - `integration-acp` — enables ACP agent discovery (in `loom-cli` and `loom-sessions`)
 - `cross-process` — enables ZeroMQ cross-process event bus
+- `tui` — enables TUI commands in CLI
 
 ## Testing
 
 - **Unit tests**: inline in each crate under `#[cfg(test)] mod tests { ... }`
 - **All tests use `tempfile::tempdir()`** — never write to real filesystem paths
 - **Integration tests**: `tests/integration/cross_tool_workflow.rs` (run via `bash run_integration_test.sh`)
-- **loom-integration-tests**: `crates/loom-integration-tests/tests/` — tests/` (ecosystem.rs, routing_integration.rs)
-- No dedicated test binary or test harness, no CI workflows
+- **loom-integration-tests**: `crates/loom-integration-tests/tests/` — ecosystem.rs, routing_integration.rs
+- **No dedicated test binary or test harness, no CI workflows**
 
 ## CLI Commands
 
+### Core
+- `loom init [--import] [--recommended]` — Create ~/.loom/ tree, optionally scan and import
+- `loom scan [--json]` — Display resource summary
+- `loom status [--json]` — Show ecosystem state
+- `loom doctor [--json]` — Deep diagnostics
+- `loom thread <tool> [--apply-routing <decision>]` — Register/update tool
+- `loom exec <tools...> [-- args...]` — Execute tools with ecosystem
+- `loom init-shell [--shell bash|zsh|fish]` — Generate shell integration
+- `loom add-acp-agent <agent_id>` — Add ACP agent from registry
+- `loom tui` — Launch terminal UI (requires tui feature)
+
+### MCP
+- `loom mcp list [--json]` — List registered MCP servers
+- `loom mcp show <id> [--json]` — Show MCP server config
+- `loom mcp add <name>` — Add MCP server stub
+- `loom mcp remove <id>` — Remove MCP server
+- `loom mcp install <name> [--prewarm]` — Install known MCP server
+- `loom mcp install-recommended [--prewarm]` — Install all recommended
+- `loom mcp list-known [--json]` — List installable MCP servers
+
+### Skills
+- `loom skills list [--json]` — List skills
+- `loom skills show <name> [--json]` — Show skill details
+- `loom skills install <path>` — Install skill from file
+- `loom skills remove <name>` — Remove skill
+
+### Sessions
+- `loom sessions list [--json]` — List session manifests
+- `loom sessions show <id> [--json]` — Show session manifest
+- `loom sessions export <id> [--output path]` — Export session
+- `loom sessions import <path>` — Import session
+- `loom sessions resume <id> [--provider] [--model] [--agent]` — Resume session
+
+### Auth
+- `loom auth list [--json]` — List auth entries
+- `loom auth providers [--json]` — List registered providers
+- `loom auth show <provider> [--json]` — Show provider config
+- `loom auth validate <provider>` — Validate credential
+
+### Hooks
+- `loom hooks list [--json]` — List registered hooks
+- `loom hooks show <id> [--json]` — Show hook config
+- `loom hooks register <path>` — Register hook from file
+- `loom hooks remove <id>` — Remove hook
+- `loom hooks run --event <type> --tool <name> [--matcher]` — Run hooks for event
+- `loom hooks verify` — Verify hook signatures
+
+### Workflow
+- `loom workflow list [--json]` — List tasks
+- `loom workflow show <id> [--json]` — Show task
+- `loom workflow create [--title] [--description]` — Create task
+- `loom workflow advance <id>` — Advance phase
+- `loom workflow assign <id> [--provider] [--model] [--last-agent]` — Assign provider
+- `loom workflow dispatch <id> [--agent] [--tool-args...] [--dry-run]` — Dispatch task
+
+### Routing
+- `loom routing show [--json]` — Show routing config and catalog
+- `loom routing evaluate <prompt> [--json]` — Score prompt and get decision
+- `loom routing score <prompt> [--json]` — Show complexity score
+- `loom routing recommend <task-id> [--json]` — Get recommendation
+- `loom routing override <task-id> --tier <tier> [--reason]` — Override decision
+- `loom routing catalog [--refresh] [--json]` — List models
+
+### Daemon
+- `loom daemon start` — Start loomd
+- `loom daemon stop` — Stop loomd
+- `loom daemon status [--json]` — Show daemon status
+- `loom daemon restart` — Restart loomd
+- `loom daemon install-service` — Install as user service
+- `loom daemon uninstall-service` — Uninstall user service
+
 ## Known Gotchas
 
-1. **Hook scripts are placeholder**: `execute_hook_script()` in `loom-hooks` returns a success message without actually executing anything. If you need real hook execution, implement the script runner.
-2. **loom-tui has `#[allow(dead_code)]` on `mod dispatch`** — dispatch module is used but compiler flags dead code due to conditional compilation patterns.
-3. **Auth vault `export_credential()` returns plaintext** — the comment notes "this is the plaintext; proper export would re-encrypt".
+1. **Hook scripts are placeholder**: `execute_hook_script()` in `loom-hooks` returns hardcoded success. Real execution not implemented.
+2. **loom-tui has `#[allow(dead_code)]` on `mod dispatch`** — dispatch module is used but compiler flags dead code due to conditional compilation.
+3. **Auth vault `export_credential()` returns plaintext** — comment notes "this is the plaintext; proper export would re-encrypt".
 4. **`mcp_registry.db` is SQLite** — created automatically in `~/.loom/` by `McpRegistry`.
 5. **ConfigReader overlays layer-specific TOML files** — if `routing.toml` exists in `config/`, it completely replaces (not deep-merges) the `routing` field from `config.toml`.
 6. **Session compression**: After `SESSION_COMPRESSION_THRESHOLD` (20) messages, session data uses compression. First `SESSION_FULL_FIDELITY_COUNT` (10) messages are stored uncompressed.
 7. **Vault lockout**: max `VAULT_MAX_UNLOCK_ATTEMPTS` (5) within `VAULT_MAX_UNLOCK_ATTEMPTS within `VAULT_UNLOCK_WINDOW_MS` (60s).
 8. **Daemon auto-shutdown**: after `DAEMON_DEFAULT_IDLE_TIMEOUT_MS` (300s = 5min) of no IPC activity.
-9. **TUI keybindings**: `D` opens action palette (daemon controls), `a` opens dispatch meny only on task tabs (5=Skills, 6=Sessions), `?` for help. Tab indices: 0=Dashboard, 1=Daemon, 2=Discovery, 3=MCP, 4=Skills, 5=Sessions, 6=Logs.
+9. **TUI keybindings**: `D` opens action palette (daemon controls), `a` opens dispatch menu only on task tabs (5=Skills, 6=Sessions), `?` for help. Tab indices: 0=Dashboard, 1=Daemon, 2=Discovery, 3=MCP, 4=Skills, 5=Sessions, 6=Logs.
 10. **Adapter binaries for TerminalLaunch**: checks PATH for `opencode`, `claude-code`, `jcode`, `crush` (in order).
-11. **loom-tui currently has a `#[allow(dead_code)]` annotation on the dispatch module**.
-12. **`loom-ipc` uses Unix sockets only** — no TCP or Windows named pipe support.
-13. **`loomd` error recovery**: `MCP server add/remove.upsert()` in `McpRegistry` returns Result — but the IPC handler (`ipc_handler.rs`) creates a **new** `McpRegistry` per request instead of using the shared instance, which means in-memory pools (`McpPool`, `McpClientPool`) are not persisted across restarts and health check state is not shared.
-14. **Config `DocType` is v2.0.0 for all crates** (workspace version).
+11. **ACP dispatch not wired** — reports "requires daemon IPC" but no implementation.
+12. **EmbeddedPane dispatch** — explicit "not yet implemented".
+13. **`loom-ipc` uses Unix sockets only** — no TCP or Windows named pipe support.
+14. **`loomd` error recovery**: `MCP server add/remove.upsert()` in `McpRegistry` returns Result — but the IPC handler (`ipc_handler.rs`) creates a **new** `McpRegistry` per request instead of using the shared instance, which means in-memory pools (`McpPool`, `McpClientPool`) are not persisted across restarts and health check state is not shared.
+15. **Config `DocType` is v2.0.0 for all crates** (workspace version).
 
 ## TUI Architecture
 
 - `ratatui` + `crossterm` backend
 - 7 tabs, 1s auto-refresh
 - Action palette for daemon operations (Start/Stop/Restart/InstallService/UninstallService)
-- Dispatch meny on task tabs: TerminalLaunch (opens new terminal window with agent), ACPDispatch (not wired), EmbeddedPane (not implemented)
+- Dispatch menu on task tabs: TerminalLaunch (opens new terminal window with agent), ACPDispatch (not wired), EmbeddedPane (not implemented)
 - Keybinding cheat sheet accessible via `?`
 
 ## Directory Structure
@@ -154,9 +235,9 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 ```
 crates/
 ├── loom-core/        — Types, config, constants, errors, traits
-├── loom-cli/         — CLI binary + lib
+├── loom-cli/         — CLI binary with 20+ subcommands
 ├── loomd/            — Daemon binary
-├── loom-tui/         — TUI (ratatui)
+├── loom-tui/         — TUI (ratatui + crossterm)
 ├── loom-ipc/         — IPC protocol
 ├── loom-event-bus/   — Event bus
 ├── loom-discovery/   — Two-phase discovery engine
@@ -168,10 +249,10 @@ crates/
 ├── loom-workflow/    — Task orchestration and phases
 ├── loom-routing/     — Complexity scoring, model routing
 ├── loom-generic-adapter/  — TOML-driven tool adapter
-├── loom-adapters/    — Preset adapters (jcode, crush, etc.)
+├── loom-adapters/    — Preset adapters (jcode, crush, claude-code, opencode, goose)
 ├── loom-telemetry/   — Metrics, histograms, anomaly detection
-├── loom-ffi/         — Foreign function interface (minimal)
-└── loom-integration-tests/
+├── loom-ffi/         — Foreign function interface
+└── loom-integration-tests/ — Integration tests
 
 packages/
 ├── sdk/              — SDK
@@ -181,9 +262,51 @@ packages/
 ├── claude-code/      — Claude Code package
 ├── hooks/            — Hooks package
 ├── routing-hook/     — Routing hook scripts
-└── opencode/         — OpenCode packaget/
-
-docs/
-└── ~/.loom/
-    └── ...
+└── opencode/         — OpenCode package
 ```
+
+## Integration Tests
+
+Tests in `crates/loom-integration-tests/tests/`:
+
+- **ecosystem.rs**: Skill portability, MCP pool, session export/import, auth provider import, hook enforcement, workflow routing, cost optimization
+- **routing_integration.rs**: Complexity scoring, config thresholds, phase transitions, cost optimization, manual overrides
+- **cross_tool_workflow.rs**: Session sharing between tools, skill portability, MCP communication
+
+## Constants
+
+Key constants in `loom-core/src/constants.rs`:
+
+- `ECOSYSTEM_VERSION`: "2.0.0"
+- `DAEMON_DEFAULT_IDLE_TIMEOUT_MS`: 300000 (5 min)
+- `MCP_DEFAULT_HEALTH_INTERVAL_MS`: 300000 (5 min)
+- `HOOK_DEFAULT_TIMEOUT_MS`: 30000 (30s)
+- `SESSION_COMPRESSION_THRESHOLD`: 20
+- `SESSION_FULL_FIDELITY_COUNT`: 10
+- `VAULT_MAX_UNLOCK_ATTEMPTS`: 5
+- `VAULT_UNLOCK_WINDOW_MS`: 60000 (1 min)
+- `AUDIT_LOG_MAX_SIZE_BYTES`: 10 MB
+- `JOURNAL_ROTATION_LINES`: 2000
+
+## Model Tiers
+
+- **Slm**: Fast/Cheap (claude-haiku-3, gpt-4o-mini, gemini-2.5-flash)
+- **Mid**: Balanced (claude-sonnet-4, gpt-4o, gemini-pro)
+- **Flagship**: Slow/Expensive (claude-opus-4, gpt-5, gemini-ultra)
+
+## Performance Budgets
+
+| Operation | Budget | Achieved |
+|-----------|--------|---------|
+| Startup (daemon) | <50ms | ~20ms |
+| Startup (no daemon) | <200ms | ~100ms |
+| Skill search | <5ms | ~0.05ms |
+| Skill activation | <50ms | ~30ms |
+| MCP acquire | <20ms | ~5ms |
+| Hot-reload | <60ms | ~15ms |
+| Session resume | <100ms | ~50ms |
+| Routing decision | <10ms | ~5ms |
+| Hook execution | <30ms | ~30ms |
+| Context injection | <5ms | ~2ms |
+| Event delivery | <100us | ~15us |
+| Vault decrypt | <10ms | ~3ms |
