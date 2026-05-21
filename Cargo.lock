@@ -1732,6 +1732,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "crossterm 0.28.1",
+ "loom-ipc",
  "ratatui",
  "serde",
  "serde_json",

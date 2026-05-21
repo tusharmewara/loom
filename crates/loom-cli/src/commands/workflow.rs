@@ -73,16 +73,16 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
             task_id,
             provider,
             model,
-            last_agent,
+            agent,
         } => {
             let task = orchestrator.assign_routing_with_overrides(
                 task_id,
                 provider.as_deref(),
                 model.as_deref(),
             )?;
-            if let Some(la) = last_agent {
-                let task = orchestrator.set_last_agent(task_id, la)?;
-                println!("Set last_agent={la} for task {}", task.task_id);
+            if let Some(a) = agent {
+                let task = orchestrator.set_last_agent(task_id, a)?;
+                println!("Set agent={a} for task {}", task.task_id);
             }
             println!("Assigned routing to task {}", task.task_id);
             if let Some(rd) = &task.routing_decision {
@@ -117,7 +117,7 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                         anyhow::anyhow!(
                             "No agent specified and task has no last_agent. \
                              Use `loom workflow dispatch {task_id} --agent <tool>`, \
-                             or assign one with `loom workflow assign {task_id} --last-agent <tool>`"
+                             or set one with `loom workflow assign {task_id} --agent <tool>`"
                         )
                     })?,
             };

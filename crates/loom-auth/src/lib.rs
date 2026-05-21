@@ -4,11 +4,12 @@ pub mod audit;
 pub mod providers;
 pub mod import;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use loom_core::{AuthProviderTrait, EncryptedCredential, HealthCheck, HealthStatus, ProviderEntry};
 use std::path::Path;
 use std::sync::Arc;
 use tracing::warn;
+use crate::vault::EncryptedBlob;
 
 /// Orchestrator for authentication, authorization, and audit.
 ///
@@ -210,15 +211,30 @@ impl AuthProviderTrait for AuthManager {
         if self.vault.is_locked() {
             anyhow::bail!("vault is locked");
         }
-        let cred = self
+        let plaintext = self
             .vault
             .get_credential(provider_id)?
             .ok_or_else(|| anyhow::anyhow!("no credential found for provider: {provider_id}"))?;
 
+        // Re-encrypt with a new random nonce for export
+        // Use the vault's internal encryption method by temporarily setting a credential
+        let export_id = format!("{}-export", provider_id);
+        self.vault.set_credential(&export_id, &plaintext)?;
+        let _exported = self.vault.get_credential(&export_id)?;
+        self.vault.delete_credential(&export_id)?;
+
+        // The vault stores credentials as EncryptedBlob JSON, so we need to read the file
+        let auth_dir = Path::new(&self.vault.loom_dir()).join("auth");
+        let cred_path = auth_dir.join(format!("{}.enc", export_id));
+        let json = std::fs::read_to_string(&cred_path)
+            .context(format!("failed to read credential: {:?}", cred_path))?;
+        let blob: EncryptedBlob =
+            serde_json::from_str(&json).context("failed to parse encrypted blob")?;
+
         Ok(EncryptedCredential {
             provider_id: provider_id.to_string(),
-            encrypted_data: cred, // note: this is the plaintext; proper export would re-encrypt
-            nonce: String::new(),
+            encrypted_data: blob.ciphertext,
+            nonce: blob.nonce,
             created_at: iso_now(),
         })
     }

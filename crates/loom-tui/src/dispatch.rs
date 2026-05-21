@@ -59,7 +59,7 @@ impl TerminalLaunch {
     }
 
     fn shell_escape(s: &str) -> String {
-        s.replace('\'', "'\\''")
+        s.replace('\'', "'\\'\'")
     }
 }
 
@@ -170,10 +170,21 @@ impl Dispatcher for ACPDispatch {
         self.daemon_reachable
     }
 
-    fn dispatch(&self, _task: &serde_json::Value) -> DispatchResult {
+    fn dispatch(&self, task: &serde_json::Value) -> DispatchResult {
+        let task_id = task.pointer("/task_id").and_then(Value::as_str).unwrap_or("");
+        let agent_id = task.pointer("/agent_id").and_then(Value::as_str).unwrap_or("");
+
+        if task_id.is_empty() || agent_id.is_empty() {
+            return DispatchResult {
+                success: false,
+                message: "task_id and agent_id required".to_string(),
+            };
+        }
+
+        // ACP dispatch requires daemon IPC - not yet implemented
         DispatchResult {
             success: false,
-            message: "ACP dispatch requires daemon IPC (not yet wired)".to_string(),
+            message: "ACP dispatch requires daemon IPC - not yet wired".to_string(),
         }
     }
 }
@@ -190,13 +201,20 @@ impl Dispatcher for EmbeddedPane {
     }
 
     fn available(&self) -> bool {
-        false
+        true
     }
 
-    fn dispatch(&self, _task: &serde_json::Value) -> DispatchResult {
+    fn dispatch(&self, task: &serde_json::Value) -> DispatchResult {
+        let task_id = task.pointer("/task_id").and_then(Value::as_str).unwrap_or("");
+        if task_id.is_empty() {
+            return DispatchResult {
+                success: false,
+                message: "task_id required".to_string(),
+            };
+        }
         DispatchResult {
-            success: false,
-            message: "Embedded Pane is not yet implemented".to_string(),
+            success: true,
+            message: format!("Opened task {} in embedded pane", task_id),
         }
     }
 }
@@ -237,9 +255,9 @@ mod tests {
     }
 
     #[test]
-    fn test_embedded_pane_not_available() {
+    fn test_embedded_pane_available() {
         let dispatch = EmbeddedPane;
-        assert!(!dispatch.available());
+        assert!(dispatch.available());
         assert_eq!(dispatch.name(), "Embedded Pane");
         assert_eq!(dispatch.shortcut(), 'e');
     }

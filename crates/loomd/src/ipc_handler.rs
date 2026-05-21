@@ -11,14 +11,17 @@ pub struct LoomdIpcHandler {
     sessions: std::sync::Arc<loom_sessions::SessionManager>,
     auth: std::sync::Arc<loom_auth::AuthManager>,
     hooks: std::sync::Arc<loom_hooks::HooksEngine>,
+    mcp_registry: loom_mcp::McpRegistry,
 }
 
 impl LoomdIpcHandler {
     pub fn new(loomd: &Loomd) -> Self {
+        let mcp_registry = loom_mcp::McpRegistry::new(loomd.loom_dir()).unwrap();
         Self {
             version: env!("CARGO_PKG_VERSION"),
             loom_dir: loomd.loom_dir().to_string(),
             discovery: loomd.discovery().clone(),
+            mcp_registry,
             skills: loomd.skills().clone(),
             sessions: loomd.sessions().clone(),
             auth: loomd.auth().clone(),
@@ -67,15 +70,14 @@ impl IpcHandler for LoomdIpcHandler {
                     }
                 }
             }
-            "mcp.list" => match loom_mcp::McpRegistry::new(&self.loom_dir) {
-                Ok(registry) => match registry.list() {
+            "mcp.list" => {
+                match self.mcp_registry.list() {
                     Ok(servers) => IpcResponse::ok(req.request_id, json!({ "servers": servers })),
                     Err(e) => IpcResponse::error(req.request_id, e.to_string()),
-                },
-                Err(e) => IpcResponse::error(req.request_id, e.to_string()),
-            },
-            "mcp.health" => match loom_mcp::McpRegistry::new(&self.loom_dir) {
-                Ok(registry) => match registry.list() {
+                }
+            }
+            "mcp.health" => {
+                match self.mcp_registry.list() {
                     Ok(servers) => {
                         let all_healthy = servers.iter().all(|s| {
                             matches!(s.health_status, loom_core::HealthStatusStr::Healthy)
@@ -86,9 +88,8 @@ impl IpcHandler for LoomdIpcHandler {
                         )
                     }
                     Err(e) => IpcResponse::error(req.request_id, e.to_string()),
-                },
-                Err(e) => IpcResponse::error(req.request_id, e.to_string()),
-            },
+                }
+            }
             "sessions.list" => {
                 let sessions = self.sessions.store().list();
                 IpcResponse::ok(req.request_id, json!({ "sessions": sessions }))
@@ -135,6 +136,14 @@ impl IpcHandler for LoomdIpcHandler {
                 )
             }
             "touch" => IpcResponse::ok(req.request_id, json!({ "ok": true })),
+            "acp.dispatch" => {
+                let task_id = req.params.get("task_id").and_then(|v| v.as_str()).unwrap_or("");
+                let agent_id = req.params.get("agent_id").and_then(|v| v.as_str()).unwrap_or("");
+                if task_id.is_empty() || agent_id.is_empty() {
+                    return IpcResponse::error(req.request_id, "task_id and agent_id required");
+                }
+                IpcResponse::error(req.request_id, "acp.dispatch requires daemon IPC - not yet wired")
+            }
             _ => IpcResponse::error(req.request_id, format!("Unknown command: {}", req.command)),
         }
     }

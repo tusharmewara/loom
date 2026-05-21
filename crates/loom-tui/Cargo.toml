@@ -16,5 +16,6 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+loom-ipc = { path = "../loom-ipc" }
 ratatui = { version = "0.28", default-features = false, features = ["crossterm"] }
 crossterm = "0.28"

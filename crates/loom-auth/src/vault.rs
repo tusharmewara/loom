@@ -16,21 +16,21 @@ use zeroize::Zeroize;
 
 /// Encrypted credential stored on disk
 #[derive(Debug, Serialize, Deserialize)]
-struct EncryptedBlob {
+pub struct EncryptedBlob {
     /// Provider identifier
-    provider_id: String,
+    pub provider_id: String,
     /// ChaCha20Poly1305 nonce (hex)
-    nonce: String,
+    pub nonce: String,
     /// Encrypted credential data (hex)
-    ciphertext: String,
+    pub ciphertext: String,
     /// Argon2 salt used for key derivation (hex)
-    salt: String,
+    pub salt: String,
     /// SHA-256 of plaintext for integrity check
-    integrity_hash: String,
+    pub integrity_hash: String,
     /// When this was created
-    created_at: String,
+    pub created_at: String,
     /// Unix timestamp in seconds
-    created_at_epoch: u64,
+    pub created_at_epoch: u64,
 }
 
 impl EncryptedBlob {
@@ -227,6 +227,11 @@ impl CredentialVault {
     /// Check if the vault is currently unlocked.
     pub fn is_locked(&self) -> bool {
         self.locked
+    }
+
+    /// Get the loom directory path.
+    pub fn loom_dir(&self) -> &str {
+        &self.loom_dir
     }
 
     /// Store an encrypted credential. Requires the vault to be unlocked.

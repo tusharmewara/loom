@@ -333,9 +333,9 @@ pub enum WorkflowAction {
         /// Override the model (e.g., "claude-opus-4", "gpt-4o")
         #[arg(long)]
         model: Option<String>,
-        /// Set the last agent tool for this task
+        /// Set the agent tool for this task (e.g., "opencode", "goose")
         #[arg(long)]
-        last_agent: Option<String>,
+        agent: Option<String>,
     },
     /// Dispatch a task to an agent tool (e.g., "opencode", "goose").
     /// Defaults to the last agent that worked on the task.

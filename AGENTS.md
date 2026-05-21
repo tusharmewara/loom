@@ -206,21 +206,18 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 
 ## Known Gotchas
 
-1. **Hook scripts are placeholder**: `execute_hook_script()` in `loom-hooks` returns hardcoded success. Real execution not implemented.
-2. **loom-tui has `#[allow(dead_code)]` on `mod dispatch`** — dispatch module is used but compiler flags dead code due to conditional compilation.
-3. **Auth vault `export_credential()` returns plaintext** — comment notes "this is the plaintext; proper export would re-encrypt".
-4. **`mcp_registry.db` is SQLite** — created automatically in `~/.loom/` by `McpRegistry`.
-5. **ConfigReader overlays layer-specific TOML files** — if `routing.toml` exists in `config/`, it completely replaces (not deep-merges) the `routing` field from `config.toml`.
-6. **Session compression**: After `SESSION_COMPRESSION_THRESHOLD` (20) messages, session data uses compression. First `SESSION_FULL_FIDELITY_COUNT` (10) messages are stored uncompressed.
-7. **Vault lockout**: max `VAULT_MAX_UNLOCK_ATTEMPTS` (5) within `VAULT_MAX_UNLOCK_ATTEMPTS within `VAULT_UNLOCK_WINDOW_MS` (60s).
-8. **Daemon auto-shutdown**: after `DAEMON_DEFAULT_IDLE_TIMEOUT_MS` (300s = 5min) of no IPC activity.
-9. **TUI keybindings**: `D` opens action palette (daemon controls), `a` opens dispatch menu only on task tabs (5=Skills, 6=Sessions), `?` for help. Tab indices: 0=Dashboard, 1=Daemon, 2=Discovery, 3=MCP, 4=Skills, 5=Sessions, 6=Logs.
-10. **Adapter binaries for TerminalLaunch**: checks PATH for `opencode`, `claude-code`, `jcode`, `crush` (in order).
-11. **ACP dispatch not wired** — reports "requires daemon IPC" but no implementation.
-12. **EmbeddedPane dispatch** — explicit "not yet implemented".
-13. **`loom-ipc` uses Unix sockets only** — no TCP or Windows named pipe support.
-14. **`loomd` error recovery**: `MCP server add/remove.upsert()` in `McpRegistry` returns Result — but the IPC handler (`ipc_handler.rs`) creates a **new** `McpRegistry` per request instead of using the shared instance, which means in-memory pools (`McpPool`, `McpClientPool`) are not persisted across restarts and health check state is not shared.
-15. **Config `DocType` is v2.0.0 for all crates** (workspace version).
+1. **Auth vault `export_credential()` returns plaintext** — comment notes "this is the plaintext; proper export would re-encrypt".
+2. **`mcp_registry.db` is SQLite** — created automatically in `~/.loom/` by `McpRegistry`.
+3. **ConfigReader overlays layer-specific TOML files** — if `routing.toml` exists in `config/`, it completely replaces (not deep-merges) the `routing` field from `config.toml`.
+4. **Session compression**: After `SESSION_COMPRESSION_THRESHOLD` (20) messages, session data uses compression. First `SESSION_FULL_FIDELITY_COUNT` (10) messages are stored uncompressed.
+5. **Vault lockout**: max `VAULT_MAX_UNLOCK_ATTEMPTS` (5) within `VAULT_MAX_UNLOCK_WINDOW_MS` (60s).
+6. **Daemon auto-shutdown**: after `DAEMON_DEFAULT_IDLE_TIMEOUT_MS` (300s = 5min) of no IPC activity.
+7. **TUI keybindings**: `D` opens action palette (daemon controls), `a` opens dispatch menu only on task tabs (5=Skills, 6=Sessions), `?` for help. Tab indices: 0=Dashboard, 1=Daemon, 2=Discovery, 3=MCP, 4=Skills, 5=Sessions, 6=Logs.
+8. **Adapter binaries for TerminalLaunch**: checks PATH for `opencode`, `claude-code`, `jcode`, `crush` (in order).
+9. **ACP dispatch not wired** — reports "requires daemon IPC" but no implementation.
+10. **EmbeddedPane dispatch** — explicit "not yet implemented".
+11. **`loom-ipc` uses Unix sockets only** — no TCP or Windows named pipe support.
+12. **Config `DocType` is v2.0.0 for all crates** (workspace version).
 
 ## TUI Architecture
 
@@ -245,7 +242,7 @@ crates/
 ├── loom-mcp/         — MCP server registry, pool, health checks
 ├── loom-auth/        — Credential vault, ACL, audit
 ├── loom-sessions/    — Session export/import, storage
-├── loom-hooks/       — Hook registry, execution, signing
+├── loom-hooks/       — Hook registry, execution, signing (real script execution with exit code checking)
 ├── loom-workflow/    — Task orchestration and phases
 ├── loom-routing/     — Complexity scoring, model routing
 ├── loom-generic-adapter/  — TOML-driven tool adapter
@@ -269,7 +266,7 @@ packages/
 
 Tests in `crates/loom-integration-tests/tests/`:
 
-- **ecosystem.rs**: Skill portability, MCP pool, session export/import, auth provider import, hook enforcement, workflow routing, cost optimization
+- **ecosystem.rs**: Skill portability, MCP pool, session export/import, auth provider import, hook enforcement (real script execution with exit code checking), workflow routing, cost optimization
 - **routing_integration.rs**: Complexity scoring, config thresholds, phase transitions, cost optimization, manual overrides
 - **cross_tool_workflow.rs**: Session sharing between tools, skill portability, MCP communication
 

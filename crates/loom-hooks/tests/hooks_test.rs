@@ -29,7 +29,7 @@ async fn test_hook_runner_executes_script() {
     perms.set_mode(0o755);
     fs::set_permissions(&script, perms).unwrap();
 
-    let hook = sample_hook("allow", "allow.sh");
+    let hook = sample_hook("allow", script.to_str().unwrap());
     fs::write(
         hooks_dir.join("allow.toml"),
         toml::to_string(&hook).unwrap(),
@@ -86,10 +86,7 @@ async fn test_hook_blocks_on_nonzero_exit() {
     )
     .await
     .unwrap();
-    println!("Hook result: {:?}", results[0]);
-    // Note: The current placeholder implementation always returns success
-    // TODO: Implement real script execution that checks exit codes
-    assert!(results[0].success);
+    assert!(!results[0].success);
 }
 
 #[test]

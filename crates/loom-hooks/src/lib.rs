@@ -169,10 +169,10 @@ pub async fn execute_hooks(
 
             // Execute the hook script
             match execute_hook_script(&hook.script_path, context).await {
-                Ok(output) => {
+                Ok((success, output)) => {
                     results.push(HookResult {
                         hook_id: hook.id.clone(),
-                        success: true,
+                        success,
                         output,
                     });
                 }
@@ -206,16 +206,40 @@ pub struct HookResult {
     pub output: String,
 }
 
-/// Execute a hook script (placeholder implementation)
-async fn execute_hook_script(script_path: &str, _context: &HookContext) -> Result<String> {
-    // In a real implementation, this would:
-    // 1. Execute the script (shell, Node.js, Python, etc.)
-    // 2. Pass context as stdin or arguments
-    // 3. Capture stdout/stderr
-    // 4. Return the output
+/// Execute a hook script using the HookRunner
+async fn execute_hook_script(script_path: &str, context: &HookContext) -> Result<(bool, String)> {
+    use std::process::Stdio;
+    use tokio::process::Command;
+    use tokio::time::timeout;
 
-    // For now, return a success message
-    Ok(format!("Hook {} executed successfully", script_path))
+    let loom_dir = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    let script = Path::new(script_path);
+    if !script.exists() {
+        return Ok((false, format!("hook script not found: {}", script.display())));
+    }
+
+    let mut cmd = Command::new(script);
+    cmd.env("LOOM_HOOK_ID", "test")
+        .env("LOOM_EVENT", &context.event_type)
+        .env("LOOM_TOOL", context.tool_name.as_deref().unwrap_or("unknown"))
+        .env("LOOM_AGENTS_DIR", loom_dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let output = timeout(std::time::Duration::from_secs(30), cmd.output())
+        .await
+        .map_err(|_| anyhow::anyhow!("hook timed out"))??;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if !stderr.is_empty() {
+        return Ok((false, format!("hook stderr: {}", stderr)));
+    }
+
+    let success = output.status.success();
+    Ok((success, stdout))
 }
 
 /// Sign a hook for security verification
@@ -304,7 +328,7 @@ mod tests {
         let hook = Hook {
             id: "test-hook".to_string(),
             event_type: "skill.added".to_string(),
-            script_path: "/path/to/script.sh".to_string(),
+            script_path: "/bin/echo".to_string(),
             enabled: true,
             priority: HookPriority::Ecosystem,
             signature: None,

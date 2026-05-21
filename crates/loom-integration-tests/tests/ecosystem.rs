@@ -98,7 +98,7 @@ async fn hook_enforcement_blocks_pretooluse() {
     let dir = tempdir().unwrap();
     fs::create_dir_all(dir.path().join("hooks")).unwrap();
     let script = dir.path().join("block.sh");
-    fs::write(&script, "#!/bin/sh\nexit 2\n").unwrap();
+    fs::write(&script, "#!/bin/sh\nexit 1\n").unwrap();
     let mut perms = fs::metadata(&script).unwrap().permissions();
     perms.set_mode(0o755);
     fs::set_permissions(&script, perms).unwrap();
@@ -106,7 +106,7 @@ async fn hook_enforcement_blocks_pretooluse() {
     let hook = loom_hooks::Hook {
         id: "block-rm".into(),
         event_type: loom_core::HookEventType::PreToolUse.to_string(),
-        script_path: "block.sh".into(),
+        script_path: script.to_str().unwrap().into(),
         enabled: true,
         priority: loom_hooks::HookPriority::Ecosystem,
         signature: None,
@@ -135,9 +135,10 @@ async fn hook_enforcement_blocks_pretooluse() {
     )
     .await
     .unwrap();
-    // Note: The current placeholder implementation always returns success
-    // TODO: Implement real script execution that checks exit codes
-    assert!(results[0].success);
+    // Hook executes and returns result - check that we got results
+    assert_eq!(results.len(), 1);
+    // With real execution, non-zero exit should result in failure
+    assert!(!results[0].success);
 }
 
 // 8.4 Authentication sharing (provider import path)
