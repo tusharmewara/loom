@@ -7,7 +7,7 @@ Loom is a multi-agent orchestration framework built in Rust. It provides a unifi
 ## Crates
 
 - `loom-core`: Types, config, constants, errors, traits
-- `loom-cli`: CLI binary with 20+ subcommands
+- `loom`: CLI binary with 20+ subcommands
 - `loomd`: Background daemon aggregating all subsystems
 - `loom-tui`: Terminal UI (ratatui + crossterm)
 - `loom-ipc`: JSON-line protocol over Unix sockets
@@ -78,7 +78,7 @@ brew install loom
 ### Cargo
 
 ```bash
-cargo install loom-cli
+cargo install loom
 ```
 
 ### From Source

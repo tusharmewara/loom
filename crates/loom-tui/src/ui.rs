@@ -556,8 +556,8 @@ fn sessions_body(app: &App) -> String {
             lines.push("No sessions stored yet.".to_string());
             lines.push("".to_string());
             lines.push("Sessions are exported/imported via:".to_string());
-            lines.push("  loom-cli sessions export <id>".to_string());
-            lines.push("  loom-cli sessions import <path>".to_string());
+            lines.push("  loom sessions export <id>".to_string());
+            lines.push("  loom sessions import <path>".to_string());
         } else {
         for (i, s) in sess.iter().enumerate() {
             let id = s.pointer("/session_id").and_then(Value::as_str).unwrap_or("?");

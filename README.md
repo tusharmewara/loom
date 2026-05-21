@@ -23,7 +23,7 @@ Loom is a unified agentic ecosystem that enables seamless collaboration between 
 
 3. Initialize the ecosystem:
    ```bash
-   ./loom-cli/target/release/loom init
+    ./loom/target/release/loom init
    ```
 
 4. Start the daemon:
@@ -52,7 +52,7 @@ Loom is built as a Rust workspace with the following crates:
 | Crate | Purpose |
 |-------|---------|
 | `loom-core` | Core types, constants, and schemas |
-| `loom-cli` | Command‑line interface for Loom |
+| `loom` | Command‑line interface for Loom |
 | `loom-discovery` | Discovery and registration of tools and resources |
 | `loom-event-bus` | In‑process and cross‑process event bus |
 | `loom-mcp` | MCP server registry, pool, and health checking |

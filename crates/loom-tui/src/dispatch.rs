@@ -119,7 +119,7 @@ impl Dispatcher for TerminalLaunch {
             };
         }
 
-        let command = format!("cd '{}' && loom-cli workflow show '{}' && exec {}", Self::shell_escape(&cwd), Self::shell_escape(task_id), agent);
+        let command = format!("cd '{}' && loom workflow show '{}' && exec {}", Self::shell_escape(&cwd), Self::shell_escape(task_id), agent);
 
         let mut cmd = std::process::Command::new(launcher);
         if cfg!(target_os = "macos") {

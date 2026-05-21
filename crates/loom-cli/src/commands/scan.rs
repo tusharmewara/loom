@@ -14,7 +14,7 @@ struct AgenticToolSpec {
 const AGENTIC_TOOLS: &[AgenticToolSpec] = &[
     AgenticToolSpec {
         name: "loom",
-        binaries: &["loom-cli", "loomd"],
+        binaries: &["loom", "loomd"],
     },
     AgenticToolSpec {
         name: "codex",

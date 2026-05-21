@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/loom-core",
     "crates/loom-cli",
+
     "crates/loomd",
     "crates/loom-discovery",
     "crates/loom-event-bus",

@@ -49,7 +49,7 @@ pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
             "Agents root",
             CheckStatus::Fail,
             format!(
-                "Missing {}. Run `loom-cli init --import` first.",
+                "Missing {}. Run `loom init --import` first.",
                 agents_path.display()
             ),
         ));
@@ -171,7 +171,7 @@ pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
             "Daemon health",
             CheckStatus::Warn,
             format!(
-                "{} is not present. Run `loom-cli daemon start` or `loom-cli daemon install-service`.",
+                "{} is not present. Run `loom daemon start` or `loom daemon install-service`.",
                 socket_path.display()
             ),
         ));
@@ -303,7 +303,7 @@ fn service_status_check() -> (CheckStatus, String) {
         return (
             CheckStatus::Warn,
             format!(
-                "No launchd service at {}. Run `loom-cli daemon install-service`.",
+                "No launchd service at {}. Run `loom daemon install-service`.",
                 plist.display()
             ),
         );
@@ -328,7 +328,7 @@ fn service_status_check() -> (CheckStatus, String) {
         ),
         Ok(_) => (
             CheckStatus::Warn,
-            "launchd plist exists but service is not loaded. Try `loom-cli daemon install-service`.".to_string(),
+            "launchd plist exists but service is not loaded. Try `loom daemon install-service`.".to_string(),
         ),
         Err(e) => (
             CheckStatus::Warn,
@@ -352,7 +352,7 @@ fn service_status_check() -> (CheckStatus, String) {
         return (
             CheckStatus::Warn,
             format!(
-                "No systemd user unit at {}. Run `loom-cli daemon install-service`.",
+                "No systemd user unit at {}. Run `loom daemon install-service`.",
                 unit.display()
             ),
         );

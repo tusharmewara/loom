@@ -29,7 +29,7 @@ The earliest commits built out the **terminal UI** (`loom-tui` crate):
 ### Phase 2 — CLI & Ecosystem (commits 11-16)
 - `loom init` now supports registering tools during initialization
 - Homebrew bottle support and CI/CD pipeline
-- Binary renamed from `loom-cli` to `loom` for consistent entry point
+- Binary renamed to `loom` for consistent entry point
 - Formula generation for macOS/Linux distribution
 
 ### Phase 3 — Polish & Release (commits 17-18)
