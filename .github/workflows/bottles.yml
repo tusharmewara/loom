@@ -33,6 +33,22 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Add Intel target
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: |
+          rustup target add x86_64-apple-darwin
+          brew install llvm
+          sudo ln -sf $(brew --prefix llvm)/bin/clang /usr/local/bin/x86_64-apple-darwin15-clang
+          mkdir -p $HOME/.cargo
+          echo '[target.x86_64-apple-darwin]' > $HOME/.cargo/config
+          echo 'linker = "x86_64-apple-darwin15-clang"' >> $HOME/.cargo/config
+          echo 'rustflags = ["-C", "target-cpu=core2"]' >> $HOME/.cargo/config
+
+      - name: Verify cross-compiled binary
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: |
+          file "target/${{ matrix.target }}/release/loom"
+
       - name: Determine version
         id: vars
         run: |
