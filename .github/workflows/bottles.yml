@@ -47,12 +47,12 @@ jobs:
 
       - name: Create bottle tarball
         run: |
-          tar -czf "loom--${{ steps.vars.outputs.version }}.${{ matrix.platform }}.bottle.tar.gz" -C bottle loom
+          tar -czf "loom-${{ steps.vars.outputs.version }}.${{ matrix.platform }}.bottle.tar.gz" -C bottle loom
 
       - name: Compute checksums
         id: checksum
         run: |
-          TARBALL="loom--${{ steps.vars.outputs.version }}.${{ matrix.platform }}.bottle.tar.gz"
+          TARBALL="loom-${{ steps.vars.outputs.version }}.${{ matrix.platform }}.bottle.tar.gz"
           echo "sha256=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)" >> $GITHUB_OUTPUT
 
       - name: Wait for release to be ready
@@ -61,13 +61,13 @@ jobs:
       - name: Upload bottle asset
         uses: softprops/action-gh-release@v3
         with:
-          files: "loom--${{ steps.vars.outputs.version }}.${{ matrix.platform }}.bottle.tar.gz"
+          files: "loom-${{ steps.vars.outputs.version }}.${{ matrix.platform }}.bottle.tar.gz"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Save checksum
         run: |
-          echo "@sha256_${{ matrix.platform }} = \"${{ steps.checksum.outputs.sha256 }}\"" > checksum-${{ matrix.platform }}.txt
+          echo "${{ matrix.platform }}=${{ steps.checksum.outputs.sha256 }}" > checksum-${{ matrix.platform }}.txt
 
       - name: Upload checksum artifact
         uses: actions/upload-artifact@v4
@@ -88,13 +88,13 @@ jobs:
       - name: Download tarballs from release
         run: |
           gh release download v${{ steps.vars.outputs.version }} \
-            --pattern "loom--*.bottle.tar.gz"
+            --pattern "loom-*.bottle.tar.gz"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload bottles to homebrew-loom
         run: |
-          for tarball in loom--*.bottle.tar.gz; do
+          for tarball in loom-*.bottle.tar.gz; do
             echo "Uploading $tarball..."
             gh release upload v${{ steps.vars.outputs.version }} \
               "$tarball" \
