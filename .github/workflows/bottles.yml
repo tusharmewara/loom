@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   build-bottles:
-    runs-on: macos-14
+    runs-on: ${{ matrix.target == 'x86_64-apple-darwin' && 'macos-13' || 'macos-14' }}
     strategy:
       matrix:
         target: [aarch64-apple-darwin, x86_64-apple-darwin]
