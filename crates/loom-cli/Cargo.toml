@@ -18,6 +18,8 @@ loom-generic-adapter = { path = "../loom-generic-adapter" }
 loom-ipc = { path = "../loom-ipc" }
 loom-routing = { path = "../loom-routing" }
 loom-sessions = { path = "../loom-sessions" }
+loom-auth = { path = "../loom-auth" }
+loom-skills = { path = "../loom-skills" }
 loom-workflow = { path = "../loom-workflow" }
 loom-hooks = { path = "../loom-hooks" }
 loom-mcp = { path = "../loom-mcp" }

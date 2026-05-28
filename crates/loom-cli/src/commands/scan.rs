@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use comfy_table::Table;
 use loom_discovery::DiscoveryEngine;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
@@ -113,15 +113,19 @@ pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
         .initialize_schema()
         .context("Failed to initialize snapshot schema")?;
 
-    // Phase 1: fast SQLite snapshot read
+    // Phase 1: fast SQLite snapshot read (for ecosystem version, layers)
     let phase1 = engine.phase_1().context("Phase 1 discovery failed")?;
 
-    // Phase 2: deferred validation + merge
+    // Phase 2: deferred validation + snapshot sync (discovers new resources)
     let phase2 = engine.phase_2().context("Phase 2 discovery failed")?;
+
+    // Compute live counts from registries so display is always accurate,
+    // regardless of when the snapshot was last populated.
+    let live_counts = engine.live_counts();
 
     let system_audit = scan_system(agents_path);
     let mut total = 0usize;
-    for count in phase1.resource_counts.values() {
+    for count in live_counts.values() {
         total += count;
     }
 
@@ -129,14 +133,14 @@ pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
     warnings.extend(system_audit.warnings.clone());
 
     if json {
-        print_scan_json(loom_dir, &phase1, &phase2, total, &system_audit, &warnings)?;
+        print_scan_json(loom_dir, &phase1, &phase2, &live_counts, total, &system_audit, &warnings)?;
         return Ok(());
     }
 
     // ── Build ecosystem output table ─────────────────────────────
     let mut table = Table::new();
     table.set_header(vec!["Layer", "Count", "Status"]);
-    for (layer, count) in &phase1.resource_counts {
+    for (layer, count) in &live_counts {
         table.add_row(vec![
             layer.as_str(),
             &count.to_string(),
@@ -166,10 +170,12 @@ pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
+/// Build live resource counts from registries (not from the snapshot).
 fn print_scan_json(
     loom_dir: &str,
     phase1: &loom_discovery::Phase1Result,
     phase2: &loom_discovery::Phase2Result,
+    live_counts: &HashMap<String, usize>,
     total_resources: usize,
     system_audit: &SystemAudit,
     warnings: &[String],

@@ -1,58 +1,34 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use comfy_table::Table;
-use loom_discovery::registry::SnapshotDb;
+use loom_discovery::DiscoveryEngine;
 use loom_ipc::{client::send_command, IpcRequest};
 
-/// Default IPC socket path, relative to ~/.loom/.
 const DAEMON_SOCKET: &str = "loomd.sock";
 
 /// `loom status`
 ///
-/// Checks daemon health via the IPC Unix socket. Falls back to reading the
-/// SQLite snapshot directly when the daemon is not running.
+/// Checks daemon health via IPC and displays resource counts from live registries
+/// (skills, mcp, tools) so counts are accurate immediately — no need to wait for
+/// the snapshot to sync.
 pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
     let agents_path = std::path::Path::new(loom_dir);
     if !agents_path.exists() {
-        anyhow::bail!(
-            "Ecosystem not initialized at ~/.loom/. Run 'loom init' first."
-        );
+        anyhow::bail!("Ecosystem not initialized at ~/.loom/. Run 'loom init' first.");
     }
 
-    // ── Check daemon health via IPC ───────────────────────────────
+    // ── Check daemon health ─────────────────────────────────────
     let socket_path = format!("{loom_dir}/{DAEMON_SOCKET}");
-    let mut daemon_status = "unreachable".to_string();
-    let mut daemon_error: Option<String> = None;
-    let mut daemon_data: Option<serde_json::Value> = None;
-    let daemon_ok = match send_command(&socket_path, IpcRequest::new("health.check")).await {
-        Ok(resp) if resp.status == "ok" => {
-            daemon_status = "ok".to_string();
-            daemon_data = resp.data;
-            true
-        }
-        Ok(resp) => {
-            daemon_status = resp.status;
-            daemon_error = resp.error;
-            false
-        }
-        Err(e) => {
-            daemon_error = Some(e.to_string());
-            false
-        }
-    };
+    let (daemon_ok, daemon_status, daemon_error, daemon_data) =
+        match send_command(&socket_path, IpcRequest::new("health.check")).await {
+            Ok(resp) if resp.status == "ok" => (true, resp.status, None, resp.data),
+            Ok(resp) => (false, resp.status, resp.error, resp.data),
+            Err(e) => (false, "unreachable".into(), Some(e.to_string()), None),
+        };
 
-    // ── Read resource snapshot ────────────────────────────────────
-    let snapshot = SnapshotDb::new(loom_dir);
-    snapshot
-        .initialize_schema()
-        .context("Failed to initialize snapshot schema")?;
-    let counts = snapshot
-        .count_resources()
-        .context("Failed to read snapshot counts")?;
-
-    let mut total = 0usize;
-    for count in counts.values() {
-        total += count;
-    }
+    // ── Live resource counts (source of truth, not snapshot) ─────
+    let engine = DiscoveryEngine::new(loom_dir);
+    let counts = engine.live_counts();
+    let total: usize = counts.values().sum();
 
     if json {
         println!(
@@ -66,12 +42,12 @@ pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
                     "status": daemon_status,
                     "socket_path": socket_path,
                     "error": daemon_error,
-                    "data": daemon_data
+                    "data": daemon_data,
                 },
                 "resources": {
                     "counts": counts,
-                    "total": total
-                }
+                    "total": total,
+                },
             }))?
         );
         return Ok(());
@@ -99,10 +75,9 @@ pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
     for (resource, count) in &counts {
         table.add_row(vec![resource.as_str(), &count.to_string()]);
     }
-
-    // Always show the key count rows even for empty
-    if counts.is_empty() {
-        for name in &["skills", "mcp_servers", "sessions", "providers", "tools"] {
+    // Always show the canonical rows even when empty
+    for name in &["skills", "mcp_servers", "sessions", "providers", "tools"] {
+        if !counts.contains_key(*name) {
             table.add_row(vec![*name, "0"]);
         }
     }
@@ -123,36 +98,19 @@ pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
 mod tests {
     use super::*;
     use crate::commands::init;
-    use loom_discovery::registry::SnapshotDb;
 
     #[tokio::test]
     async fn test_status_without_daemon() {
         let dir = tempfile::tempdir().unwrap();
         let loom_dir = dir.path().to_str().unwrap();
-
-        // Initialize first
         init::run(false, false, loom_dir).await.unwrap();
-
-        // Should succeed with daemon-not-reachable + snapshot counts
         run(loom_dir, false).await.unwrap();
-
-        // Snapshot should have schema with empty counts
-        let db = SnapshotDb::new(loom_dir);
-        let counts = db.count_resources().unwrap();
-        assert!(counts.values().all(|c| *c == 0));
     }
 
     #[tokio::test]
     async fn test_status_proceeds_with_empty_state() {
         let dir = tempfile::tempdir().unwrap();
         let loom_dir = dir.path().to_str().unwrap();
-
-        // Should succeed — schema created on the fly
         run(loom_dir, false).await.unwrap();
-
-        // Snapshot should have schema with empty counts
-        let db = SnapshotDb::new(loom_dir);
-        let counts = db.count_resources().unwrap();
-        assert!(counts.values().all(|c| *c == 0));
     }
 }

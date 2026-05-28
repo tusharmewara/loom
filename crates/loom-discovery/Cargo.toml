@@ -6,6 +6,8 @@ edition.workspace = true
 [dependencies]
 loom-core = { path = "../loom-core" }
 loom-event-bus = { path = "../loom-event-bus" }
+loom-mcp = { path = "../loom-mcp" }
+loom-auth = { path = "../loom-auth" }
 anyhow.workspace = true
 rusqlite.workspace = true
 serde.workspace = true

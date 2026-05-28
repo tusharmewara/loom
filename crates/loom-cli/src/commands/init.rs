@@ -15,7 +15,7 @@ use std::path::Path;
 ///
 /// When `--recommended` is passed, also installs recommended MCP servers
 /// (filesystem, github, playwright, agentmemory) into the registry.
-pub async fn run(import: bool, recommended: bool, loom_dir: &str) -> Result<()> {
+pub async fn run(_import: bool, recommended: bool, loom_dir: &str) -> Result<()> {
     // 1. Create the full directory tree
     let builder = SnapshotBuilder::new(loom_dir);
     builder
@@ -55,13 +55,11 @@ pub async fn run(import: bool, recommended: bool, loom_dir: &str) -> Result<()> 
 
     install_example_hooks(loom_dir)?;
 
-    // 5. Optionally import existing resources
-    if import {
-        builder
-            .build_initial()
-            .context("Failed to build initial snapshot from existing resources")?;
-        println!("✓ Imported existing resources into snapshot");
-    }
+    // 5. Build initial snapshot from existing resources (auto-import)
+    builder
+        .build_initial()
+        .context("Failed to build initial snapshot from existing resources")?;
+    println!("✓ Imported existing resources into snapshot");
 
     // 6. Optionally install recommended MCP servers
     if recommended {

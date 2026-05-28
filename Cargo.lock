@@ -1471,6 +1471,7 @@ dependencies = [
  "clap",
  "comfy-table",
  "loom-adapters",
+ "loom-auth",
  "loom-core",
  "loom-discovery",
  "loom-event-bus",
@@ -1480,6 +1481,7 @@ dependencies = [
  "loom-mcp",
  "loom-routing",
  "loom-sessions",
+ "loom-skills",
  "loom-tui",
  "loom-workflow",
  "reqwest",
@@ -1546,8 +1548,10 @@ name = "loom-discovery"
 version = "0.1.2"
 dependencies = [
  "anyhow",
+ "loom-auth",
  "loom-core",
  "loom-event-bus",
+ "loom-mcp",
  "notify",
  "rusqlite",
  "serde",
