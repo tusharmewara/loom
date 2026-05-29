@@ -3,9 +3,11 @@ pub mod phases;
 pub mod routing;
 pub mod task;
 pub mod task_manager;
+pub mod template_manager;
 
 use loom_core::HealthCheck;
 use orchestrator::TaskOrchestrator;
+pub use template_manager::TemplateManager;
 
 pub struct WorkflowEngine {
     #[allow(dead_code)]

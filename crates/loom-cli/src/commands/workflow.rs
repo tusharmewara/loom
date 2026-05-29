@@ -1,4 +1,5 @@
-use crate::cli::WorkflowAction;
+use crate::cli::{TemplateAction, WorkflowAction};
+use loom_core::WorkflowTemplate;
 use loom_trackers::IssueTracker;
 use loom_workflow::WorkflowEngine;
 use std::collections::HashMap;
@@ -75,9 +76,37 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
             from_issue,
             repo,
             token,
+            template,
         } => {
-            // If --from-issue is given, fetch from GitHub
-            if let Some(issue_ref) = from_issue {
+            // If --template is given, create from template
+            if let Some(template_name) = template {
+                let tmgr = loom_workflow::TemplateManager::new(loom_dir_str);
+                let tpl = tmgr
+                    .get(template_name)
+                    .ok_or_else(|| anyhow::anyhow!("Template '{template_name}' not found"))?;
+                let t_title = tpl.default_title.as_deref().unwrap_or("Untitled task");
+                let t_description = tpl.default_description.as_deref().unwrap_or("Created from template");
+                let task = orchestrator.create_task(t_title, t_description)?;
+                // Apply template overrides
+                if let Some(agent) = &tpl.default_agent {
+                    orchestrator.set_last_agent(&task.task_id, agent)?;
+                }
+                if let Some(ref sa) = tpl.sub_agents {
+                    orchestrator.set_sub_agents(&task.task_id, sa.clone())?;
+                }
+                if let Some(provider) = &tpl.default_provider {
+                    if let Some(model) = &tpl.default_model {
+                        orchestrator.assign_routing_with_overrides(
+                            &task.task_id,
+                            Some(provider),
+                            Some(model),
+                        )?;
+                    }
+                }
+                let task = orchestrator.get_task(&task.task_id)?.unwrap();
+                println!("Created task {} from template '{template_name}'", task.task_id);
+                println!("{}", serde_json::to_string_pretty(&task)?);
+            } else if let Some(issue_ref) = from_issue {
                 let tracker = loom_trackers::github::GitHubTracker::new(token.clone())?;
                 let issue_id = if issue_ref.chars().all(|c| c.is_ascii_digit()) && !repo.is_empty() {
                     format!("{}#{}", repo, issue_ref)
@@ -274,6 +303,105 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                 if let Some(ref a) = sa.implement { println!("  Implement:  {a}"); }
                 if let Some(ref a) = sa.verify { println!("  Verify:     {a}"); }
                 if let Some(ref a) = sa.finish { println!("  Finish:     {a}"); }
+            }
+        }
+        WorkflowAction::Template { action } => {
+            let tmgr = loom_workflow::TemplateManager::new(loom_dir_str);
+            match action {
+                TemplateAction::List => {
+                    let templates = tmgr.list();
+                    if templates.is_empty() {
+                        println!("No workflow templates.");
+                        println!();
+                        println!("  Create one with: loom workflow template create <name> --description ...");
+                    } else {
+                        println!("Workflow templates:");
+                        for tpl in &templates {
+                            let tpl_title = tpl.default_title.as_deref().unwrap_or("(no default title)");
+                            println!("  {}  {}  default_agent={}", tpl.name, tpl_title, tpl.default_agent.as_deref().unwrap_or("-"));
+                        }
+                    }
+                }
+                TemplateAction::Show { name } => {
+                    match tmgr.get(name) {
+                        Some(tpl) => {
+                            println!("Template: {}", tpl.name);
+                            println!("  Description: {}", tpl.description);
+                            if let Some(ref t) = tpl.default_title {
+                                println!("  Default title: {t}");
+                            }
+                            if let Some(ref d) = tpl.default_description {
+                                println!("  Default description: {d}");
+                            }
+                            if let Some(ref a) = tpl.default_agent {
+                                println!("  Default agent: {a}");
+                            }
+                            if let Some(ref p) = tpl.default_provider {
+                                println!("  Default provider: {p}");
+                            }
+                            if let Some(ref m) = tpl.default_model {
+                                println!("  Default model: {m}");
+                            }
+                            if let Some(ref sa) = tpl.sub_agents {
+                                println!("  Sub-agents:");
+                                if let Some(ref a) = sa.plan { println!("    Plan:       {a}"); }
+                                if let Some(ref a) = sa.implement { println!("    Implement:  {a}"); }
+                                if let Some(ref a) = sa.verify { println!("    Verify:     {a}"); }
+                                if let Some(ref a) = sa.finish { println!("    Finish:     {a}"); }
+                            }
+                        }
+                        None => {
+                            eprintln!("Template '{name}' not found.");
+                        }
+                    }
+                }
+                TemplateAction::Create {
+                    name,
+                    description,
+                    default_title,
+                    default_description,
+                    default_agent,
+                    default_provider,
+                    default_model,
+                    sub_plan,
+                    sub_implement,
+                    sub_verify,
+                    sub_finish,
+                } => {
+                    let sub_agents = if sub_plan.is_some()
+                        || sub_implement.is_some()
+                        || sub_verify.is_some()
+                        || sub_finish.is_some()
+                    {
+                        Some(loom_core::SubAgentConfig {
+                            plan: sub_plan.clone(),
+                            implement: sub_implement.clone(),
+                            verify: sub_verify.clone(),
+                            finish: sub_finish.clone(),
+                        })
+                    } else {
+                        None
+                    };
+                    let template = WorkflowTemplate {
+                        name: name.clone(),
+                        description: description.clone(),
+                        default_title: default_title.clone(),
+                        default_description: default_description.clone(),
+                        default_agent: default_agent.clone(),
+                        sub_agents,
+                        default_provider: default_provider.clone(),
+                        default_model: default_model.clone(),
+                    };
+                    tmgr.save(&template)?;
+                    println!("✓ Template '{name}' saved.");
+                }
+                TemplateAction::Remove { name } => {
+                    if tmgr.delete(name)? {
+                        println!("✓ Template '{name}' removed.");
+                    } else {
+                        eprintln!("Template '{name}' not found.");
+                    }
+                }
             }
         }
     }

@@ -592,6 +592,33 @@ impl SubAgentConfig {
     }
 }
 
+/// A reusable workflow template that pre-configures task creation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowTemplate {
+    /// Template name (used as filename stem).
+    pub name: String,
+    /// Human-readable description of what this template is for.
+    pub description: String,
+    /// Pre-filled task title (supports `{issue_title}` placeholder).
+    #[serde(default)]
+    pub default_title: Option<String>,
+    /// Pre-filled task description.
+    #[serde(default)]
+    pub default_description: Option<String>,
+    /// Default agent tool for dispatch.
+    #[serde(default)]
+    pub default_agent: Option<String>,
+    /// Per-phase sub-agent configuration.
+    #[serde(default)]
+    pub sub_agents: Option<SubAgentConfig>,
+    /// Default LLM provider override.
+    #[serde(default)]
+    pub default_provider: Option<String>,
+    /// Default model override.
+    #[serde(default)]
+    pub default_model: Option<String>,
+}
+
 // ─── Discovery ──────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

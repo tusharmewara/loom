@@ -375,6 +375,9 @@ pub enum WorkflowAction {
         /// GitHub token (defaults to GITHUB_TOKEN env)
         #[arg(long)]
         token: Option<String>,
+        /// Create task from a workflow template
+        #[arg(long)]
+        template: Option<String>,
     },
     /// Advance a task to the next phase
     Advance {
@@ -439,6 +442,58 @@ pub enum WorkflowAction {
         #[arg(long)]
         finish: Option<String>,
     },
+    /// Manage workflow templates
+    Template {
+        #[command(subcommand)]
+        action: TemplateAction,
+    },
+}
+
+#[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)]
+pub enum TemplateAction {
+    /// List available workflow templates
+    List,
+    /// Show a template's configuration
+    Show {
+        name: String,
+    },
+    /// Create or update a workflow template
+    Create {
+        name: String,
+        /// Template description
+        #[arg(long)]
+        description: String,
+        /// Default task title (supports {issue_title} placeholder)
+        #[arg(long)]
+        default_title: Option<String>,
+        /// Default task description
+        #[arg(long)]
+        default_description: Option<String>,
+        /// Default agent tool
+        #[arg(long)]
+        default_agent: Option<String>,
+        /// Default LLM provider
+        #[arg(long)]
+        default_provider: Option<String>,
+        /// Default model
+        #[arg(long)]
+        default_model: Option<String>,
+        /// Agent for Plan phase
+        #[arg(long)]
+        sub_plan: Option<String>,
+        /// Agent for Implement phase
+        #[arg(long)]
+        sub_implement: Option<String>,
+        /// Agent for Verify phase
+        #[arg(long)]
+        sub_verify: Option<String>,
+        /// Agent for Finish phase
+        #[arg(long)]
+        sub_finish: Option<String>,
+    },
+    /// Remove a workflow template
+    Remove { name: String },
 }
 
 #[derive(Subcommand)]
