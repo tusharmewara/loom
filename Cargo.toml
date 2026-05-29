@@ -21,6 +21,7 @@ members = [
     "crates/loom-integration-tests",
     "crates/loom-adapters",
     "crates/loom-tui",
+    "crates/loom-mcp-server",
 ]
 
 [workspace.package]

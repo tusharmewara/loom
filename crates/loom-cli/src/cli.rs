@@ -104,6 +104,15 @@ pub enum Command {
         #[arg(long, default_value = "auto")]
         shell: String,
     },
+    /// Sync Loom-managed resources to tool-native filesystem locations
+    Sync {
+        /// Sync only this specific tool (jcode, crush, claude-code, opencode, goose)
+        #[arg(long)]
+        tool: Option<String>,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Add an agentic tool from the ACP registry (cdn.agentclientprotocol.com)
     AddAcpAgent {
         agent_id: String,
@@ -171,6 +180,8 @@ pub enum McpAction {
         #[arg(long)]
         json: bool,
     },
+    /// Start the Loom MCP server (stdio-based, for MCP-compatible tools)
+    Serve,
 }
 
 #[derive(Subcommand)]
@@ -428,6 +439,9 @@ impl Cli {
                 dry_run,
             } => crate::commands::exec::run(&tools, &args, dry_run, &loom_dir).await,
             Command::InitShell { shell } => crate::commands::init_shell::run(&shell),
+            Command::Sync { tool, json } => {
+                crate::commands::sync::run(tool.as_deref(), &loom_dir, json).await
+            }
 
             Command::AddAcpAgent { agent_id } => {
                 crate::commands::tools_acp::AddArgs {

@@ -1479,6 +1479,7 @@ dependencies = [
  "loom-hooks",
  "loom-ipc",
  "loom-mcp",
+ "loom-mcp-server",
  "loom-routing",
  "loom-sessions",
  "loom-skills",
@@ -1666,6 +1667,23 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml",
+ "tracing",
+]
+
+[[package]]
+name = "loom-mcp-server"
+version = "0.1.2"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "loom-auth",
+ "loom-core",
+ "loom-mcp",
+ "loom-sessions",
+ "loom-skills",
+ "serde",
+ "serde_json",
+ "tokio",
  "tracing",
 ]
 

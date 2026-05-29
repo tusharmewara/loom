@@ -165,6 +165,15 @@ command = ""
                 );
             }
         }
+        McpAction::Serve => {
+            // Start the Loom MCP server (stdio mode).
+            // Tools that support MCP can register this server and spawn it.
+            let loom_dir_str = loom_dir.to_string_lossy().to_string();
+            let server = loom_mcp_server::LoomMcpServer::new(&loom_dir_str);
+            println!("✓ Loom MCP server started (stdio transport). Waiting for requests...");
+            eprintln!("loom-mcp-server (pid={}) ready", std::process::id());
+            server.run()?;
+        }
     }
     Ok(())
 }

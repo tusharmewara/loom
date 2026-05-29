@@ -24,6 +24,7 @@ loom-workflow = { path = "../loom-workflow" }
 loom-hooks = { path = "../loom-hooks" }
 loom-mcp = { path = "../loom-mcp" }
 loom-adapters = { path = "../loom-adapters" }
+loom-mcp-server = { path = "../loom-mcp-server" }
 loom-tui = { path = "../loom-tui", optional = true }
 clap.workspace = true
 comfy-table.workspace = true

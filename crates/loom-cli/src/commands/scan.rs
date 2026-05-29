@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use comfy_table::Table;
 use loom_discovery::DiscoveryEngine;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
@@ -133,7 +133,7 @@ pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
     warnings.extend(system_audit.warnings.clone());
 
     if json {
-        print_scan_json(loom_dir, &phase1, &phase2, &live_counts, total, &system_audit, &warnings)?;
+        print_scan_json(loom_dir, &phase1, &phase2, total, &system_audit, &warnings)?;
         return Ok(());
     }
 
@@ -175,7 +175,6 @@ fn print_scan_json(
     loom_dir: &str,
     phase1: &loom_discovery::Phase1Result,
     phase2: &loom_discovery::Phase2Result,
-    live_counts: &HashMap<String, usize>,
     total_resources: usize,
     system_audit: &SystemAudit,
     warnings: &[String],

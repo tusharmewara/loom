@@ -17,6 +17,7 @@ pub mod opencode;
 use anyhow::Result;
 use loom_core::RoutingDecision;
 use loom_generic_adapter::config::ToolToml;
+use std::path::Path;
 
 /// Shared adapter operations for ecosystem-registered tools.
 pub trait LoomToolAdapter: Send + Sync {
@@ -24,6 +25,183 @@ pub trait LoomToolAdapter: Send + Sync {
     fn default_toml(&self, home: &str) -> ToolToml;
     fn apply_routing_decision(&self, decision: &RoutingDecision) -> Result<()>;
     fn sync_from_native(&self, loom_dir: &str, home: &str) -> Result<SyncReport>;
+
+    /// Push Loom-managed resources (MCP servers, skills) into this tool's native
+    /// filesystem locations so the tool can use them without `loom exec` wrapping.
+    ///
+    /// The default implementation uses [`sync_mcp_to_native`] and [`sync_skills_to_native`].
+    fn sync_to_native(&self, loom_dir: &str, home: &str) -> Result<SyncReport> {
+        let mut report = SyncReport::default();
+
+        // Push shared MCP servers into the tool's native config
+        if let Some(mcp) = self.default_toml(home).mcp {
+            if let Some(ref config_path) = mcp.config_path {
+                match sync_mcp_to_native(loom_dir, config_path) {
+                    Ok(n) => {
+                        report.mcp_servers_synced = n;
+                        if n > 0 {
+                            report.notes.push(format!(
+                                "synced {n} shared MCP server(s) to {}",
+                                config_path
+                            ));
+                        }
+                    }
+                    Err(e) => report.notes.push(format!(
+                        "MCP sync to {} failed: {e}",
+                        config_path
+                    )),
+                }
+            }
+        }
+
+        // Push shared skills into the tool's native skills directory
+        if let Some(skills) = self.default_toml(home).skills {
+            if let Some(ref native_dir) = skills.native_dir {
+                match sync_skills_to_native(loom_dir, native_dir) {
+                    Ok(n) => {
+                        report.skills_synced = n;
+                        if n > 0 {
+                            report.notes.push(format!(
+                                "synced {n} shared skill(s) to {}",
+                                native_dir
+                            ));
+                        }
+                    }
+                    Err(e) => report.notes.push(format!(
+                        "skills sync to {} failed: {e}",
+                        native_dir
+                    )),
+                }
+            }
+        }
+
+        Ok(report)
+    }
+}
+
+/// Write shared MCP servers from Loom's registry into a tool-native MCP config file.
+/// Merges with any existing config — tool-specific servers are preserved.
+pub fn sync_mcp_to_native(loom_dir: &str, native_config_path: &str) -> Result<usize> {
+    let path = Path::new(native_config_path);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    // Read shared MCP servers from Loom's registry
+    let mgr = loom_mcp::McpManager::new(loom_dir)?;
+    let registry = mgr.registry();
+    let shared_servers = registry.filter_shared(true)?;
+
+    if shared_servers.is_empty() {
+        return Ok(0);
+    }
+
+    // Read existing config (if any)
+    let mut existing: serde_json::Value = if path.exists() {
+        let content = std::fs::read_to_string(path)?;
+        serde_json::from_str(&content).unwrap_or(serde_json::Value::Object(Default::default()))
+    } else {
+        serde_json::Value::Object(Default::default())
+    };
+
+    // Merge shared servers under a "loom_shared" key so they're clearly namespaced
+    let obj = existing.as_object_mut().unwrap();
+    let mut loom_servers = serde_json::Map::new();
+    for entry in &shared_servers {
+        let server_obj = serde_json::json!({
+            "command": entry.transport.command,
+            "args": entry.transport.args,
+            "env": entry.transport.env,
+        });
+        loom_servers.insert(entry.id.clone(), server_obj);
+    }
+
+    if !loom_servers.is_empty() {
+        // Write into a "loom_shared" key so the tool can distinguish loom-managed servers
+        // Also write into mcpServers if it doesn't already have that entry
+        let mcp_servers = obj
+            .entry("mcpServers")
+            .or_insert_with(|| serde_json::json!({}));
+        if let Some(mcp_obj) = mcp_servers.as_object_mut() {
+            for (id, server) in &loom_servers {
+                // Only add if not already defined by the tool (tool-specific takes precedence)
+                mcp_obj.entry(id).or_insert_with(|| server.clone());
+            }
+        }
+    }
+
+    // Write back
+    let content = serde_json::to_string_pretty(&existing)?;
+    std::fs::write(path, content)?;
+
+    Ok(shared_servers.len())
+}
+
+/// Symlink Loom's shared skills directory into a tool-native skills directory.
+/// Existing skill files in the tool's directory are preserved (loom skills are merged in).
+pub fn sync_skills_to_native(loom_dir: &str, native_skills_dir: &str) -> Result<usize> {
+    let loom_skills = Path::new(loom_dir).join("skills");
+    if !loom_skills.exists() {
+        return Ok(0);
+    }
+
+    let native_dir = Path::new(native_skills_dir);
+    std::fs::create_dir_all(native_dir)?;
+
+    let mut count = 0;
+    for entry in std::fs::read_dir(&loom_skills)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let loom_skill_path = entry.path();
+
+        // Only process directories with SKILL.md
+        if !loom_skill_path.is_dir() {
+            continue;
+        }
+        if !loom_skill_path.join("SKILL.md").exists() {
+            continue;
+        }
+
+        let native_skill_path = native_dir.join(&name);
+
+        // If the tool already has this skill, skip (native takes precedence)
+        if native_skill_path.exists() {
+            continue;
+        }
+
+        // Create a symlink (Unix) or copy (fallback)
+        #[cfg(unix)]
+        {
+            if std::os::unix::fs::symlink(&loom_skill_path, &native_skill_path).is_ok() {
+                count += 1;
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            if copy_dir_recursive(&loom_skill_path, &native_skill_path).is_ok() {
+                count += 1;
+            }
+        }
+    }
+
+    Ok(count)
+}
+
+#[cfg(not(unix))]
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
 }
 
 pub fn write_tool_registration(
@@ -43,7 +221,9 @@ pub fn write_tool_registration(
 #[derive(Debug, Clone, Default)]
 pub struct SyncReport {
     pub skills_imported: usize,
+    pub skills_synced: usize,
     pub mcp_servers_imported: usize,
+    pub mcp_servers_synced: usize,
     pub providers_imported: usize,
     pub notes: Vec<String>,
 }

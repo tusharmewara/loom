@@ -283,7 +283,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let bus = Arc::new(EventBus::new(dir.path().to_str().unwrap(), 64));
         let mgr = McpManager::with_event_bus(dir.path().to_str().unwrap(), bus).unwrap();
-        // Default servers (context-mode, rtk) are seeded on creation
-        assert!(mgr.registry().count().unwrap() == 2);
+        // Default servers (context-mode, rtk, loom) are seeded on creation
+        assert!(mgr.registry().count().unwrap() == 3);
     }
 }

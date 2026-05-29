@@ -253,6 +253,27 @@ impl McpRegistry {
                 compatible_tools: vec![],
                 required_by_skills: vec![],
             },
+            // Loom self-registration: exposes shared Loom resources
+            // (skills, MCP servers, auth providers) as MCP tools to any
+            // MCP-compatible client tool.
+            McpServerEntry {
+                id: "loom".into(),
+                name: "Loom Ecosystem".into(),
+                transport: McpTransport {
+                    transport_type: McpTransportType::Stdio,
+                    command: Some("loom".into()),
+                    args: vec!["mcp".into(), "serve".into()],
+                    url: None,
+                    env: Default::default(),
+                },
+                shared: true,
+                tools_filter: vec![],
+                health_status: HealthStatusStr::Unknown,
+                last_health_check: String::new(),
+                tags: vec!["ecosystem".into(), "shared".into(), "loom".into()],
+                compatible_tools: vec![],
+                required_by_skills: vec![],
+            },
         ];
 
         for entry in &defaults {
