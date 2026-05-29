@@ -216,7 +216,8 @@ impl McpRegistry {
     pub fn seed_defaults(&self) -> Result<()> {
         use loom_core::{McpTransport, McpTransportType};
 
-        let defaults: Vec<McpServerEntry> = vec![
+        #[allow(unused_mut)]
+        let mut defaults: Vec<McpServerEntry> = vec![
             McpServerEntry {
                 id: "context-mode".into(),
                 name: "Context Mode".into(),
@@ -274,7 +275,52 @@ impl McpRegistry {
                 compatible_tools: vec![],
                 required_by_skills: vec![],
             },
+            // AgentMemory (agent-memory.dev): persistent AI coding agent memory.
+            // The MCP shim proxies to the agentmemory REST server on port 3111.
+            // When loomd runs, it manages the agentmemory server process automatically.
+            // Tools connect to this MCP shim via stdio and get 53 memory tools.
+            McpServerEntry {
+                id: "agentmemory".into(),
+                name: "AgentDB Memory".into(),
+                transport: McpTransport {
+                    transport_type: McpTransportType::Stdio,
+                    command: Some("npx".into()),
+                    args: vec!["-y".into(), "@agentmemory/mcp".into()],
+                    url: None,
+                    env: {
+                        let mut map = std::collections::HashMap::new();
+                        map.insert(
+                            "AGENTMEMORY_URL".to_string(),
+                            "http://localhost:3111".to_string(),
+                        );
+                        map
+                    },
+                },
+                shared: true,
+                tools_filter: vec![],
+                health_status: HealthStatusStr::Unknown,
+                last_health_check: String::new(),
+                tags: vec![
+                    "ecosystem".into(),
+                    "shared".into(),
+                    "memory".into(),
+                ],
+                compatible_tools: vec![],
+                required_by_skills: vec![],
+            },
         ];
+
+        // On Windows, use cmd /c to wrap npx for spawn compatibility
+        #[cfg(windows)]
+        {
+            for entry in &mut defaults {
+                if entry.transport.command.as_deref() == Some("npx") {
+                    entry.transport.args.insert(0, entry.transport.command.take().unwrap());
+                    entry.transport.command = Some("cmd".into());
+                    entry.transport.args.insert(0, "/c".into());
+                }
+            }
+        }
 
         for entry in &defaults {
             if self.get(&entry.id).ok().flatten().is_none() {

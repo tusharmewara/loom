@@ -12,6 +12,7 @@ pub struct LoomdIpcHandler {
     auth: std::sync::Arc<loom_auth::AuthManager>,
     hooks: std::sync::Arc<loom_hooks::HooksEngine>,
     mcp_registry: loom_mcp::McpRegistry,
+    memory_mgr: std::sync::Arc<loom_mcp::AgentMemoryManager>,
 }
 
 impl LoomdIpcHandler {
@@ -26,6 +27,7 @@ impl LoomdIpcHandler {
             sessions: loomd.sessions().clone(),
             auth: loomd.auth().clone(),
             hooks: loomd.hooks().clone(),
+            memory_mgr: loomd.memory_mgr().clone(),
         }
     }
 }
@@ -136,6 +138,31 @@ impl IpcHandler for LoomdIpcHandler {
                 )
             }
             "touch" => IpcResponse::ok(req.request_id, json!({ "ok": true })),
+            "memory.status" => {
+                let running = self.memory_mgr.is_running();
+                IpcResponse::ok(
+                    req.request_id,
+                    json!({
+                        "running": running,
+                        "port": loom_mcp::AGENTMEMORY_PORT,
+                        "viewer_port": loom_mcp::AGENTMEMORY_VIEWER_PORT
+                    }),
+                )
+            }
+            "memory.start" => {
+                match self.memory_mgr.start() {
+                    Ok(true) => IpcResponse::ok(req.request_id, json!({ "started": true })),
+                    Ok(false) => IpcResponse::ok(req.request_id, json!({ "started": false, "reason": "already running" })),
+                    Err(e) => IpcResponse::error(req.request_id, format!("failed to start: {e}")),
+                }
+            }
+            "memory.stop" => {
+                match self.memory_mgr.stop() {
+                    Ok(true) => IpcResponse::ok(req.request_id, json!({ "stopped": true })),
+                    Ok(false) => IpcResponse::ok(req.request_id, json!({ "stopped": false, "reason": "not running" })),
+                    Err(e) => IpcResponse::error(req.request_id, format!("failed to stop: {e}")),
+                }
+            }
             "acp.dispatch" => {
                 let task_id = req.params.get("task_id").and_then(|v| v.as_str()).unwrap_or("");
                 let agent_id = req.params.get("agent_id").and_then(|v| v.as_str()).unwrap_or("");

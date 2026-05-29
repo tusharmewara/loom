@@ -19,6 +19,7 @@ pub struct Loomd {
     auth: Arc<loom_auth::AuthManager>,
     hooks: Arc<loom_hooks::HooksEngine>,
     telemetry: Arc<loom_telemetry::TelemetryCollector>,
+    memory_mgr: Arc<loom_mcp::AgentMemoryManager>,
     shutdown_tx: broadcast::Sender<()>,
 }
 
@@ -37,6 +38,8 @@ impl Loomd {
         telemetry.init_tracing();
         let (shutdown_tx, _) = broadcast::channel(1);
 
+        let memory_mgr = Arc::new(loom_mcp::AgentMemoryManager::new(loom_dir));
+
         Ok(Self {
             loom_dir: loom_dir.to_string(),
             event_bus: event_bus.clone(),
@@ -47,6 +50,7 @@ impl Loomd {
             auth: Arc::new(loom_auth::AuthManager::new(loom_dir)),
             hooks: Arc::new(loom_hooks::HooksEngine::new(loom_dir)),
             telemetry: telemetry.clone(),
+            memory_mgr,
             shutdown_tx,
         })
     }
@@ -79,6 +83,10 @@ impl Loomd {
         &self.hooks
     }
 
+    pub fn memory_mgr(&self) -> &Arc<loom_mcp::AgentMemoryManager> {
+        &self.memory_mgr
+    }
+
     pub async fn run(&self) -> anyhow::Result<()> {
         use loom_ipc::serve;
         use std::path::Path;
@@ -99,6 +107,20 @@ impl Loomd {
                 Ok(status) => tracing::info!("  ✅ {} v{}", name, status.version),
                 Err(e) => tracing::warn!("  ⚠️  {} health check failed: {}", name, e),
             }
+        }
+
+        // ── Auto-start agentmemory memory server ─────────────────────────
+        // This gives every tool persistent memory via the agentmemory MCP
+        // shim that is registered as a shared server in seed_defaults().
+        // If it fails (npx not installed, etc.), loomd continues gracefully.
+        match self.memory_mgr.start() {
+            Ok(true) => tracing::info!("  ✅ agentmemory memory server started"),
+            Ok(false) => tracing::info!("  ✓ agentmemory already running"),
+            Err(e) => tracing::warn!(
+                "  ⚠️  agentmemory not available: {e}\n       \
+                 Install: npm install -g @agentmemory/agentmemory\n       \
+                 Memory features will not be available until started manually."
+            ),
         }
 
         let socket_path = Path::new(&self.loom_dir).join("loomd.sock");

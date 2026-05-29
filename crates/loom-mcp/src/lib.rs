@@ -5,6 +5,7 @@
 //! with event-driven notifications, and auto-import from tool TOML
 //! `mcp_config` paths.
 
+pub mod agentmemory;
 pub mod client;
 pub mod health;
 pub mod import;
@@ -23,6 +24,7 @@ use std::time::{Duration, Instant};
 use crate::health::HealthChangeCallback;
 use tracing::info;
 
+pub use agentmemory::{health_check as agentmemory_health, AgentMemoryManager, AGENTMEMORY_PORT, AGENTMEMORY_VIEWER_PORT};
 pub use client::McpClientPool;
 pub use health::{HealthCheckHandle, McpHealthChecker, DEFAULT_HEALTH_INTERVAL};
 pub use pool::McpPool;
@@ -283,7 +285,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let bus = Arc::new(EventBus::new(dir.path().to_str().unwrap(), 64));
         let mgr = McpManager::with_event_bus(dir.path().to_str().unwrap(), bus).unwrap();
-        // Default servers (context-mode, rtk, loom) are seeded on creation
-        assert!(mgr.registry().count().unwrap() == 3);
+        // Default servers (context-mode, rtk, loom, agentmemory) are seeded on creation
+        assert!(mgr.registry().count().unwrap() == 4);
     }
 }

@@ -4,6 +4,7 @@ pub mod doctor;
 pub mod hooks;
 pub mod init;
 pub mod mcp;
+pub mod memory;
 pub mod routing;
 pub mod scan;
 pub mod resume;

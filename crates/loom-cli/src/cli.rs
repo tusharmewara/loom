@@ -132,6 +132,11 @@ pub enum Command {
         #[arg(long, short)]
         verify: bool,
     },
+    /// Manage AgentMemory persistent memory server
+    Memory {
+        #[command(subcommand)]
+        action: MemoryAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -425,6 +430,20 @@ pub enum RoutingAction {
     },
 }
 
+#[derive(Subcommand)]
+pub enum MemoryAction {
+    /// Show agentmemory server status
+    Status {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Start the agentmemory memory server
+    Start,
+    /// Stop the agentmemory memory server
+    Stop,
+}
+
 impl Cli {
     pub async fn execute(self) -> anyhow::Result<()> {
         let loom_dir = crate::loom_dir();
@@ -469,6 +488,9 @@ impl Cli {
             Command::Tui => loom_tui::run().await,
             Command::Lock { generate, verify } => {
                 crate::commands::lock::run(&loom_dir, generate, verify)
+            }
+            Command::Memory { action } => {
+                crate::commands::memory::run(&agents_path, &action).await
             }
         }
     }
