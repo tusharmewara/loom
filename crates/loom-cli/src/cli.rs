@@ -37,6 +37,9 @@ pub enum Command {
         /// Output machine-readable JSON
         #[arg(long)]
         json: bool,
+        /// Auto-fix detected issues (creates missing dirs, inits missing files)
+        #[arg(long, short)]
+        fix: bool,
     },
     /// Register or update a tool in the ecosystem
     Thread {
@@ -432,7 +435,7 @@ impl Cli {
             }
             Command::Scan { json } => crate::commands::scan::run(&loom_dir, json).await,
             Command::Status { json } => crate::commands::status::run(&loom_dir, json).await,
-            Command::Doctor { json } => crate::commands::doctor::run(&loom_dir, json).await,
+            Command::Doctor { json, fix } => crate::commands::doctor::run(&loom_dir, json, fix).await,
             Command::Thread {
                 tool,
                 apply_routing,

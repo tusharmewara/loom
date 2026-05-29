@@ -9,13 +9,17 @@
 //! | `goose` | Goose |
 //! | `codex` | Codex |
 //! | `cursor-cli` | Cursor CLI |
+//! | `gemini-cli` | Gemini CLI |
+//! | `aider` | Aider |
 
+pub mod aider;
 pub mod claude_code;
+pub mod codex;
 pub mod crush;
+pub mod cursor_cli;
+pub mod gemini_cli;
 pub mod goose;
 pub mod jcode;
-pub mod codex;
-pub mod cursor_cli;
 pub mod opencode;
 
 use anyhow::Result;
@@ -241,12 +245,14 @@ pub fn adapter_for(tool: &str) -> Option<Box<dyn LoomToolAdapter>> {
         "goose" => Some(Box::new(goose::GooseAdapter)),
         "codex" => Some(Box::new(codex::CodexAdapter)),
         "cursor-cli" | "cursor" => Some(Box::new(cursor_cli::CursorCliAdapter)),
+        "gemini-cli" | "gemini" => Some(Box::new(gemini_cli::GeminiCliAdapter)),
+        "aider" => Some(Box::new(aider::AiderAdapter)),
         _ => None,
     }
 }
 
 pub fn supported_tools() -> &'static [&'static str] {
-    &["jcode", "crush", "claude-code", "opencode", "goose", "codex", "cursor"]
+    &["jcode", "crush", "claude-code", "opencode", "goose", "codex", "cursor", "gemini-cli", "aider"]
 }
 
 pub fn sync_tools_dir(loom_dir: &str) -> Result<SyncReport> {

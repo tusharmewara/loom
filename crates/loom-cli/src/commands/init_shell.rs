@@ -63,7 +63,7 @@ _loom_wrap() {
 }
 
 # Wrap common agentic tools
-for _loom_tool in opencode goose claude-code codex crush aider; do
+for _loom_tool in opencode goose claude-code codex crush aider gemini; do
     if command -v "$_loom_tool" &>/dev/null; then
         alias "$_loom_tool"="_loom_wrap $_loom_tool" 2>/dev/null
     fi
@@ -116,7 +116,7 @@ _loom_wrap() {
 }
 
 # Wrap common agentic tools
-for _loom_tool in opencode goose claude-code codex crush aider; do
+for _loom_tool in opencode goose claude-code codex crush aider gemini; do
     if command -v "$_loom_tool" &>/dev/null; then
         alias "$_loom_tool"="_loom_wrap $_loom_tool" 2>/dev/null
     fi
@@ -169,7 +169,7 @@ function _loom_wrap
 end
 
 # Wrap common agentic tools
-for _loom_tool in opencode goose claude-code codex crush aider
+for _loom_tool in opencode goose claude-code codex crush aider gemini
     if command -q $_loom_tool
         alias $_loom_tool "_loom_wrap $_loom_tool"
     end

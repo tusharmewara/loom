@@ -40,16 +40,24 @@ impl CheckRow {
     }
 }
 
-pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
+pub async fn run(loom_dir: &str, json: bool, fix: bool) -> Result<()> {
     let mut rows: Vec<CheckRow> = Vec::new();
     let agents_path = Path::new(loom_dir);
 
-    if !agents_path.exists() {
+    if !agents_path.exists() && fix {
+        // Auto-initialize missing agents directory
+        crate::commands::init::run(false, false, loom_dir).await?;
+        rows.push(CheckRow::new(
+            "Agents root",
+            CheckStatus::Pass,
+            format!("Created {}", agents_path.display()),
+        ));
+    } else if !agents_path.exists() {
         rows.push(CheckRow::new(
             "Agents root",
             CheckStatus::Fail,
             format!(
-                "Missing {}. Run `loom init --import` first.",
+                "Missing {}. Run `loom init --import` first, or use `--fix`.",
                 agents_path.display()
             ),
         ));
@@ -78,6 +86,13 @@ pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
                 CheckStatus::Pass,
                 p.display().to_string(),
             ));
+        } else if fix {
+            std::fs::create_dir_all(&p)?;
+            rows.push(CheckRow::new(
+                format!("Directory: {dir_name}"),
+                CheckStatus::Pass,
+                format!("Created {}", p.display()),
+            ));
         } else {
             rows.push(CheckRow::new(
                 format!("Directory: {dir_name}"),
@@ -94,6 +109,13 @@ pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
                 format!("File: {file_name}"),
                 CheckStatus::Pass,
                 p.display().to_string(),
+            ));
+        } else if fix {
+            crate::commands::init::run(false, false, loom_dir).await?;
+            rows.push(CheckRow::new(
+                format!("File: {file_name}"),
+                CheckStatus::Pass,
+                format!("Restored {}", p.display()),
             ));
         } else {
             rows.push(CheckRow::new(
@@ -426,7 +448,7 @@ mod tests {
     async fn test_doctor_fails_when_loom_dir_missing() {
         let dir = tempfile::tempdir().unwrap();
         let loom_dir = dir.path().join("missing");
-        let err = run(loom_dir.to_str().unwrap(), false).await.unwrap_err();
+        let err = run(loom_dir.to_str().unwrap(), false, false).await.unwrap_err();
         assert!(err.to_string().contains("failing check"));
     }
 
@@ -435,7 +457,20 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let loom_dir = dir.path().to_str().unwrap();
         init::run(false, false, loom_dir).await.unwrap();
-        let result = run(loom_dir, false).await;
+        let result = run(loom_dir, false, false).await;
         assert!(result.is_ok(), "doctor should pass, got: {result:?}");
+    }
+
+    #[tokio::test]
+    async fn test_doctor_fix_creates_missing_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom_dir = dir.path().to_str().unwrap();
+        // Run doctor with --fix on a non-initialized path
+        let result = run(loom_dir, false, true).await;
+        assert!(result.is_ok(), "doctor --fix should pass, got: {result:?}");
+        // Verify the agents root was created
+        assert!(dir.path().join("config.toml").exists());
+        assert!(dir.path().join("skills").is_dir());
+        assert!(dir.path().join("mcp").is_dir());
     }
 }
