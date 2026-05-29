@@ -242,7 +242,7 @@ mod tests {
 
     #[test]
     fn test_slugify() {
-        let slug = <GitHubTracker as IssueTracker>::slugify("Fix the login bug!");
+        let slug = crate::tracker::slugify("Fix the login bug!");
         assert_eq!(slug, "fix-the-login-bug");
     }
 

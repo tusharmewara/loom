@@ -560,7 +560,7 @@ pub enum MemoryAction {
 pub enum IssuesAction {
     /// List issues from the configured repository
     List {
-        /// Repository (owner/repo)
+        /// Repository (owner/repo, or team ID for Linear)
         #[arg(long)]
         repo: String,
         /// Filter by state: open, closed, all
@@ -572,34 +572,43 @@ pub enum IssuesAction {
         /// Output machine-readable JSON
         #[arg(long)]
         json: bool,
-        /// GitHub token (defaults to GITHUB_TOKEN env)
+        /// GitHub token (defaults to GITHUB_TOKEN env) or Linear API key (--provider linear)
         #[arg(long)]
         token: Option<String>,
+        /// Provider: github or linear
+        #[arg(long, default_value = "github")]
+        provider: String,
     },
     /// Show a single issue
     Show {
-        /// Issue ID (number, or owner/repo#number)
+        /// Issue ID (number, UUID, or tracker identifier)
         id: String,
-        /// Repository (owner/repo) — needed if id is just a number
+        /// Repository (owner/repo) — needed if id is just a number for GitHub
         #[arg(long, default_value = "")]
         repo: String,
         /// Output machine-readable JSON
         #[arg(long)]
         json: bool,
-        /// GitHub token (defaults to GITHUB_TOKEN env)
+        /// GitHub token (defaults to GITHUB_TOKEN env) or Linear API key
         #[arg(long)]
         token: Option<String>,
+        /// Provider: github or linear
+        #[arg(long, default_value = "github")]
+        provider: String,
     },
     /// Create a git branch from an issue
     CreateBranch {
-        /// Issue ID (number, or owner/repo#number)
+        /// Issue ID (number, UUID, or tracker identifier)
         id: String,
-        /// Repository (owner/repo) — needed if id is just a number
+        /// Repository (owner/repo) — needed if id is just a number for GitHub
         #[arg(long, default_value = "")]
         repo: String,
-        /// GitHub token (defaults to GITHUB_TOKEN env)
+        /// GitHub token (defaults to GITHUB_TOKEN env) or Linear API key
         #[arg(long)]
         token: Option<String>,
+        /// Provider: github or linear
+        #[arg(long, default_value = "github")]
+        provider: String,
     },
 }
 

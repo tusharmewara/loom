@@ -1,7 +1,8 @@
-//! `loom issues` subcommands — track issues on GitHub and other providers.
+//! `loom issues` subcommands — track issues on GitHub, Linear, and more.
 
 use crate::cli::IssuesAction;
 use loom_trackers::github::GitHubTracker;
+use loom_trackers::linear::LinearTracker;
 use loom_trackers::models::IssueQuery;
 use loom_trackers::IssueTracker;
 use std::path::Path;
@@ -15,29 +16,44 @@ pub async fn run(_loom_dir: &Path, action: &IssuesAction) -> anyhow::Result<()> 
             labels,
             json,
             token,
-        } => cmd_list(repo, state.as_deref(), labels.as_deref(), *json, token.as_deref()).await,
+            provider,
+        } => {
+            cmd_list(provider, repo, state.as_deref(), labels.as_deref(), *json, token.as_deref()).await
+        }
         IssuesAction::Show {
             id,
             repo,
             json,
             token,
-        } => cmd_show(id, repo, *json, token.as_deref()).await,
+            provider,
+        } => cmd_show(provider, id, repo, *json, token.as_deref()).await,
         IssuesAction::CreateBranch {
             id,
             repo,
             token,
-        } => cmd_create_branch(id, repo, token.as_deref()).await,
+            provider,
+        } => cmd_create_branch(provider, id, repo, token.as_deref()).await,
+    }
+}
+
+/// Create a tracker instance from the provider name.
+fn create_tracker(provider: &str, token: Option<&str>) -> anyhow::Result<Box<dyn IssueTracker>> {
+    match provider {
+        "github" => Ok(Box::new(GitHubTracker::new(token.map(|s| s.to_string()))?)),
+        "linear" => Ok(Box::new(LinearTracker::new(token.map(|s| s.to_string()))?)),
+        other => anyhow::bail!("Unknown provider '{other}'. Use 'github' or 'linear'."),
     }
 }
 
 async fn cmd_list(
+    provider: &str,
     repo: &str,
     state: Option<&str>,
     labels: Option<&str>,
     json: bool,
     token: Option<&str>,
 ) -> anyhow::Result<()> {
-    let tracker = GitHubTracker::new(token.map(|s| s.to_string()))?;
+    let tracker = create_tracker(provider, token)?;
 
     let query = IssueQuery {
         repo: repo.to_string(),
@@ -54,6 +70,7 @@ async fn cmd_list(
             serde_json::to_string_pretty(&serde_json::json!({
                 "schema_version": 1,
                 "command": "issues.list",
+                "provider": provider,
                 "repo": repo,
                 "count": issues.len(),
                 "issues": issues,
@@ -61,10 +78,10 @@ async fn cmd_list(
         );
     } else {
         if issues.is_empty() {
-            println!("No issues found for {repo} (state={})", state.unwrap_or("open"));
+            println!("No issues found for {repo} on {provider} (state={})", state.unwrap_or("open"));
             return Ok(());
         }
-        println!("Issues for {} (state={}):", repo, state.unwrap_or("open"));
+        println!("Issues for {} on {} (state={}):", repo, provider, state.unwrap_or("open"));
         for issue in &issues {
             let labels_str = if issue.labels.is_empty() {
                 String::new()
@@ -83,11 +100,17 @@ async fn cmd_list(
     Ok(())
 }
 
-async fn cmd_show(id: &str, repo: &str, json: bool, token: Option<&str>) -> anyhow::Result<()> {
-    let tracker = GitHubTracker::new(token.map(|s| s.to_string()))?;
+async fn cmd_show(
+    provider: &str,
+    id: &str,
+    repo: &str,
+    json: bool,
+    token: Option<&str>,
+) -> anyhow::Result<()> {
+    let tracker = create_tracker(provider, token)?;
 
-    // If id is just a number, prepend the repo
-    let issue_id = if id.chars().all(|c| c.is_ascii_digit()) && !repo.is_empty() {
+    // For GitHub, if id is just a number, prepend the repo
+    let issue_id = if provider == "github" && id.chars().all(|c| c.is_ascii_digit()) && !repo.is_empty() {
         format!("{}#{}", repo, id)
     } else {
         id.to_string()
@@ -101,15 +124,15 @@ async fn cmd_show(id: &str, repo: &str, json: bool, token: Option<&str>) -> anyh
             serde_json::to_string_pretty(&serde_json::json!({
                 "schema_version": 1,
                 "command": "issues.show",
+                "provider": provider,
                 "issue": issue,
             }))?
         );
     } else {
-        println!("Issue: {}", issue.id);
+        println!("Issue: {} ({})", issue.id, provider);
         println!("Title: {}", issue.title);
         println!("State: {}", issue.state);
         if let Some(body) = &issue.body {
-            // Print first 20 lines of body
             for line in body.lines().take(20) {
                 println!("  {}", line);
             }
@@ -130,10 +153,15 @@ async fn cmd_show(id: &str, repo: &str, json: bool, token: Option<&str>) -> anyh
     Ok(())
 }
 
-async fn cmd_create_branch(id: &str, repo: &str, token: Option<&str>) -> anyhow::Result<()> {
-    let tracker = GitHubTracker::new(token.map(|s| s.to_string()))?;
+async fn cmd_create_branch(
+    provider: &str,
+    id: &str,
+    repo: &str,
+    token: Option<&str>,
+) -> anyhow::Result<()> {
+    let tracker = create_tracker(provider, token)?;
 
-    let issue_id = if id.chars().all(|c| c.is_ascii_digit()) && !repo.is_empty() {
+    let issue_id = if provider == "github" && id.chars().all(|c| c.is_ascii_digit()) && !repo.is_empty() {
         format!("{}#{}", repo, id)
     } else {
         id.to_string()
@@ -144,7 +172,6 @@ async fn cmd_create_branch(id: &str, repo: &str, token: Option<&str>) -> anyhow:
         .suggest_branch_name(&issue)
         .ok_or_else(|| anyhow::anyhow!("Could not generate branch name for issue"))?;
 
-    // Create the branch locally (do NOT push, just create from HEAD)
     let output = std::process::Command::new("git")
         .args(["checkout", "-b", &branch_name])
         .output()
@@ -152,7 +179,7 @@ async fn cmd_create_branch(id: &str, repo: &str, token: Option<&str>) -> anyhow:
 
     if output.status.success() {
         println!("✓ Created branch: {}", branch_name);
-        println!("  Issue: {} — {}", issue.id, issue.title);
+        println!("  Issue: {} — {} ({})", issue.id, issue.title, provider);
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("Failed to create branch: {}", stderr.trim());
