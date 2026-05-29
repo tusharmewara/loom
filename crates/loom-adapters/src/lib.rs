@@ -7,11 +7,15 @@
 //! | `claude_code` | Claude Code (`~/.claude/`) |
 //! | `opencode` | OpenCode |
 //! | `goose` | Goose |
+//! | `codex` | Codex |
+//! | `cursor-cli` | Cursor CLI |
 
 pub mod claude_code;
 pub mod crush;
 pub mod goose;
 pub mod jcode;
+pub mod codex;
+pub mod cursor_cli;
 pub mod opencode;
 
 use anyhow::Result;
@@ -235,12 +239,14 @@ pub fn adapter_for(tool: &str) -> Option<Box<dyn LoomToolAdapter>> {
         "claude-code" | "claude_code" => Some(Box::new(claude_code::ClaudeCodeAdapter)),
         "opencode" => Some(Box::new(opencode::OpencodeAdapter)),
         "goose" => Some(Box::new(goose::GooseAdapter)),
+        "codex" => Some(Box::new(codex::CodexAdapter)),
+        "cursor-cli" | "cursor" => Some(Box::new(cursor_cli::CursorCliAdapter)),
         _ => None,
     }
 }
 
 pub fn supported_tools() -> &'static [&'static str] {
-    &["jcode", "crush", "claude-code", "opencode", "goose"]
+    &["jcode", "crush", "claude-code", "opencode", "goose", "codex", "cursor"]
 }
 
 pub fn sync_tools_dir(loom_dir: &str) -> Result<SyncReport> {

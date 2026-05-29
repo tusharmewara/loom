@@ -120,6 +120,15 @@ pub enum Command {
     /// Launch the terminal UI dashboard
     #[cfg(feature = "tui")]
     Tui,
+    /// Manage skill lock file for reproducibility
+    Lock {
+        /// Generate lock file from current registry state
+        #[arg(long, short)]
+        generate: bool,
+        /// Verify installed skills match the lock file
+        #[arg(long, short)]
+        verify: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -191,6 +200,9 @@ pub enum SkillsAction {
         /// Output machine-readable JSON
         #[arg(long)]
         json: bool,
+        /// Verify against lock file
+        #[arg(long)]
+        locked: bool,
     },
     /// Show a skill by name
     Show {
@@ -452,6 +464,9 @@ impl Cli {
             }
             #[cfg(feature = "tui")]
             Command::Tui => loom_tui::run().await,
+            Command::Lock { generate, verify } => {
+                crate::commands::lock::run(&loom_dir, generate, verify)
+            }
         }
     }
 }

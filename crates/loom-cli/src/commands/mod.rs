@@ -13,6 +13,7 @@ pub mod status;
 pub mod sync;
 pub mod exec;
 pub mod init_shell;
+pub mod lock;
 pub mod thread;
 pub mod tools_acp;
 pub mod workflow;

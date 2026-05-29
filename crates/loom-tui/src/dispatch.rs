@@ -145,12 +145,10 @@ impl Dispatcher for TerminalLaunch {
     }
 }
 
-#[allow(dead_code)]
 pub struct ACPDispatch {
     daemon_reachable: bool,
 }
 
-#[allow(dead_code)]
 impl ACPDispatch {
     pub fn new(daemon_reachable: bool) -> Self {
         Self { daemon_reachable }

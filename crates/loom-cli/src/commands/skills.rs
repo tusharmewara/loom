@@ -1,10 +1,23 @@
 use crate::cli::SkillsAction;
 use loom_ipc::IpcRequest;
+use loom_skills::lockfile::{self, SkillsLock};
 use std::path::Path;
+
+fn update_lock(loom_dir: &Path) -> anyhow::Result<()> {
+    let engine = loom_skills::SkillsEngine::new(loom_dir.to_str().unwrap())?;
+    let registry_skills = engine.registry().list();
+    let lock_path = lockfile::default_lock_path(loom_dir.to_str().unwrap());
+    let mut lock = SkillsLock::load(&lock_path)?.unwrap_or_default();
+    for skill in &registry_skills {
+        lock.lock_skill(skill);
+    }
+    lock.save(&lock_path)?;
+    Ok(())
+}
 
 pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
     match action {
-        SkillsAction::List { json } => {
+        SkillsAction::List { json, locked } => {
             let req = IpcRequest::new("skills.list");
             match crate::ipc_client::send_daemon_command(loom_dir, req).await {
                 Ok(resp) if resp.status == "ok" => {
@@ -50,6 +63,40 @@ pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
                     for name in &skill_names {
                         println!("{}", name);
                     }
+                }
+            }
+            if *locked {
+                let lock_path = lockfile::default_lock_path(loom_dir.to_str().unwrap());
+                match SkillsLock::load(&lock_path) {
+                    Ok(Some(lock)) => {
+                        let loom_str = loom_dir.to_str().unwrap();
+                        if let Ok(engine) = loom_skills::SkillsEngine::new(loom_str) {
+                            let skills = engine.registry().list();
+                            if lock.is_clean(&skills) {
+                                println!("  ✓ Lock file clean");
+                            } else {
+                                let violations = lock.verify_against(&skills);
+                                for v in &violations {
+                                    match v.kind {
+                                        lockfile::LockViolationKind::Missing => {
+                                            println!("  ✗ {}: in lock but removed from registry", v.name);
+                                        }
+                                        lockfile::LockViolationKind::VersionMismatch => {
+                                            println!("  ✗ {}: version mismatch (expected {}, actual {})", v.name, v.expected, v.actual);
+                                        }
+                                        lockfile::LockViolationKind::ContentChanged => {
+                                            println!("  ✗ {}: content hash changed", v.name);
+                                        }
+                                        lockfile::LockViolationKind::Unlocked => {
+                                            println!("  ✗ {}: not in lock file", v.name);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Ok(None) => println!("  ℹ No lock file found (run `loom lock --generate`)"),
+                    Err(e) => eprintln!("  ⚠ Failed to read lock file: {e}"),
                 }
             }
         }
@@ -107,12 +154,14 @@ pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
             std::fs::create_dir_all(loom_dir.join("skills"))?;
             std::fs::copy(src, &dst)?;
             println!("Installed skill '{name}'");
+            update_lock(loom_dir)?;
         }
         SkillsAction::Remove { name } => {
             let path = loom_dir.join("skills").join(name);
             if path.exists() {
                 std::fs::remove_file(&path)?;
                 println!("Removed skill '{name}'");
+                update_lock(loom_dir)?;
             } else {
                 anyhow::bail!("Skill '{name}' not found");
             }

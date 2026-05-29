@@ -254,7 +254,7 @@ impl LoomMcpServer {
                 let filtered: Vec<Value> = skills
                     .iter()
                     .filter(|s| {
-                        tag_filter.map_or(true, |tag| s.tags.iter().any(|t| t == tag))
+                        tag_filter.is_none_or(|tag| s.tags.iter().any(|t| t == tag))
                     })
                     .map(|s| {
                         serde_json::json!({

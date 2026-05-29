@@ -1,6 +1,7 @@
 pub mod adapter;
 pub mod hot_reload;
 pub mod loader;
+pub mod lockfile;
 pub mod manager;
 pub mod registry;
 
