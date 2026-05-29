@@ -1,4 +1,5 @@
 use crate::cli::WorkflowAction;
+use loom_trackers::IssueTracker;
 use loom_workflow::WorkflowEngine;
 use std::collections::HashMap;
 use std::path::Path;
@@ -68,20 +69,69 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                 println!("{}", serde_json::to_string_pretty(&task)?);
             }
         }
-        WorkflowAction::Create { title, description } => {
-            let title = title
-                .clone()
-                .unwrap_or_else(|| "Untitled task".to_string());
-            let description = description
-                .clone()
-                .unwrap_or_else(|| "New workflow task".to_string());
-            let task = orchestrator.create_task(&title, &description)?;
-            println!("Created task {}", task.task_id);
-            println!("{}", serde_json::to_string_pretty(&task)?);
+        WorkflowAction::Create {
+            title,
+            description,
+            from_issue,
+            repo,
+            token,
+        } => {
+            // If --from-issue is given, fetch from GitHub
+            if let Some(issue_ref) = from_issue {
+                let tracker = loom_trackers::github::GitHubTracker::new(token.clone())?;
+                let issue_id = if issue_ref.chars().all(|c| c.is_ascii_digit()) && !repo.is_empty() {
+                    format!("{}#{}", repo, issue_ref)
+                } else {
+                    issue_ref.to_string()
+                };
+                let issue = tracker.get_issue(&issue_id).await?;
+                let t_title = issue.title.clone();
+                let t_description = issue.body.clone().unwrap_or_default();
+                let task = orchestrator.create_task(&t_title, &t_description)?;
+                orchestrator.set_linked_issue(&task.task_id, &issue_id)?;
+                let task = orchestrator.get_task(&task.task_id)?.unwrap();
+                println!(
+                    "Created task {} from issue {} 🔗",
+                    task.task_id, issue_id
+                );
+                println!("{}", serde_json::to_string_pretty(&task)?);
+            } else {
+                let t_title = title
+                    .clone()
+                    .unwrap_or_else(|| "Untitled task".to_string());
+                let t_description = description
+                    .clone()
+                    .unwrap_or_else(|| "New workflow task".to_string());
+                let task = orchestrator.create_task(&t_title, &t_description)?;
+                println!("Created task {}", task.task_id);
+                println!("{}", serde_json::to_string_pretty(&task)?);
+            }
         }
-        WorkflowAction::Advance { task_id } => {
+        WorkflowAction::Advance {
+            task_id,
+            update_issue,
+            comment,
+        } => {
             let task = orchestrator.advance_phase(task_id)?;
             println!("Advanced task {} to phase {:?}", task.task_id, task.phase);
+            // Post comment to linked issue if requested
+            if *update_issue {
+                if let Some(ref linked) = task.linked_issue {
+                    let tracker = loom_trackers::github::GitHubTracker::new(None)?;
+                    let msg = comment.clone().unwrap_or_else(|| {
+                        format!(
+                            "🔄 Loom task advanced to **{:?}** (task: `{}`)",
+                            task.phase,
+                            task.title
+                        )
+                    });
+                    // Use the GitHub API to comment on the issue
+                    tracker.add_comment(linked, &msg).await?;
+                    println!("  💬 Posted comment on {linked}");
+                } else {
+                    eprintln!("  ⚠ Task has no linked issue (use --link-issue on dispatch)");
+                }
+            }
             println!("{}", serde_json::to_string_pretty(&task)?);
         }
         WorkflowAction::Assign {
@@ -117,19 +167,49 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
             task_id,
             agent,
             link_issue,
+            create_branch,
             mode,
             tool_args,
             dry_run,
         } => {
+            // Link issue if provided
+            if let Some(issue_ref) = link_issue {
+                orchestrator.set_linked_issue(task_id, issue_ref)?;
+                if let Some(t) = orchestrator.get_task(task_id)? {
+                    println!("🔗 Linked issue: {:?}", t.linked_issue);
+                }
+            }
+
             let task = orchestrator
                 .get_task(task_id)?
                 .ok_or_else(|| anyhow::anyhow!("Task '{task_id}' not found"))?;
 
-            // Link issue if provided
-            if let Some(issue_ref) = link_issue {
-                orchestrator.set_linked_issue(task_id, issue_ref)?;
-                let task = orchestrator.get_task(task_id)?.unwrap();
-                println!("🔗 Linked issue: {:?}", task.linked_issue);
+            // Create git branch from linked issue if requested
+            if *create_branch {
+                if let Some(ref linked) = task.linked_issue {
+                    let tracker = loom_trackers::github::GitHubTracker::new(None)?;
+                    let issue = tracker.get_issue(linked).await?;
+                    let branch_name = tracker
+                        .suggest_branch_name(&issue)
+                        .ok_or_else(|| anyhow::anyhow!("Could not generate branch name"))?;
+                    let output = std::process::Command::new("git")
+                        .args(["checkout", "-b", &branch_name])
+                        .output()
+                        .map_err(|e| anyhow::anyhow!("Failed to run git: {e}"))?;
+                    if output.status.success() {
+                        println!("🌿 Created branch: {branch_name}");
+                    } else {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        // Branch may already exist, that's ok
+                        if !stderr.contains("already exists") {
+                            eprintln!("  ⚠ Failed to create branch: {}", stderr.trim());
+                        } else {
+                            println!("  (branch already exists)");
+                        }
+                    }
+                } else {
+                    eprintln!("  ⚠ No linked issue to create branch from (use --link-issue)");
+                }
             }
 
             // Resolve agent

@@ -366,9 +366,26 @@ pub enum WorkflowAction {
         /// Task description (used for complexity scoring)
         #[arg(long, short)]
         description: Option<String>,
+        /// Create task from a GitHub issue (e.g. "owner/repo#123")
+        #[arg(long)]
+        from_issue: Option<String>,
+        /// Repo for the issue (needed if from_issue is just a number)
+        #[arg(long, default_value = "")]
+        repo: String,
+        /// GitHub token (defaults to GITHUB_TOKEN env)
+        #[arg(long)]
+        token: Option<String>,
     },
     /// Advance a task to the next phase
-    Advance { task_id: String },
+    Advance {
+        task_id: String,
+        /// Post a comment on the linked GitHub issue
+        #[arg(long)]
+        update_issue: bool,
+        /// Custom comment text (with --update-issue)
+        #[arg(long)]
+        comment: Option<String>,
+    },
     /// Assign a routed provider to a task (with optional overrides)
     Assign {
         task_id: String,
@@ -393,6 +410,9 @@ pub enum WorkflowAction {
         /// Link an issue to this task (e.g. "owner/repo#123")
         #[arg(long)]
         link_issue: Option<String>,
+        /// Also create a git branch from the linked issue
+        #[arg(long)]
+        create_branch: bool,
         /// Dispatch mode: single (default) or sub-agents
         #[arg(long, default_value = "single")]
         mode: String,

@@ -20,6 +20,9 @@ pub trait IssueTracker: Send + Sync {
         Some(format!("{}/{}", issue.id, slug))
     }
 
+    /// Add a comment to an issue.
+    async fn add_comment(&self, id: &str, body: &str) -> Result<(), TrackerError>;
+
     /// Helper: turn a title into a branch-safe slug.
     fn slugify(title: &str) -> String {
         title

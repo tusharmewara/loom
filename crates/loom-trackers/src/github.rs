@@ -127,6 +127,45 @@ impl IssueTracker for GitHubTracker {
         let issues: Vec<GitHubIssue> = self.get(&url).await?;
         Ok(issues.into_iter().map(|i| i.into_issue(&query.repo)).collect())
     }
+
+    async fn add_comment(&self, id: &str, body: &str) -> Result<(), TrackerError> {
+        // id may be "owner/repo#number"
+        let (repo, number) = if id.contains('#') {
+            let mut parts = id.splitn(2, '#');
+            (
+                parts.next().unwrap().to_string(),
+                parts.next().unwrap().to_string(),
+            )
+        } else {
+            return Err(TrackerError::NotFound(
+                "Issue ID must be in format 'owner/repo#number'".into(),
+            ));
+        };
+
+        let url = self.api_url(&format!("/repos/{}/issues/{}/comments", repo, number));
+        let payload = serde_json::json!({ "body": body });
+
+        let resp = self
+            .client
+            .post(&url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| TrackerError::GitHubApi(e.to_string()))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return match status.as_u16() {
+                401 | 403 => Err(TrackerError::Auth(body)),
+                404 => Err(TrackerError::NotFound(body)),
+                429 => Err(TrackerError::RateLimited),
+                _ => Err(TrackerError::Http(status, body)),
+            };
+        }
+
+        Ok(())
+    }
 }
 
 /// Minimal GitHub API issue representation.
@@ -223,5 +262,25 @@ mod tests {
         };
         let branch = tracker.suggest_branch_name(&issue);
         assert_eq!(branch, Some("owner/repo#42/fix-the-login-bug".into()));
+    }
+
+    #[test]
+    fn test_add_comment_parses_issue_id() {
+        let tracker = GitHubTracker::new(Some("test-token".into())).unwrap();
+        // This will fail with network error (no real GitHub API), but
+        // the issue ID parsing should happen first and error with auth.
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(tracker.add_comment("invalid", "test body"));
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        // Should be NotFound because "invalid" doesn't contain '#'
+        assert!(
+            matches!(err, TrackerError::NotFound(_)),
+            "expected NotFound for missing '#', got: {err:?}"
+        );
+
+        // With valid format, should fail with auth (network error with 401)
+        let result2 = rt.block_on(tracker.add_comment("owner/repo#42", "test body"));
+        assert!(result2.is_err());
     }
 }
