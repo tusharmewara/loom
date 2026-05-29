@@ -91,7 +91,7 @@ pub enum Command {
     },
     /// Execute agentic tool(s) with loom ecosystem integration
     Exec {
-        /// Tool name(s) to enable ecosystem for (last one is launched)
+        /// Tool name(s) to enable ecosystem for (last one is launched, or all in parallel)
         #[arg(required = true)]
         tools: Vec<String>,
         /// Arguments passed to the launched tool (after --)
@@ -100,6 +100,15 @@ pub enum Command {
         /// Dry run: show env vars without executing
         #[arg(long)]
         dry_run: bool,
+        /// Run all tools in parallel (requires --pool-size)
+        #[arg(long)]
+        parallel: bool,
+        /// Maximum concurrent tools for parallel execution (default: 4)
+        #[arg(long, default_value = "4")]
+        pool_size: usize,
+        /// Skip git worktree isolation in parallel mode
+        #[arg(long)]
+        no_isolation: bool,
     },
     /// Generate shell integration script for transparent loom activation
     InitShell {
@@ -526,7 +535,21 @@ impl Cli {
                 tools,
                 args,
                 dry_run,
-            } => crate::commands::exec::run(&tools, &args, dry_run, &loom_dir).await,
+                parallel,
+                pool_size,
+                no_isolation,
+            } => {
+                crate::commands::exec::run(
+                    &tools,
+                    &args,
+                    dry_run,
+                    parallel,
+                    pool_size,
+                    no_isolation,
+                    &loom_dir,
+                )
+                .await
+            }
             Command::InitShell { shell } => crate::commands::init_shell::run(&shell),
             Command::Sync { tool, json } => {
                 crate::commands::sync::run(tool.as_deref(), &loom_dir, json).await

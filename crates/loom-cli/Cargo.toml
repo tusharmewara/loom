@@ -26,6 +26,7 @@ loom-mcp = { path = "../loom-mcp" }
 loom-adapters = { path = "../loom-adapters" }
 loom-mcp-server = { path = "../loom-mcp-server" }
 loom-trackers = { path = "../loom-trackers" }
+loom-parallel = { path = "../loom-parallel" }
 loom-tui = { path = "../loom-tui", optional = true }
 clap.workspace = true
 comfy-table.workspace = true

@@ -23,6 +23,7 @@ members = [
     "crates/loom-tui",
     "crates/loom-mcp-server",
     "crates/loom-trackers",
+    "crates/loom-parallel",
 ]
 
 [workspace.package]

@@ -1,49 +1,52 @@
+//! `loom exec` — Launch agent tool(s) with full ecosystem integration.
+//!
+//! Sequential mode (default): enables ecosystem for all tools, launches the last.
+//! Parallel mode (--parallel): runs ALL tools concurrently with worktree isolation.
+
 use anyhow::{Context, Result};
+use loom_parallel::{AgentPool, AgentTask, WorktreeManager};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
-/// `loom exec <tool1> [tool2 ...] [-- tool-args...]`
-///
-/// Enables ecosystem integration for all specified tools,
-/// then launches the last tool with the configured environment.
-///
-/// Examples:
-///   loom exec opencode
-///   loom exec opencode -- "fix the bug"
-///   loom exec opencode goose -- opencode --message "hello"
-///   loom exec opencode --dry-run
 pub async fn run(
     tools: &[String],
     tool_args: &[String],
     dry_run: bool,
+    parallel: bool,
+    pool_size: usize,
+    no_isolation: bool,
     loom_dir: &str,
 ) -> Result<()> {
     if tools.is_empty() {
         anyhow::bail!("At least one tool name is required");
     }
 
+    if parallel {
+        run_parallel(tools, tool_args, dry_run, pool_size, no_isolation, loom_dir).await
+    } else {
+        run_sequential(tools, tool_args, dry_run, loom_dir).await
+    }
+}
+
+// ─── Sequential Mode ──────────────────────────────────────────────────────────
+
+async fn run_sequential(
+    tools: &[String],
+    tool_args: &[String],
+    dry_run: bool,
+    loom_dir: &str,
+) -> Result<()> {
     let home = std::env::var("HOME").context("HOME not set")?;
     let launch_tool = tools.last().unwrap();
     let ecosystem_tools = &tools[..tools.len() - 1];
 
-    // Check for project-level .loom file
     let project_config = load_project_config()?;
     if let Some(ref config) = project_config {
         println!("✓ Project config loaded: {}", config.project.name);
     }
 
-    // Collect env vars from all ecosystem tools
-    let mut env_vars = HashMap::new();
-    env_vars.insert("LOOM_AGENTS_DIR".to_string(), loom_dir.to_string());
-    env_vars.insert("LOOM_ENABLED".to_string(), "1".to_string());
-
-    if let Some(ref config) = project_config {
-        env_vars.insert("LOOM_PROJECT_NAME".to_string(), config.project.name.clone());
-        if let Some(ref agents) = config.project.loom_dir {
-            env_vars.insert("LOOM_AGENTS_DIR".to_string(), agents.clone());
-        }
-    }
+    let mut env_vars = build_base_env(loom_dir, &project_config);
 
     // Set up ecosystem for all tools except the last one
     for tool_name in ecosystem_tools {
@@ -72,24 +75,245 @@ pub async fn run(
     }
 
     // Set up the launch tool
-    let mut native_mcp_config = None;
-    let mut native_skills_dir = None;
-    let mut native_sessions_dir = None;
+    let (tool_binary, native_mcp_config, native_skills_dir, native_sessions_dir) =
+        setup_launch_tool(launch_tool, &home, &mut env_vars, loom_dir)?;
 
-    let tool_binary = if let Some(adapter) = loom_adapters::adapter_for(launch_tool) {
-        let toml = adapter.default_toml(&home);
+    // Find the binary
+    let binary_path = find_binary(&tool_binary)?;
+
+    if dry_run {
+        print_dry_run(&binary_path, tool_args, &env_vars);
+        return Ok(());
+    }
+
+    // Create session manifest
+    let _session_id = create_session_manifest(loom_dir, launch_tool, tools, &mut env_vars);
+
+    // Inject shared ecosystem resources
+    inject_shared_resources(loom_dir, &native_mcp_config, &native_skills_dir);
+
+    // Build and execute command
+    let mut cmd = Command::new(&binary_path);
+    cmd.args(tool_args);
+    cmd.envs(&env_vars);
+
+    println!("🚀 Launching '{}' with loom ecosystem...", launch_tool);
+    if !tool_args.is_empty() {
+        println!("   Args: {:?}", tool_args);
+    }
+
+    let status = cmd
+        .spawn()
+        .context(format!("Failed to spawn '{}'", tool_binary))?
+        .wait()
+        .context(format!("Failed to wait for '{}'", tool_binary))?;
+
+    if !status.success() {
+        anyhow::bail!("'{}' exited with status: {}", launch_tool, status);
+    }
+
+    // Extract sessions after completion
+    if let Some(ref sessions_dir) = native_sessions_dir {
+        if let Err(e) = extract_tool_sessions(loom_dir, sessions_dir) {
+            eprintln!("⚠ Failed to extract tool sessions: {e}");
+        }
+    }
+
+    Ok(())
+}
+
+// ─── Parallel Mode ────────────────────────────────────────────────────────────
+
+async fn run_parallel(
+    tools: &[String],
+    tool_args: &[String],
+    dry_run: bool,
+    pool_size: usize,
+    no_isolation: bool,
+    loom_dir: &str,
+) -> Result<()> {
+    let home = std::env::var("HOME").context("HOME not set")?;
+    let project_config = load_project_config()?;
+
+    // Set up worktree isolation
+    let mut worktree_mgr = if !no_isolation {
+        let cwd = std::env::current_dir().context("Failed to get current directory")?;
+        if WorktreeManager::is_git_repo(&cwd) {
+            if let Some(repo_root) = WorktreeManager::find_repo_root(&cwd) {
+                Some(WorktreeManager::new(&repo_root))
+            } else {
+                println!("⚠ Not a git repository, skipping worktree isolation");
+                None
+            }
+        } else {
+            println!("⚠ Not a git repository, skipping worktree isolation");
+            None
+        }
+    } else {
+        None
+    };
+
+    let pool = AgentPool::new(pool_size);
+
+    let mut tasks = Vec::with_capacity(tools.len());
+    for tool_name in tools {
+        let mut env_vars = build_base_env(loom_dir, &project_config);
+        let (tool_binary, _native_mcp, _native_skills, _native_sessions) =
+            setup_launch_tool(tool_name, &home, &mut env_vars, loom_dir)?;
+
+        // Create session manifest for this tool
+        create_session_manifest(loom_dir, tool_name, tools, &mut env_vars);
+
+        let binary_path = if dry_run {
+            tool_binary.clone()
+        } else {
+            match find_binary(&tool_binary) {
+                Ok(p) => p.to_string_lossy().to_string(),
+                Err(e) => {
+                    eprintln!("⚠ Skipping '{}': {e}", tool_name);
+                    continue;
+                }
+            }
+        };
+
+        let mut task = AgentTask::new(tool_name, &binary_path)
+            .args(tool_args.to_vec())
+            .envs(&env_vars);
+
+        // Create isolated worktree
+        if let Some(ref mut mgr) = worktree_mgr {
+            match mgr.create_worktree(tool_name) {
+                Ok(path) => {
+                    let path_str = path.display().to_string();
+                    task = task.work_dir(path);
+                    println!("  📂 Isolated worktree for '{tool_name}': {path_str}");
+                }
+                Err(e) => {
+                    eprintln!("  ⚠ Worktree creation failed for '{tool_name}': {e}");
+                }
+            }
+        }
+
+        tasks.push(task);
+    }
+
+    if tasks.is_empty() {
+        anyhow::bail!("No tools available to execute");
+    }
+
+    if dry_run {
+        println!("\n=== Dry Run (Parallel) ===");
+        println!("Pool size: {}", pool_size);
+        println!("Tools: {}", tasks.iter().map(|t| t.name.as_str()).collect::<Vec<_>>().join(", "));
+        if !no_isolation {
+            println!("Worktree isolation: enabled");
+        }
+        for task in &tasks {
+            println!("\n  --- {} ---", task.name);
+            println!("  Binary: {}", task.binary_path.display());
+            if let Some(ref wd) = task.work_dir {
+                println!("  Work dir: {}", wd.display());
+            }
+        }
+        return Ok(());
+    }
+
+    println!(
+        "🚀 Launching {} tool(s) in parallel (pool={})...",
+        tasks.len(),
+        pool_size
+    );
+
+    let results = pool.execute_all(tasks).await;
+
+    // Print summary
+    println!("\n═══════════════════════════════════════");
+    println!("          Parallel Execution Results     ");
+    println!("═══════════════════════════════════════");
+    let mut ok_count = 0;
+    let mut fail_count = 0;
+    for r in &results {
+        let icon = if r.success() { "✓" } else { "✗" };
+        let dur = format_duration(r.duration);
+        let err = r
+            .error
+            .as_ref()
+            .map(|e| format!(" — {e}"))
+            .unwrap_or_default();
+        println!("  {icon} {} ({dur}){}", r.name, err);
+        if r.success() {
+            ok_count += 1;
+        } else {
+            fail_count += 1;
+        }
+    }
+    println!("───────────────────────────────────────");
+    println!(
+        "  {ok_count} succeeded, {fail_count} failed in {}",
+        format_duration(
+            results
+                .iter()
+                .map(|r| r.duration)
+                .max()
+                .unwrap_or_default()
+        )
+    );
+
+    if fail_count > 0 {
+        anyhow::bail!("{fail_count} tool(s) failed");
+    }
+
+    Ok(())
+}
+
+// ─── Shared Helpers ───────────────────────────────────────────────────────────
+
+fn build_base_env(
+    loom_dir: &str,
+    project_config: &Option<ProjectConfig>,
+) -> HashMap<String, String> {
+    let mut env_vars = HashMap::new();
+    env_vars.insert("LOOM_AGENTS_DIR".to_string(), loom_dir.to_string());
+    env_vars.insert("LOOM_ENABLED".to_string(), "1".to_string());
+
+    if let Some(ref config) = project_config {
+        env_vars.insert("LOOM_PROJECT_NAME".to_string(), config.project.name.clone());
+        if let Some(ref agents) = config.project.loom_dir {
+            env_vars.insert("LOOM_AGENTS_DIR".to_string(), agents.clone());
+        }
+    }
+
+    env_vars
+}
+
+#[allow(clippy::type_complexity)]
+fn setup_launch_tool(
+    launch_tool: &str,
+    home: &str,
+    env_vars: &mut HashMap<String, String>,
+    loom_dir: &str,
+) -> Result<(String, Option<String>, Option<String>, Option<String>)> {
+    #[allow(unused_assignments)]
+    let mut native_mcp_config: Option<String> = None;
+    #[allow(unused_assignments)]
+    let mut native_skills_dir: Option<String> = None;
+    #[allow(unused_assignments)]
+    let mut native_sessions_dir: Option<String> = None;
+
+    if let Some(adapter) = loom_adapters::adapter_for(launch_tool) {
+        let toml = adapter.default_toml(home);
 
         native_mcp_config = toml.mcp.as_ref().and_then(|m| m.config_path.clone());
         native_skills_dir = toml.skills.as_ref().and_then(|s| s.native_dir.clone());
-        native_sessions_dir = toml.sessions.as_ref().and_then(|s| s.store_path.clone());
+        native_sessions_dir = toml
+            .sessions
+            .as_ref()
+            .and_then(|s| s.store_path.clone());
 
         // Skills
         if let Some(ref skills) = toml.skills {
             if let Some(ref native_dir) = skills.native_dir {
-                env_vars.insert(
-                    "LOOM_SKILLS_DIR".to_string(),
-                    format!("{loom_dir}/skills"),
-                );
+                env_vars.insert("LOOM_SKILLS_DIR".to_string(), format!("{loom_dir}/skills"));
                 env_vars.insert(
                     format!("{}_SKILLS_DIR", launch_tool.to_uppercase().replace('-', "_")),
                     native_dir.clone(),
@@ -100,10 +324,7 @@ pub async fn run(
         // MCP
         if let Some(ref mcp) = toml.mcp {
             if let Some(ref config_path) = mcp.config_path {
-                env_vars.insert(
-                    "LOOM_MCP_DIR".to_string(),
-                    format!("{loom_dir}/mcp"),
-                );
+                env_vars.insert("LOOM_MCP_DIR".to_string(), format!("{loom_dir}/mcp"));
                 env_vars.insert(
                     format!("{}_MCP_CONFIG", launch_tool.to_uppercase().replace('-', "_")),
                     config_path.clone(),
@@ -114,10 +335,7 @@ pub async fn run(
         // Sessions
         if let Some(ref sessions) = toml.sessions {
             if let Some(ref store_path) = sessions.store_path {
-                env_vars.insert(
-                    "LOOM_SESSIONS_DIR".to_string(),
-                    format!("{loom_dir}/sessions"),
-                );
+                env_vars.insert("LOOM_SESSIONS_DIR".to_string(), format!("{loom_dir}/sessions"));
                 env_vars.insert(
                     format!("{}_SESSIONS_DIR", launch_tool.to_uppercase().replace('-', "_")),
                     store_path.clone(),
@@ -137,35 +355,37 @@ pub async fn run(
             );
         }
 
-        // Apply routing decision if LOOM_ROUTING_PROVIDER is set
+        // Apply routing decision from env
         if let Ok(provider) = std::env::var("LOOM_ROUTING_PROVIDER") {
             env_vars.insert(
                 format!("{}_MODEL", launch_tool.to_uppercase().replace('-', "_")),
-                provider.clone(),
+                provider,
             );
         }
 
-        launch_tool.to_string()
+        Ok((
+            launch_tool.to_string(),
+            native_mcp_config,
+            native_skills_dir,
+            native_sessions_dir,
+        ))
     } else {
         println!("⚠ No preset adapter for '{launch_tool}', using generic config");
-        launch_tool.to_string()
-    };
-
-    // Find the binary
-    let binary_path = find_binary(&tool_binary)?;
-
-    if dry_run {
-        println!("\n=== Dry Run ===");
-        println!("Binary: {}", binary_path.display());
-        println!("Args: {:?}", tool_args);
-        println!("\nEnvironment variables:");
-        for (key, value) in &env_vars {
-            println!("  {}={}", key, value);
-        }
-        return Ok(());
+        Ok((
+            launch_tool.to_string(),
+            None,
+            None,
+            None,
+        ))
     }
+}
 
-    // Create a session manifest in the shared sessions directory
+fn create_session_manifest(
+    loom_dir: &str,
+    launch_tool: &str,
+    tools: &[String],
+    env_vars: &mut HashMap<String, String>,
+) -> String {
     let session_id = uuid::Uuid::new_v4().to_string();
     let session_store = loom_sessions::store::SessionStore::new(loom_dir);
     let manifest = loom_core::SessionManifest {
@@ -184,60 +404,47 @@ pub async fn run(
         files_modified: vec![],
         compatibility_note: None,
     };
-    session_store.save_manifest(&manifest)?;
-    env_vars.insert("LOOM_SESSION_ID".to_string(), session_id);
+    let _ = session_store.save_manifest(&manifest);
+    env_vars.insert("LOOM_SESSION_ID".to_string(), session_id.clone());
+    session_id
+}
 
-    // Inject loom's shared ecosystem resources into the tool's native config
-    if let Some(ref mcp_path) = native_mcp_config {
+fn inject_shared_resources(loom_dir: &str, mcp_config: &Option<String>, skills_dir: &Option<String>) {
+    if let Some(ref mcp_path) = mcp_config {
         if let Err(e) = inject_shared_mcp(loom_dir, mcp_path) {
             eprintln!("⚠ Failed to inject shared MCP servers: {e}");
         }
     }
-    if let Some(ref skills_dir) = native_skills_dir {
+    if let Some(ref skills_dir) = skills_dir {
         if let Err(e) = inject_shared_skills(loom_dir, skills_dir) {
             eprintln!("⚠ Failed to inject shared skills: {e}");
         }
     }
-
-    // Build and execute command
-    let mut cmd = Command::new(&binary_path);
-    cmd.args(tool_args);
-
-    // Inherit current env and overlay loom vars
-    cmd.envs(&env_vars);
-
-    println!("🚀 Launching '{}' with loom ecosystem...", launch_tool);
-    if !tool_args.is_empty() {
-        println!("   Args: {:?}", tool_args);
-    }
-
-    let status = cmd
-        .spawn()
-        .context(format!("Failed to spawn '{}'", tool_binary))?
-        .wait()
-        .context(format!("Failed to wait for '{}'", tool_binary))?;
-
-    if !status.success() {
-        anyhow::bail!("'{}' exited with status: {}", launch_tool, status);
-    }
-
-    // Extract sessions from the tool's native session directory into loom
-    if let Some(ref sessions_dir) = native_sessions_dir {
-        if let Err(e) = extract_tool_sessions(loom_dir, sessions_dir) {
-            eprintln!("⚠ Failed to extract tool sessions: {e}");
-        }
-    }
-
-    Ok(())
 }
 
-// ─── Ecosystem Integration Helpers ────────────────────────────────────
+fn print_dry_run(binary_path: &Path, tool_args: &[String], env_vars: &HashMap<String, String>) {
+    println!("\n=== Dry Run ===");
+    println!("Binary: {}", binary_path.display());
+    println!("Args: {:?}", tool_args);
+    println!("\nEnvironment variables:");
+    for (key, value) in env_vars {
+        println!("  {}={}", key, value);
+    }
+}
 
-/// Inject loom's shared MCP servers into the tool's native MCP config.
-///
-/// Reads all registered MCP servers from `mcp_registry.db` and merges them
-/// into the tool's native `mcpServers` JSON config. Native servers take
-/// precedence — shared servers are only added if not already present.
+fn format_duration(d: std::time::Duration) -> String {
+    let secs = d.as_secs_f64();
+    if secs < 1.0 {
+        format!("{:.0}ms", d.as_millis())
+    } else if secs < 60.0 {
+        format!("{:.1}s", secs)
+    } else {
+        format!("{}m {:0}s", secs as u64 / 60, secs as u64 % 60)
+    }
+}
+
+// ─── Ecosystem Integration Helpers (unchanged from original) ──────────────────
+
 fn inject_shared_mcp(loom_dir: &str, native_config_path: &str) -> Result<()> {
     let path = Path::new(native_config_path);
     if path.is_dir() {
@@ -253,14 +460,13 @@ fn inject_shared_mcp(loom_dir: &str, native_config_path: &str) -> Result<()> {
         return Ok(());
     }
 
-    // Read existing native config (standard MCP JSON format)
     let raw = if path.exists() {
         std::fs::read_to_string(path).unwrap_or_default()
     } else {
         String::new()
     };
-    let mut config: serde_json::Value = serde_json::from_str(&raw)
-        .unwrap_or(serde_json::json!({"mcpServers": {}}));
+    let mut config: serde_json::Value =
+        serde_json::from_str(&raw).unwrap_or(serde_json::json!({"mcpServers": {}}));
 
     if !config.is_object() {
         config = serde_json::json!({"mcpServers": {}});
@@ -269,7 +475,10 @@ fn inject_shared_mcp(loom_dir: &str, native_config_path: &str) -> Result<()> {
     if !config_obj.contains_key("mcpServers") {
         config_obj.insert("mcpServers".into(), serde_json::json!({}));
     }
-    let Some(servers) = config_obj.get_mut("mcpServers").and_then(|v| v.as_object_mut()) else {
+    let Some(servers) = config_obj
+        .get_mut("mcpServers")
+        .and_then(|v| v.as_object_mut())
+    else {
         return Ok(());
     };
 
@@ -303,10 +512,6 @@ fn inject_shared_mcp(loom_dir: &str, native_config_path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Inject loom's shared skills into the tool's native skills directory.
-///
-/// Symlinks `.md` skill files from `~/.loom/skills/` into the tool's native
-/// skills directory, skipping any that already exist (native takes precedence).
 fn inject_shared_skills(loom_dir: &str, native_skills_dir: &str) -> Result<()> {
     let shared_dir = Path::new(loom_dir).join("skills");
     if !shared_dir.is_dir() {
@@ -333,9 +538,7 @@ fn inject_shared_skills(loom_dir: &str, native_skills_dir: &str) -> Result<()> {
         }
         #[cfg(unix)]
         {
-            std::os::unix::fs::symlink(&path, &target).or_else(|_| {
-                std::fs::copy(&path, &target).map(|_| ())
-            })?;
+            std::os::unix::fs::symlink(&path, &target).or_else(|_| std::fs::copy(&path, &target).map(|_| ()))?;
         }
         #[cfg(not(unix))]
         {
@@ -351,10 +554,6 @@ fn inject_shared_skills(loom_dir: &str, native_skills_dir: &str) -> Result<()> {
     Ok(())
 }
 
-/// Extract sessions from the tool's native session directory into loom's store.
-///
-/// Scans the tool's native session dir for exported session manifests and
-/// imports any that aren't already in loom's `~/.loom/sessions/` store.
 fn extract_tool_sessions(loom_dir: &str, native_session_dir: &str) -> Result<usize> {
     let session_dir = Path::new(native_session_dir);
     if !session_dir.is_dir() {
@@ -399,7 +598,8 @@ fn extract_tool_sessions(loom_dir: &str, native_session_dir: &str) -> Result<usi
     Ok(count)
 }
 
-/// Project configuration from .loom file
+// ─── Project Config ───────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProjectConfig {
@@ -447,8 +647,7 @@ struct SkillsSection {
 
 fn load_project_config() -> Result<Option<ProjectConfig>> {
     let current_dir = std::env::current_dir()?;
-    
-    // Check for .loom or .loomrc in current directory
+
     for filename in &[".loom", ".loomrc"] {
         let config_path = current_dir.join(filename);
         if config_path.exists() && config_path.is_file() {
@@ -457,18 +656,16 @@ fn load_project_config() -> Result<Option<ProjectConfig>> {
             return Ok(Some(config));
         }
     }
-    
+
     Ok(None)
 }
 
 fn find_binary(name: &str) -> Result<std::path::PathBuf> {
-    // Check if it's an absolute path
     let path = std::path::Path::new(name);
     if path.is_absolute() && path.exists() {
         return Ok(path.to_path_buf());
     }
 
-    // Search PATH
     let path_env = std::env::var("PATH").context("PATH not set")?;
     for dir in std::env::split_paths(&path_env) {
         let candidate = dir.join(name);
@@ -492,9 +689,11 @@ fn is_executable(path: &std::path::Path) -> bool {
 }
 
 #[cfg(not(unix))]
-fn is_executable(path: &std::path::Path) -> bool {
-    path.exists()
+fn is_executable(_path: &std::path::Path) -> bool {
+    true
 }
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -518,6 +717,9 @@ mod tests {
             &[String::from("echo")],
             &[String::from("--dry-run")],
             true,
+            false,
+            4,
+            true,
             "/tmp",
         )
         .await;
@@ -526,16 +728,34 @@ mod tests {
 
     #[tokio::test]
     async fn test_exec_requires_at_least_one_tool() {
-        let result = run(&[], &[], false, "/tmp").await;
+        let result = run(&[], &[], false, false, 4, true, "/tmp").await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_parallel_dry_run() {
+        let result = run(
+            &[String::from("echo"), String::from("echo")],
+            &[String::from("hello")],
+            true,
+            true,
+            4,
+            true,
+            "/tmp",
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_format_duration() {
+        assert!(format_duration(std::time::Duration::from_millis(500)).contains("ms"));
+        assert!(format_duration(std::time::Duration::from_secs(5)).contains("s"));
     }
 
     #[test]
     fn test_load_project_config_missing() {
-        // Should return None when no .loom file exists
         let result = load_project_config();
-        // This may succeed with None or fail depending on current directory
-        // Just verify it doesn't panic
-        let _ = result;
+        let _ = result; // doesn't panic
     }
 }
