@@ -1483,6 +1483,7 @@ dependencies = [
  "loom-routing",
  "loom-sessions",
  "loom-skills",
+ "loom-trackers",
  "loom-tui",
  "loom-workflow",
  "reqwest",
@@ -1747,6 +1748,22 @@ dependencies = [
  "tempfile",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "loom-trackers"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "loom-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

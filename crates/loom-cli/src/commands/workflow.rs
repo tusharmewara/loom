@@ -32,8 +32,15 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                 } else {
                     for task in tasks {
                         println!(
-                            "{}  phase={:?}  status={:?}  title={}",
-                            task.task_id, task.phase, task.status, task.title
+                            "{}  phase={:?}  status={:?}  title={}{}",
+                            task.task_id,
+                            task.phase,
+                            task.status,
+                            task.title,
+                            task.linked_issue
+                                .as_ref()
+                                .map(|i| format!("  🔗 {i}"))
+                                .unwrap_or_default(),
                         );
                     }
                 }
@@ -101,12 +108,20 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
         WorkflowAction::Dispatch {
             task_id,
             agent,
+            link_issue,
             tool_args,
             dry_run,
         } => {
             let task = orchestrator
                 .get_task(task_id)?
                 .ok_or_else(|| anyhow::anyhow!("Task '{task_id}' not found"))?;
+
+            // Link issue if provided
+            if let Some(issue_ref) = link_issue {
+                orchestrator.set_linked_issue(task_id, issue_ref)?;
+                let task = orchestrator.get_task(task_id)?.unwrap();
+                println!("🔗 Linked issue: {:?}", task.linked_issue);
+            }
             let resolved_agent = match agent {
                 Some(a) => a.clone(),
                 None => task
@@ -161,6 +176,11 @@ async fn launch_agent_with_task_context(
     }
     if let Some(rp) = &task.routed_provider {
         env_vars.insert("LOOM_ROUTED_PROVIDER".to_string(), rp.clone());
+    }
+
+    // Inject linked issue if present
+    if let Some(issue) = &task.linked_issue {
+        env_vars.insert("LOOM_LINKED_ISSUE".to_string(), issue.clone());
     }
 
     // Set up the agent tool adapter and apply routing

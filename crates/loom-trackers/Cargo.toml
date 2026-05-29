@@ -1,0 +1,16 @@
+[package]
+name = "loom-trackers"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+chrono.workspace = true
+tokio.workspace = true
+async-trait = "0.1"

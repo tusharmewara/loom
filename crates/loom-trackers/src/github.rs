@@ -1,0 +1,227 @@
+//! GitHub Issues tracker implementation.
+
+use crate::models::{Issue, IssueQuery, TrackerError};
+use crate::tracker::IssueTracker;
+use reqwest::Client;
+
+/// The base URL for the GitHub REST API v3.
+const GITHUB_API_BASE: &str = "https://api.github.com";
+
+/// GitHub Issues backend.
+pub struct GitHubTracker {
+    client: Client,
+}
+
+impl GitHubTracker {
+    /// Create a new GitHub tracker.
+    ///
+    /// Reads `GITHUB_TOKEN` from the environment if `token_override` is `None`.
+    pub fn new(token_override: Option<String>) -> Result<Self, TrackerError> {
+        let token = match token_override {
+            Some(t) => t,
+            None => std::env::var("GITHUB_TOKEN")
+                .or_else(|_| std::env::var("GH_TOKEN"))
+                .map_err(|_| {
+                    TrackerError::Config(
+                        "GITHUB_TOKEN or GH_TOKEN must be set, or pass --token".into(),
+                    )
+                })?,
+        };
+
+        let client = Client::builder()
+            .user_agent("loom-trackers/0.1")
+            .default_headers({
+                let mut headers = reqwest::header::HeaderMap::new();
+                let mut auth_value = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token))
+                    .map_err(|e| TrackerError::Config(format!("Invalid token format: {e}")))?;
+                auth_value.set_sensitive(true);
+                headers.insert(reqwest::header::AUTHORIZATION, auth_value);
+                headers.insert(
+                    reqwest::header::ACCEPT,
+                    reqwest::header::HeaderValue::from_static("application/vnd.github.v3+json"),
+                );
+                headers
+            })
+            .build()
+            .map_err(|e| TrackerError::Other(e.into()))?;
+
+        Ok(Self { client })
+    }
+
+    /// Build API URL for a given path.
+    fn api_url(&self, path: &str) -> String {
+        format!("{}{}", GITHUB_API_BASE, path)
+    }
+
+    /// Execute a GET request and deserialize the response.
+    async fn get<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, TrackerError> {
+        let resp = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| TrackerError::GitHubApi(e.to_string()))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return match status.as_u16() {
+                401 | 403 => Err(TrackerError::Auth(body)),
+                404 => Err(TrackerError::NotFound(body)),
+                429 => Err(TrackerError::RateLimited),
+                _ => Err(TrackerError::Http(status, body)),
+            };
+        }
+
+        resp.json::<T>()
+            .await
+            .map_err(|e| TrackerError::GitHubApi(format!("Failed to parse response: {e}")))
+    }
+}
+
+#[async_trait::async_trait]
+impl IssueTracker for GitHubTracker {
+    fn name(&self) -> &str {
+        "github"
+    }
+
+    async fn get_issue(&self, id: &str) -> Result<Issue, TrackerError> {
+        // id may be just a number like "123" or "owner/repo#123"
+        let (repo, number) = if id.contains('#') {
+            let mut parts = id.splitn(2, '#');
+            (
+                parts.next().unwrap().to_string(),
+                parts.next().unwrap().to_string(),
+            )
+        } else {
+            return Err(TrackerError::NotFound(
+                "Issue ID must be in format 'owner/repo#number' or set repo via --repo".into(),
+            ));
+        };
+
+        let url = self.api_url(&format!("/repos/{}/issues/{}", repo, number));
+        let gh: GitHubIssue = self.get(&url).await?;
+        Ok(gh.into_issue(&repo))
+    }
+
+    async fn list_issues(&self, query: &IssueQuery) -> Result<Vec<Issue>, TrackerError> {
+        let mut url = self.api_url(&format!("/repos/{}/issues", query.repo));
+        let mut params = vec![];
+
+        let state = query.state.as_deref().unwrap_or("open");
+        params.push(format!("state={}", urlencoding(state)));
+
+        if let Some(labels) = &query.labels {
+            params.push(format!("labels={}", urlencoding(labels)));
+        }
+
+        if let Some(limit) = query.limit {
+            params.push(format!("per_page={}", limit.min(100)));
+        }
+
+        if !params.is_empty() {
+            url.push('?');
+            url.push_str(&params.join("&"));
+        }
+
+        let issues: Vec<GitHubIssue> = self.get(&url).await?;
+        Ok(issues.into_iter().map(|i| i.into_issue(&query.repo)).collect())
+    }
+}
+
+/// Minimal GitHub API issue representation.
+#[derive(serde::Deserialize)]
+struct GitHubIssue {
+    number: u64,
+    title: String,
+    state: String,
+    body: Option<String>,
+    html_url: Option<String>,
+    labels: Vec<GitHubLabel>,
+    assignee: Option<GitHubUser>,
+    created_at: Option<String>,
+    pull_request: Option<serde_json::Value>,
+}
+
+#[derive(serde::Deserialize)]
+struct GitHubLabel {
+    name: String,
+}
+
+#[derive(serde::Deserialize)]
+struct GitHubUser {
+    login: String,
+}
+
+impl GitHubIssue {
+    fn into_issue(self, repo: &str) -> Issue {
+        let mut labels: Vec<String> = self.labels.into_iter().map(|l| l.name).collect();
+        labels.sort();
+
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("repo".into(), repo.to_string());
+        if self.pull_request.is_some() {
+            metadata.insert("is_pr".into(), "true".into());
+        }
+
+        Issue {
+            id: format!("{}#{}", repo, self.number),
+            title: self.title,
+            state: self.state,
+            body: self.body,
+            labels,
+            assignee: self.assignee.map(|u| u.login),
+            html_url: self.html_url,
+            metadata,
+            created_at: self.created_at,
+        }
+    }
+}
+
+/// Simple URL-encoding since we don't want to add a dependency.
+fn urlencoding(input: &str) -> String {
+    input
+        .chars()
+        .map(|c| match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
+            ' ' => "+".to_string(),
+            other => format!("%{:02X}", other as u8),
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_urlencoding() {
+        assert_eq!(urlencoding("hello world"), "hello+world");
+        assert_eq!(urlencoding("a/b"), "a%2Fb");
+        assert_eq!(urlencoding("open"), "open");
+    }
+
+    #[test]
+    fn test_slugify() {
+        let slug = <GitHubTracker as IssueTracker>::slugify("Fix the login bug!");
+        assert_eq!(slug, "fix-the-login-bug");
+    }
+
+    #[test]
+    fn test_suggest_branch_name() {
+        let tracker = GitHubTracker::new(Some("test-token".into())).unwrap();
+        let issue = Issue {
+            id: "owner/repo#42".into(),
+            title: "Fix the login bug".into(),
+            state: "open".into(),
+            body: None,
+            labels: vec![],
+            assignee: None,
+            html_url: None,
+            metadata: std::collections::HashMap::new(),
+            created_at: None,
+        };
+        let branch = tracker.suggest_branch_name(&issue);
+        assert_eq!(branch, Some("owner/repo#42/fix-the-login-bug".into()));
+    }
+}

@@ -126,6 +126,7 @@ impl TaskManager {
             complexity_score: Some(complexity),
             routing_decision: Some(routing_decision),
             last_agent: None,
+            linked_issue: None,
             created_at: now.clone(),
             updated_at: now,
             status: TaskStatus::Pending,
@@ -351,6 +352,17 @@ impl TaskManager {
             .get(task_id)?
             .with_context(|| format!("task '{task_id}' not found"))?;
         task.last_agent = Some(agent.to_string());
+        task.updated_at = rfc3339_now();
+        self.write_task(&task)?;
+        Ok(task)
+    }
+
+    /// Link an issue to a task.
+    pub fn set_linked_issue(&self, task_id: &str, issue_ref: &str) -> Result<Task> {
+        let mut task = self
+            .get(task_id)?
+            .with_context(|| format!("task '{task_id}' not found"))?;
+        task.linked_issue = Some(issue_ref.to_string());
         task.updated_at = rfc3339_now();
         self.write_task(&task)?;
         Ok(task)

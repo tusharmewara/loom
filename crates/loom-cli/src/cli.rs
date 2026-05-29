@@ -137,6 +137,11 @@ pub enum Command {
         #[command(subcommand)]
         action: MemoryAction,
     },
+    /// Manage issue tracker integration (GitHub Issues)
+    Issues {
+        #[command(subcommand)]
+        action: IssuesAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -375,6 +380,9 @@ pub enum WorkflowAction {
         /// Agent tool to dispatch to (default: task.last_agent)
         #[arg(long)]
         agent: Option<String>,
+        /// Link an issue to this task (e.g. "owner/repo#123")
+        #[arg(long)]
+        link_issue: Option<String>,
         /// Additional args to pass to the agent tool
         #[arg(last = true)]
         tool_args: Vec<String>,
@@ -444,6 +452,53 @@ pub enum MemoryAction {
     Stop,
 }
 
+#[derive(Subcommand)]
+pub enum IssuesAction {
+    /// List issues from the configured repository
+    List {
+        /// Repository (owner/repo)
+        #[arg(long)]
+        repo: String,
+        /// Filter by state: open, closed, all
+        #[arg(long, default_value = "open")]
+        state: Option<String>,
+        /// Filter by labels (comma-separated)
+        #[arg(long)]
+        labels: Option<String>,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+        /// GitHub token (defaults to GITHUB_TOKEN env)
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// Show a single issue
+    Show {
+        /// Issue ID (number, or owner/repo#number)
+        id: String,
+        /// Repository (owner/repo) — needed if id is just a number
+        #[arg(long, default_value = "")]
+        repo: String,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+        /// GitHub token (defaults to GITHUB_TOKEN env)
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// Create a git branch from an issue
+    CreateBranch {
+        /// Issue ID (number, or owner/repo#number)
+        id: String,
+        /// Repository (owner/repo) — needed if id is just a number
+        #[arg(long, default_value = "")]
+        repo: String,
+        /// GitHub token (defaults to GITHUB_TOKEN env)
+        #[arg(long)]
+        token: Option<String>,
+    },
+}
+
 impl Cli {
     pub async fn execute(self) -> anyhow::Result<()> {
         let loom_dir = crate::loom_dir();
@@ -491,6 +546,9 @@ impl Cli {
             }
             Command::Memory { action } => {
                 crate::commands::memory::run(&agents_path, &action).await
+            }
+            Command::Issues { action } => {
+                crate::commands::issues::run(&agents_path, &action).await
             }
         }
     }

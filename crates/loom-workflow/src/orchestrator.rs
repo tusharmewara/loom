@@ -50,4 +50,9 @@ impl TaskOrchestrator {
         self.manager
             .assign_routing_with_overrides(task_id, provider, model)
     }
+
+    /// Link an issue to a task.
+    pub fn set_linked_issue(&self, task_id: &str, issue_ref: &str) -> Result<Task> {
+        self.manager.set_linked_issue(task_id, issue_ref)
+    }
 }

@@ -512,6 +512,9 @@ pub struct Task {
     /// Used as default for `loom workflow dispatch` when `--agent` is omitted.
     #[serde(default)]
     pub last_agent: Option<String>,
+    /// Optional linked issue reference (e.g. "owner/repo#123").
+    #[serde(default)]
+    pub linked_issue: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub status: TaskStatus,
