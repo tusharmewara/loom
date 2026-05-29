@@ -1,7 +1,7 @@
 mod activity;
 mod ipc_handler;
 use activity::{now_ms, ActivityHandler};
-use loom_core::{constants::DAEMON_DEFAULT_IDLE_TIMEOUT_MS, HealthCheck};
+use loom_core::{constants::DAEMON_DEFAULT_IDLE_TIMEOUT_MS, HealthCheck, LoomEvent};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -124,6 +124,49 @@ impl Loomd {
                     );
                     let _ = idle_shutdown.send(());
                     break;
+                }
+            }
+        }); // end idle shutdown spawn
+
+        // ── Auto-sync background task ───────────────────────────────────
+        // Subscribe to SkillsAdded / McpServerAdded events and push
+        // Loom-managed resources into each tool's native filesystem.
+        let mut event_rx = self.event_bus.subscribe();
+        let sync_loom_dir = self.loom_dir.clone();
+        let sync_home = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
+        let sync_shutdown = self.shutdown_tx.subscribe();
+        tokio::spawn(async move {
+            use loom_adapters::{adapter_for, supported_tools};
+            let mut sync_shutdown = sync_shutdown;
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = sync_shutdown.recv() => {
+                        tracing::debug!("Auto-sync task shutting down");
+                        break;
+                    }
+                    event = event_rx.recv() => {
+                        match event {
+                            Ok(LoomEvent::SkillsAdded { .. } | LoomEvent::McpServerAdded { .. }) => {
+                                tracing::info!("Auto-sync triggered by event");
+                                for tool_name in supported_tools() {
+                                    if let Some(adapter) = adapter_for(tool_name) {
+                                        if let Err(e) = adapter.sync_to_native(&sync_loom_dir, &sync_home) {
+                                            tracing::warn!("Auto-sync failed for {tool_name}: {e}");
+                                        }
+                                    }
+                                }
+                            }
+                            Ok(_) => {} // ignore other events
+                            Err(broadcast::error::RecvError::Closed) => {
+                                tracing::debug!("Event bus closed, stopping auto-sync");
+                                break;
+                            }
+                            Err(broadcast::error::RecvError::Lagged(n)) => {
+                                tracing::warn!("Auto-sync lagged behind by {n} events");
+                            }
+                        }
+                    }
                 }
             }
         });
