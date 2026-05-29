@@ -127,6 +127,7 @@ impl TaskManager {
             routing_decision: Some(routing_decision),
             last_agent: None,
             linked_issue: None,
+            sub_agents: None,
             created_at: now.clone(),
             updated_at: now,
             status: TaskStatus::Pending,
@@ -366,6 +367,29 @@ impl TaskManager {
         task.updated_at = rfc3339_now();
         self.write_task(&task)?;
         Ok(task)
+    }
+
+    /// Set per-phase sub-agent configuration.
+    pub fn set_sub_agents(&self, task_id: &str, config: loom_core::SubAgentConfig) -> Result<Task> {
+        let mut task = self
+            .get(task_id)?
+            .with_context(|| format!("task '{task_id}' not found"))?;
+        task.sub_agents = Some(config);
+        task.updated_at = rfc3339_now();
+        self.write_task(&task)?;
+        Ok(task)
+    }
+
+    /// Get the agent for the current phase based on sub-agent config.
+    pub fn resolve_agent(&self, task_id: &str) -> Result<Option<String>> {
+        let task = self
+            .get(task_id)?
+            .with_context(|| format!("task '{task_id}' not found"))?;
+        let agent = match &task.sub_agents {
+            Some(config) => config.agent_for(&task.phase, task.last_agent.as_deref()),
+            None => task.last_agent.clone(),
+        };
+        Ok(agent)
     }
 }
 

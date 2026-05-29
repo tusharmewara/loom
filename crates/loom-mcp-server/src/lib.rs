@@ -483,6 +483,7 @@ mod tests {
     fn test_initialize_response() {
         let server = LoomMcpServer::new("/tmp/.loom");
         let resp = server.handle_initialize(Some(serde_json::json!(1)));
+        let _ = resp;
         assert_eq!(resp["jsonrpc"], "2.0");
         assert_eq!(resp["id"], 1);
         assert!(resp["result"]["capabilities"]["tools"].is_object());
@@ -508,6 +509,7 @@ mod tests {
     fn test_unknown_method() {
         let server = LoomMcpServer::new("/tmp/.loom");
         let resp = server.handle_initialize(Some(serde_json::json!(1)));
+        let _ = resp;
         // Using initialize to test the framework, then test unknown method path
         let params = serde_json::json!({"name": "nonexistent_tool"});
         let result = server.handle_tools_call(Some(serde_json::json!(3)), &params);

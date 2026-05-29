@@ -31,8 +31,15 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                     println!("No workflow tasks.");
                 } else {
                     for task in tasks {
+                        let sub_info = task.sub_agents.as_ref().map(|sa| {
+                            let parts: Vec<&str> = [&sa.plan, &sa.implement, &sa.verify, &sa.finish]
+                                .iter()
+                                .filter_map(|o| o.as_deref())
+                                .collect();
+                            if parts.is_empty() { String::new() } else { format!(" [sub: {}]", parts.join("|")) }
+                        }).unwrap_or_default();
                         println!(
-                            "{}  phase={:?}  status={:?}  title={}{}",
+                            "{}  phase={:?}  status={:?}  title={}{}{}",
                             task.task_id,
                             task.phase,
                             task.status,
@@ -41,6 +48,7 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                                 .as_ref()
                                 .map(|i| format!("  🔗 {i}"))
                                 .unwrap_or_default(),
+                            sub_info,
                         );
                     }
                 }
@@ -109,6 +117,7 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
             task_id,
             agent,
             link_issue,
+            mode,
             tool_args,
             dry_run,
         } => {
@@ -122,24 +131,69 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                 let task = orchestrator.get_task(task_id)?.unwrap();
                 println!("🔗 Linked issue: {:?}", task.linked_issue);
             }
+
+            // Resolve agent
             let resolved_agent = match agent {
                 Some(a) => a.clone(),
-                None => task
-                    .last_agent
-                    .as_ref()
-                    .cloned()
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "No agent specified and task has no last_agent. \
-                             Use `loom workflow dispatch {task_id} --agent <tool>`, \
-                             or set one with `loom workflow assign {task_id} --agent <tool>`"
-                        )
-                    })?,
+                None => {
+                    if mode == "sub-agents" {
+                        orchestrator.resolve_agent(task_id)?
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "No sub-agent configured for phase {:?} and no fallback. \
+                                     Use `loom workflow set-sub-agents {task_id} --plan <tool> ...` \
+                                     or `--agent <tool>`",
+                                    task.phase
+                                )
+                            })?
+                    } else {
+                        task.last_agent
+                            .as_ref()
+                            .cloned()
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "No agent specified and task has no last_agent. \
+                                     Use `loom workflow dispatch {task_id} --agent <tool>`, \
+                                     or set one with `loom workflow assign {task_id} --agent <tool>`"
+                                )
+                            })?
+                    }
+                }
             };
+
+            let phase_label = if mode == "sub-agents" {
+                format!(" (phase: {:?})", task.phase)
+            } else {
+                String::new()
+            };
+            println!("🚀 Dispatching '{resolved_agent}' for task {task_id}{phase_label}...");
+
             launch_agent_with_task_context(loom_dir_str, &task, &resolved_agent, tool_args, *dry_run)
                 .await?;
             if !dry_run {
                 orchestrator.set_last_agent(task_id, &resolved_agent)?;
+            }
+        }
+        WorkflowAction::SetSubAgents {
+            task_id,
+            plan,
+            implement,
+            verify,
+            finish,
+        } => {
+            let config = loom_core::SubAgentConfig {
+                plan: plan.clone(),
+                implement: implement.clone(),
+                verify: verify.clone(),
+                finish: finish.clone(),
+            };
+            let task = orchestrator.set_sub_agents(task_id, config)?;
+            println!("✓ Sub-agent configuration set for task {task_id}:");
+            if let Some(ref sa) = task.sub_agents {
+                if let Some(ref a) = sa.plan { println!("  Plan:       {a}"); }
+                if let Some(ref a) = sa.implement { println!("  Implement:  {a}"); }
+                if let Some(ref a) = sa.verify { println!("  Verify:     {a}"); }
+                if let Some(ref a) = sa.finish { println!("  Finish:     {a}"); }
             }
         }
     }

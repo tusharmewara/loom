@@ -55,4 +55,14 @@ impl TaskOrchestrator {
     pub fn set_linked_issue(&self, task_id: &str, issue_ref: &str) -> Result<Task> {
         self.manager.set_linked_issue(task_id, issue_ref)
     }
+
+    /// Set per-phase sub-agent configuration.
+    pub fn set_sub_agents(&self, task_id: &str, config: loom_core::SubAgentConfig) -> Result<Task> {
+        self.manager.set_sub_agents(task_id, config)
+    }
+
+    /// Resolve the agent for the current phase (respects sub-agent config).
+    pub fn resolve_agent(&self, task_id: &str) -> Result<Option<String>> {
+        self.manager.resolve_agent(task_id)
+    }
 }

@@ -515,6 +515,9 @@ pub struct Task {
     /// Optional linked issue reference (e.g. "owner/repo#123").
     #[serde(default)]
     pub linked_issue: Option<String>,
+    /// Per-phase sub-agent configuration for multi-agent dispatch.
+    #[serde(default)]
+    pub sub_agents: Option<SubAgentConfig>,
     pub created_at: String,
     pub updated_at: String,
     pub status: TaskStatus,
@@ -545,6 +548,48 @@ pub struct PhaseHistoryEntry {
     pub complexity_score: Option<ComplexityScore>,
     #[serde(default)]
     pub routing_decision: Option<RoutingDecision>,
+}
+
+/// Per-phase agent assignment for sub-agent orchestration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SubAgentConfig {
+    /// Agent tool for the Plan phase (e.g. "opencode").
+    #[serde(default)]
+    pub plan: Option<String>,
+    /// Agent tool for the Implement phase (e.g. "goose").
+    #[serde(default)]
+    pub implement: Option<String>,
+    /// Agent tool for the Verify phase (e.g. "jcode").
+    #[serde(default)]
+    pub verify: Option<String>,
+    /// Agent tool for the Finish phase (e.g. "crush").
+    #[serde(default)]
+    pub finish: Option<String>,
+}
+
+/// Dispatch mode for workflow tasks.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum DispatchMode {
+    /// Single agent (current behavior).
+    #[default]
+    Single,
+    /// Per-phase sub-agents.
+    SubAgents,
+}
+
+impl SubAgentConfig {
+    /// Get the agent for a given phase, falling back to `default_agent`.
+    pub fn agent_for(&self, phase: &TaskPhase, default_agent: Option<&str>) -> Option<String> {
+        let specific = match phase {
+            TaskPhase::Plan => self.plan.as_ref(),
+            TaskPhase::Implement => self.implement.as_ref(),
+            TaskPhase::Verify => self.verify.as_ref(),
+            TaskPhase::Finish => self.finish.as_ref(),
+        };
+        specific
+            .cloned()
+            .or_else(|| default_agent.map(|s| s.to_string()))
+    }
 }
 
 // ─── Discovery ──────────────────────────────────────────────────────

@@ -384,6 +384,7 @@ pub enum WorkflowAction {
     },
     /// Dispatch a task to an agent tool (e.g., "opencode", "goose").
     /// Defaults to the last agent that worked on the task.
+    /// With --mode sub-agents, uses the per-phase agent configuration.
     Dispatch {
         task_id: String,
         /// Agent tool to dispatch to (default: task.last_agent)
@@ -392,12 +393,31 @@ pub enum WorkflowAction {
         /// Link an issue to this task (e.g. "owner/repo#123")
         #[arg(long)]
         link_issue: Option<String>,
+        /// Dispatch mode: single (default) or sub-agents
+        #[arg(long, default_value = "single")]
+        mode: String,
         /// Additional args to pass to the agent tool
         #[arg(last = true)]
         tool_args: Vec<String>,
         /// Dry run (print env vars without launching)
         #[arg(long)]
         dry_run: bool,
+    },
+    /// Configure per-phase sub-agents for a task
+    SetSubAgents {
+        task_id: String,
+        /// Agent for the Plan phase (e.g. "opencode")
+        #[arg(long)]
+        plan: Option<String>,
+        /// Agent for the Implement phase (e.g. "goose")
+        #[arg(long)]
+        implement: Option<String>,
+        /// Agent for the Verify phase (e.g. "jcode")
+        #[arg(long)]
+        verify: Option<String>,
+        /// Agent for the Finish phase (e.g. "crush")
+        #[arg(long)]
+        finish: Option<String>,
     },
 }
 
