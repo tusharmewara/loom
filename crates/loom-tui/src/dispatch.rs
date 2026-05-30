@@ -147,11 +147,12 @@ impl Dispatcher for TerminalLaunch {
 
 pub struct ACPDispatch {
     daemon_reachable: bool,
+    socket_path: Option<String>,
 }
 
 impl ACPDispatch {
-    pub fn new(daemon_reachable: bool) -> Self {
-        Self { daemon_reachable }
+    pub fn new(daemon_reachable: bool, socket_path: Option<String>) -> Self {
+        Self { daemon_reachable, socket_path }
     }
 }
 
@@ -179,10 +180,93 @@ impl Dispatcher for ACPDispatch {
             };
         }
 
-        // ACP dispatch requires daemon IPC - not yet implemented
+        // Try daemon IPC via Unix socket
+        if let Some(socket_path) = &self.socket_path {
+            use std::io::{Read, Write};
+            use std::os::unix::net::UnixStream;
+
+            let request = serde_json::json!({
+                "command": "acp.dispatch",
+                "request_id": format!("tui-{}", std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0)),
+                "params": {
+                    "task_id": task_id,
+                    "agent_id": agent_id,
+                },
+            });
+
+            match UnixStream::connect(socket_path) {
+                Ok(mut stream) => {
+                    let req_line = serde_json::to_string(&request).unwrap() + "\n";
+                    if let Err(e) = stream.write_all(req_line.as_bytes()) {
+                        return DispatchResult {
+                            success: false,
+                            message: format!("IPC write failed: {e}"),
+                        };
+                    }
+                    // Read one JSON line from the daemon response (daemon keeps connection open)
+                    // Use a simple line-by-line read from the stream
+                    let mut line = String::new();
+                    let mut buf = [0u8; 1];
+                    loop {
+                        match stream.read(&mut buf) {
+                            Ok(0) => break, // EOF
+                            Ok(_) => {
+                                if buf[0] == b'\n' {
+                                    break;
+                                }
+                                line.push(buf[0] as char);
+                            }
+                            Err(e) => {
+                                return DispatchResult {
+                                    success: false,
+                                    message: format!("IPC read failed: {e}"),
+                                };
+                            }
+                        }
+                    }
+                    if !line.is_empty() {
+                        if let Ok(resp) = serde_json::from_str::<serde_json::Value>(line.trim()) {
+                            let status = resp.get("status").and_then(|v| v.as_str()).unwrap_or("error");
+                            if status == "ok" {
+                                let msg = resp.get("data")
+                                    .and_then(|d| d.get("message"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("dispatched");
+                                return DispatchResult {
+                                    success: true,
+                                    message: msg.to_string(),
+                                };
+                            } else {
+                                let err = resp.get("error")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("unknown error");
+                                return DispatchResult {
+                                    success: false,
+                                    message: format!("Daemon error: {err}"),
+                                };
+                            }
+                        }
+                    }
+                    return DispatchResult {
+                        success: false,
+                        message: "Empty response from daemon".to_string(),
+                    };
+                }
+                Err(e) => {
+                    return DispatchResult {
+                        success: false,
+                        message: format!("Failed to connect to daemon: {e}"),
+                    };
+                }
+            }
+        }
+
         DispatchResult {
             success: false,
-            message: "ACP dispatch requires daemon IPC - not yet wired".to_string(),
+            message: "ACP dispatch requires daemon IPC — daemon not running".to_string(),
         }
     }
 }
@@ -246,7 +330,7 @@ mod tests {
 
     #[test]
     fn test_acp_dispatch_not_available() {
-        let dispatch = ACPDispatch::new(false);
+        let dispatch = ACPDispatch::new(false, None);
         assert!(!dispatch.available());
         assert_eq!(dispatch.name(), "ACP Dispatch");
         assert_eq!(dispatch.shortcut(), 'a');

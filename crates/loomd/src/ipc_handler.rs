@@ -215,9 +215,150 @@ impl IpcHandler for LoomdIpcHandler {
                 if task_id.is_empty() || agent_id.is_empty() {
                     return IpcResponse::error(req.request_id, "task_id and agent_id required");
                 }
-                IpcResponse::error(req.request_id, "acp.dispatch requires daemon IPC - not yet wired")
+                match dispatch_acp_agent(&self.loom_dir, agent_id, task_id) {
+                    Ok(msg) => IpcResponse::ok(req.request_id, json!({ "dispatched": true, "message": msg })),
+                    Err(e) => IpcResponse::error(req.request_id, format!("ACP dispatch failed: {e}")),
+                }
             }
             _ => IpcResponse::error(req.request_id, format!("Unknown command: {}", req.command)),
         }
     }
+}
+
+/// Find an agent binary on PATH.
+fn find_agent_binary(name: &str) -> Option<String> {
+    let path = std::env::var("PATH").ok()?;
+    for dir in std::env::split_paths(&path) {
+        // Try exact name
+        let candidate = dir.join(name);
+        if candidate.exists() && is_executable(&candidate) {
+            return Some(candidate.to_string_lossy().to_string());
+        }
+        #[cfg(windows)]
+        {
+            let candidate_exe = dir.join(format!("{}.exe", name));
+            if candidate_exe.exists() {
+                return Some(candidate_exe.to_string_lossy().to_string());
+            }
+        }
+    }
+    None
+}
+
+#[cfg(unix)]
+fn is_executable(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .map(|m| m.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable(_path: &std::path::Path) -> bool {
+    true
+}
+
+fn command_exists(cmd: &str) -> bool {
+    std::process::Command::new("which")
+        .arg(cmd)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Determine safe launch args for a terminal window on the current platform.
+fn terminal_launch_args(command: &str) -> Option<(&'static str, Vec<&'static str>)> {
+    if cfg!(target_os = "macos") {
+        // On macOS, use osascript to open Terminal.app
+        let script = format!(
+            r#"tell application "Terminal" to do script "{}""#,
+            command.replace('"', r#"\""#)
+        );
+        Some(("osascript", vec!["-e", Box::leak(script.into_boxed_str())]))
+    } else {
+        // Linux: try common terminal emulators
+        for term in &["x-terminal-emulator", "gnome-terminal", "xterm"] {
+            if command_exists(term) {
+                return Some((term, vec!["-e", "bash", "-c"]));
+            }
+        }
+        None
+    }
+}
+
+/// Dispatch an ACP agent with task context.
+/// Tries two strategies in order:
+/// 1. Find a native binary on PATH
+/// 2. Use npx for npm packages registered in config/agents.toml
+fn dispatch_acp_agent(loom_dir: &str, agent_id: &str, task_id: &str) -> anyhow::Result<String> {
+    use std::path::Path;
+    use std::collections::HashMap;
+
+    let loom_dir_path = Path::new(loom_dir);
+
+    // Try to find the agent as a native binary
+    if let Some(binary) = find_agent_binary(agent_id) {
+        let mut envs = HashMap::new();
+        envs.insert("LOOM_AGENTS_DIR".to_string(), loom_dir.to_string());
+        envs.insert("LOOM_TASK_ID".to_string(), task_id.to_string());
+        envs.insert("LOOM_ENABLED".to_string(), "1".to_string());
+
+        if let Some(terminal) = terminal_launch_args(&format!("{} --loom-task-id {}", binary, task_id)) {
+            let mut cmd = std::process::Command::new(terminal.0);
+            cmd.args(&terminal.1);
+            cmd.envs(&envs);
+            cmd.spawn()?;
+            return Ok(format!("Dispatched task {task_id} to {agent_id} in new terminal"));
+        }
+
+        // Fallback: spawn directly
+        let mut cmd = std::process::Command::new(&binary);
+        cmd.envs(&envs);
+        cmd.spawn()?;
+        return Ok(format!("Dispatched task {task_id} to {agent_id} (pid: background)"));
+    }
+
+    // Check agents.toml for npm/pip runner config
+    let agents_path = loom_dir_path.join("config").join("agents.toml");
+    if agents_path.exists() {
+        let raw = std::fs::read_to_string(&agents_path)?;
+        let agents_table: toml::Table = toml::from_str(&raw)?;
+        if let Some(entry) = agents_table.get(agent_id) {
+            let runner = entry.get("runner").and_then(|v| v.as_str()).unwrap_or("");
+            let package = entry.get("package").and_then(|v| v.as_str()).unwrap_or("");
+
+            if runner == "npm" && !package.is_empty() {
+                if command_exists("npx") {
+                    let mut cmd = std::process::Command::new("npx");
+                    cmd.arg(package);
+                    cmd.env("LOOM_AGENTS_DIR", loom_dir);
+                    cmd.env("LOOM_TASK_ID", task_id);
+                    cmd.env("LOOM_ENABLED", "1");
+                    cmd.spawn()?;
+                    return Ok(format!("Dispatched task {task_id} to {agent_id} via npx {package}"));
+                }
+                anyhow::bail!("npx not found on PATH; install Node.js to run ACP agents");
+            }
+
+            if runner == "pip" && !package.is_empty() {
+                if command_exists("pipx") {
+                    let mut cmd = std::process::Command::new("pipx");
+                    cmd.arg("run").arg(package);
+                    cmd.env("LOOM_AGENTS_DIR", loom_dir);
+                    cmd.env("LOOM_TASK_ID", task_id);
+                    cmd.env("LOOM_ENABLED", "1");
+                    cmd.spawn()?;
+                    return Ok(format!("Dispatched task {task_id} to {agent_id} via pipx {package}"));
+                }
+                anyhow::bail!("pipx not found on PATH; install pipx to run Python ACP agents");
+            }
+        }
+    }
+
+    // Provide instructions if nothing worked
+    anyhow::bail!(
+        "Agent '{agent_id}' not found on PATH or in config/agents.toml. \
+         Register it first with: loom add-acp-agent <agent_id>, \
+         or ensure the binary is on PATH"
+    )
 }

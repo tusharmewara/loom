@@ -78,6 +78,10 @@ async fn run_loop(
                                         .pointer("/daemon/reachable")
                                         .and_then(Value::as_bool)
                                         .unwrap_or(false),
+                                    app.daemon
+                                        .pointer("/socket_path")
+                                        .and_then(Value::as_str)
+                                        .map(String::from),
                                 )),
                                 Box::new(crate::dispatch::EmbeddedPane),
                             ];
