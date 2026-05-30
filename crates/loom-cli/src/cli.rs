@@ -350,6 +350,9 @@ pub enum SessionsAction {
         /// Inject cross-session context from memory store
         #[arg(long)]
         inject_memory: bool,
+        /// Inject knowledge graph context (entities & relationships)
+        #[arg(long)]
+        inject_knowledge: bool,
     },
     /// Search across all session messages using full-text search
     Search {

@@ -167,7 +167,7 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 - `loom sessions show <id> [--json]` — Show session manifest
 - `loom sessions export <id> [--output path]` — Export session
 - `loom sessions import <path>` — Import session
-- `loom sessions resume <id> [--provider] [--model] [--agent]` — Resume session
+- `loom sessions resume <id> [--provider] [--model] [--agent] [--inject-memory] [--inject-knowledge]` — Resume session
 
 ### Auth
 - `loom auth list [--json]` — List auth entries
@@ -232,6 +232,7 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 12. **Config `DocType` is v2.0.0 for all crates** (workspace version).
 13. **Knowledge extraction auto-runs on `loom sessions index` and `loom sessions export`** — entities and relationships are automatically extracted into `~/.loom/knowledge/graph.db` during session indexing.
 14. **Knowledge graph boosts routing decisions** — when evaluating a prompt with `loom routing evaluate`, if the prompt mentions known entities in the knowledge graph, the complexity score receives a boost (up to +0.25) based on entity degree and type. Entities found are listed in `knowledge_entities` in the signals.
+15. **Knowledge-enhanced session resume** — `loom sessions resume --inject-knowledge` queries the knowledge graph for entities matching the session topic and recent messages, then injects entity definitions and their relationships as a system message before resuming.
 
 ## TUI Architecture
 

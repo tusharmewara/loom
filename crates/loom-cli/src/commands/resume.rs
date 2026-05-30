@@ -1,4 +1,5 @@
 use loom_core::config::ConfigReader;
+use loom_knowledge::KnowledgeGraph;
 use loom_sessions::SessionManager;
 use std::collections::HashMap;
 use std::io::Write;
@@ -13,6 +14,7 @@ pub async fn resume_session(
     cli_model: Option<&str>,
     cli_agent: Option<&str>,
     inject_memory: bool,
+    inject_knowledge: bool,
 ) -> anyhow::Result<()> {
     let loom_dir_str = loom_dir.to_str().unwrap();
     let manager = SessionManager::new(loom_dir_str);
@@ -62,6 +64,92 @@ pub async fn resume_session(
                     "  Injected {} relevant context messages from cross-session memory",
                     relevant.len()
                 );
+            }
+        }
+    }
+
+    // Inject knowledge graph context if requested
+    if inject_knowledge {
+        if let Ok(kg) = KnowledgeGraph::new(loom_dir_str) {
+            let topic = &manifest.topic;
+            let recent_msgs: Vec<&str> = messages
+                .iter()
+                .rev()
+                .take(5)
+                .map(|m| m.content.as_str())
+                .collect();
+            let search_terms: Vec<String> = {
+                let words: Vec<String> = std::iter::once(topic.clone())
+                    .chain(recent_msgs.iter().map(|s| (*s).to_string()))
+                    .collect();
+                words
+                    .iter()
+                    .flat_map(|s| s.split_whitespace())
+                    .filter(|w| w.len() > 3)
+                    .map(|w| w.to_lowercase())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .take(10)
+                    .collect()
+            };
+
+            let mut entity_info = Vec::new();
+            for term in &search_terms {
+                if let Ok(Some(entity)) = kg.get_entity(term) {
+                    if let Ok(related) = kg.related_entities(&entity.id) {
+                        let degree = related.len();
+                        if !related.is_empty() {
+                            let rels: Vec<String> = related
+                                .iter()
+                                .map(|r| {
+                                    format!(
+                                        "  - {} --[{}]--> {} (weight: {:.1})",
+                                        r.entity.name,
+                                        r.relationship.predicate,
+                                        r.relationship.object_name,
+                                        r.relationship.weight
+                                    )
+                                })
+                                .collect();
+                            entity_info.push(format!(
+                                "Entity: {} (type: {}, degree: {})\n{}",
+                                entity.name,
+                                entity.entity_type,
+                                degree,
+                                rels.join("\n")
+                            ));
+                        } else {
+                            entity_info.push(format!(
+                                "Entity: {} (type: {}, degree: {})",
+                                entity.name, entity.entity_type, degree
+                            ));
+                        }
+                    }
+                }
+            }
+
+            if !entity_info.is_empty() {
+                let context_msg = format!(
+                    "Knowledge graph context relevant to this session:\n{}",
+                    entity_info.join("\n\n")
+                );
+                messages.insert(
+                    0,
+                    loom_core::Message {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        role: loom_core::MessageRole::System,
+                        content: context_msg,
+                        tool_calls: None,
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        metadata: Default::default(),
+                    },
+                );
+                println!(
+                    "  Injected {} knowledge graph entities relevant to session topic",
+                    entity_info.len()
+                );
+            } else {
+                println!("  No knowledge graph entities found for session topic");
             }
         }
     }

@@ -119,6 +119,7 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
             model,
             agent,
             inject_memory,
+            inject_knowledge,
         } => {
             resume::resume_session(
                 loom_dir,
@@ -127,6 +128,7 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                 model.as_deref(),
                 agent.as_deref(),
                 *inject_memory,
+                *inject_knowledge,
             )
             .await?;
         }
