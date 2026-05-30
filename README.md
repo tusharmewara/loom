@@ -26,6 +26,8 @@ loom daemon start
 - **Cross‑tool sessions**: Start a session in jcode, export it, and continue in claude‑code.
 - **Shared skills**: Write a skill once, use it from any tool.
 - **MCP servers**: Register MCP servers once, share across tools.
+- **Plugin registry**: Install tool integrations from URLs or local files.
+- **Config inheritance**: Compose configs with `extends:` for layered setups.
 - **Sub‑agent orchestration**: Decompose complex tasks across multiple agents.
 - **Issue tracking**: Integrate with GitHub Issues and Linear for project management.
 - **Workflow templates**: Reusable task templates for common workflows.
@@ -40,8 +42,8 @@ Loom is built as a Rust workspace with a daemon + CLI + TUI architecture.
 
 | Crate | Purpose |
 |-------|---------|
-| `loom-core` | Core types, constants, errors, and traits |
-| `loom-cli` | CLI binary with 20+ subcommands (`loom`) |
+| `loom-core` | Core types, constants, errors, traits, and plugin registry |
+| `loom-cli` | CLI binary with 25+ subcommands (`loom`) |
 | `loomd` | Background daemon (Unix socket IPC, auto-shutdown) |
 | `loom-tui` | Terminal UI (ratatui + crossterm, 7 tabs) |
 | `loom-ipc` | Unix socket JSON-line IPC protocol |
@@ -91,6 +93,13 @@ JSON‑line messages over a Unix domain socket (`~/.loom/loomd.sock`):
 - **Hook System**: Intercept pre/post tool events with custom scripts and exit‑code verification.
 - **Workflow Orchestration**: Multi‑phase task management with provider assignment and phase advancement.
 - **Sub‑Agent Orchestration**: Decompose tasks across sub-agents with configurable dispatch modes (sequential, parallel, fan-out).
+- **Config Inheritance**: Compose configs with `extends: ["base", "overrides"]` — deep-merged with cycle detection and depth limit.
+- **Remote Config URL**: Fetch configs from HTTPS URLs with SHA-256 caching (`loom config fetch`).
+- **Plugin Registry**: Install, update, and remove tool plugins via `loom plugin` subcommands — TOML-based manifests with versioning and checksums.
+- **Session Branching**: Fork sessions at checkpoints for experimental divergences (`loom session branch`).
+- **Cross‑Session Memory**: Full-text search across all session messages via FTS5 SQLite (`loom session search`, `loom session index`).
+- **Embedded Pane**: View task details inside the TUI with progress bars and step tracking (Esc to close).
+- **Routing Telemetry**: Atomic counters for routing decisions, tier distribution, and error rates per engine.
 
 ### Issue Tracking
 - **GitHub Issues**: List, show, create branches, add comments.
@@ -98,13 +107,32 @@ JSON‑line messages over a Unix domain socket (`~/.loom/loomd.sock`):
 - **Extensible trait**: `IssueTracker` trait for adding more backends.
 
 ### Intelligent Routing
-- **Complexity Scoring**: Score prompts by token/structural complexity.
+- **Complexity Scoring**: Score prompts by token/structural complexity with configurable thresholds.
 - **Model Tiers**: SLM (fast/cheap), Mid (balanced), Flagship (powerful/expensive).
 - **Configurable thresholds**: Route based on score with manual overrides.
+- **Error Rate Telemetry**: Per-engine metrics for classification latency, tier decisions, and error tracking.
 
 ### Workflow Templates
 - **TOML‑based**: Store reusable task templates in `~/.loom/workflow/templates/`.
 - **Create from template**: `loom workflow create --template <name>`.
+
+### Session Management
+- **Export/Import**: Portable JSON bundles with environment reconstruction.
+- **Branching**: Fork a session at a specific message checkpoint (`loom session branch --from <id> --checkpoint <N>`).
+- **Cross-Session Search**: FTS5 full-text search across all indexed sessions (`loom session search`).
+- **Compression**: Automatic history compression after 20 messages; first 10 kept at full fidelity.
+
+### Plugin Registry
+- **TOML-based manifests** stored in `~/.loom/plugins/{name}.toml`.
+- **Install from URL**: Downloads tool TOML with SHA-256 verification (`loom plugin install <name> <url>`).
+- **Register local**: Import an existing tool TOML as a plugin (`loom plugin register <name> <path>`).
+- **Update**: Re-download tool TOML and bump minor version (`loom plugin update <name>`).
+- **Search/List/Show**: Query installed plugins by name, description, or author.
+
+### Config Management
+- **Config Inheritance**: `extends` field deep-merges base configs with overrides (cycle detection, depth limit 10).
+- **Remote Config URL**: Download configs from HTTPS URLs with content-addressable caching (`loom config fetch`).
+- **Validate**: Check merged config for structural errors (`loom config validate`).
 
 ### Daemon
 - **Auto‑shutdown**: Idle timeout after 5 minutes.
@@ -154,6 +182,7 @@ Loom is licensed under the MIT License. See the `LICENSE` file for details.
 
 ## 📦 Version History
 
+- **0.2.1**: Plugin registry (search/install/update/remove), session branching, config inheritance (`extends:`), remote config URL, embedded TUI pane, cross-session memory, routing telemetry.
 - **0.2.0**: Sub‑agent orchestration, GitHub Issues & Linear integration, workflow templates, multi‑agent parallel execution.
 - **0.1.3**: CLI modernization, hooks system, routing engine, hot-reload.
 - **0.1.2**: Session compression, auth vault, TUI.

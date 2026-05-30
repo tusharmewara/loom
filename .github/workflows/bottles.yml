@@ -19,83 +19,130 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets:
+            - aarch64-apple-darwin
+            - x86_64-apple-darwin
 
-      - name: Install x86_64 target (cross-compilation)
-        run: |
-          rustup target add x86_64-apple-darwin
-          echo "Installed targets:"
-          rustup target list | grep x86_64
-
-      - name: Add Intel target (cross-compilation setup)
+      - name: Install cross-compilation linker
         run: |
           brew install llvm
-          sudo ln -sf $(brew --prefix llvm)/bin/clang /usr/local/bin/x86_64-apple-darwin15-clang
-          mkdir -p $HOME/.cargo
-          echo '[target.x86_64-apple-darwin]' > $HOME/.cargo/config
-          echo 'linker = "x86_64-apple-darwin15-clang"' >> $HOME/.cargo/config
-          echo 'rustflags = ["-C", "target-cpu=core2"]' >> $HOME/.cargo/config
+          sudo ln -sf "$(brew --prefix llvm)/bin/clang" /usr/local/bin/x86_64-apple-darwin24-clang
+          mkdir -p "$HOME/.cargo"
+          cat > "$HOME/.cargo/config.toml" << 'EOF'
+          [target.x86_64-apple-darwin]
+          linker = "x86_64-apple-darwin24-clang"
+          rustflags = ["-C", "target-cpu=core2"]
+          EOF
 
-      # Build ARM64 binaries
+      # Build ARM64 binaries (native on macos-14 runner)
       - name: Build ARM64 binaries
         run: |
           cargo build --release --bins -p loom -p loomd --target aarch64-apple-darwin
           mkdir -p bottle/loom/bin
-          cp "target/aarch64-apple-darwin/release/loom" \
-             "target/aarch64-apple-darwin/release/loomd" \
+          cp target/aarch64-apple-darwin/release/loom \
+             target/aarch64-apple-darwin/release/loomd \
              bottle/loom/bin/
 
-      # Build x86_64 binaries (cross-compiled)
+      # Build x86_64 binaries (cross-compiled from ARM64)
       - name: Build x86_64 binaries
         run: |
           cargo build --release --bins -p loom -p loomd --target x86_64-apple-darwin
-          mkdir -p bottle/loom/bin
-          cp "target/x86_64-apple-darwin/release/loom" \
-             "target/x86_64-apple-darwin/release/loomd" \
-             bottle/loom/bin/
+          mkdir -p bottle-x86/loom/bin
+          cp target/x86_64-apple-darwin/release/loom \
+             target/x86_64-apple-darwin/release/loomd \
+             bottle-x86/loom/bin/
 
-      - name: Create all bottles
+      - name: Detect macOS version codename
+        id: os_version
+        run: |
+          PRODUCT_VERSION=$(sw_vers -productVersion)
+          MAJOR_VERSION=$(echo "$PRODUCT_VERSION" | cut -d. -f1)
+          case "$MAJOR_VERSION" in
+            13) CODENAME="ventura" ;;
+            14) CODENAME="sonoma" ;;
+            15) CODENAME="sequoia" ;;
+            *)  CODENAME="tahoe" ;;  # macOS 26+
+          esac
+          echo "codename=$CODENAME" >> "$GITHUB_OUTPUT"
+          echo "Detected macOS $PRODUCT_VERSION (codename: $CODENAME)"
+
+      - name: Create bottles
         env:
           VERSION: ${{ github.ref_name }}
+          CODENAME: ${{ steps.os_version.outputs.codename }}
         run: |
-          echo "Building bottles..."
-          tar -czf "loom-${VERSION}.arm64_sequoia.bottle.tar.gz" -C bottle loom
-          tar -czf "loom-${VERSION}.arm64_sonoma.bottle.tar.gz" -C bottle loom
-          tar -czf "loom-${VERSION}.ventura.bottle.tar.gz" -C bottle loom
-          tar -czf "loom-${VERSION}.monterey.bottle.tar.gz" -C bottle loom
+          V=$(echo "$VERSION" | sed 's/^v//')
+          echo "Building bottles for v$V ($CODENAME)..."
 
-      # Upload bottles to GitHub release
-      - name: Upload bottles to GitHub
+          # ARM bottle (from arm64 binaries)
+          tar -czf "loom-${V}.arm64_${CODENAME}.bottle.tar.gz" -C bottle loom
+
+          # Intel bottle (from x86_64 binaries)
+          tar -czf "loom-${V}.${CODENAME}.bottle.tar.gz" -C bottle-x86 loom
+
+          echo "Created:"
+          ls -lh "loom-${V}.arm64_${CODENAME}.bottle.tar.gz" "loom-${V}.${CODENAME}.bottle.tar.gz"
+
+          # Store bottle SHAs for formula update
+          echo "BOTTLE_ARM_SHA=$(shasum -a 256 "loom-${V}.arm64_${CODENAME}.bottle.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+          echo "BOTTLE_INTEL_SHA=$(shasum -a 256 "loom-${V}.${CODENAME}.bottle.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+
+      - name: Upload bottles to loom release
         uses: softprops/action-gh-release@v3
         with:
           files: |
-            loom-${VERSION}.arm64_sequoia.bottle.tar.gz
-            loom-${VERSION}.arm64_sonoma.bottle.tar.gz
-            loom-${VERSION}.ventura.bottle.tar.gz
-            loom-${VERSION}.monterey.bottle.tar.gz
+            loom-*.bottle.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ github.ref_name }}
 
-      # Create/publish to Homebrew release
-      - name: Publish to Homebrew
+      # Publish to homebrew-loom
+      - name: Publish to Homebrew tap
         env:
           VERSION: ${{ github.ref_name }}
           GH_TOKEN: ${{ secrets.HOMEBREW_LOOM_PAT }}
         run: |
-          echo "Creating/updating Homebrew release..."
+          V=$(echo "$VERSION" | sed 's/^v//')
+
+          # Compute source tarball SHA
+          echo "Fetching source tarball SHA..."
+          curl -sL -H "Authorization: Bearer $GH_TOKEN" \
+            "https://github.com/tusharmewara/loom/archive/refs/tags/$VERSION.tar.gz" \
+            -o /tmp/source.tar.gz
+          SRC_SHA=$(shasum -a 256 /tmp/source.tar.gz | cut -d' ' -f1)
+          echo "Source SHA: $SRC_SHA"
+
+          # Get codename from bottles
+          CODENAME="${{ steps.os_version.outputs.codename }}"
+
+          # Create/update Homebrew release
+          echo "Creating Homebrew release..."
           gh release create "$VERSION" \
             --repo tusharmewara/homebrew-loom \
-            --title "$VERSION" \
-            --notes "Bottles for $VERSION" \
-            --target "${{ github.sha }}" \
-            --clobber
+            --title "Loom $VERSION Bottles" \
+            --notes "Bottles for Loom v$V release on macOS (${CODENAME})" \
+            --clobber || true
 
           echo "Uploading bottles to Homebrew..."
           gh release upload "$VERSION" \
             --repo tusharmewara/homebrew-loom \
-            loom-${VERSION}.arm64_sequoia.bottle.tar.gz \
-            loom-${VERSION}.arm64_sonoma.bottle.tar.gz \
-            loom-${VERSION}.ventura.bottle.tar.gz \
-            loom-${VERSION}.monterey.bottle.tar.gz \
+            loom-*.bottle.tar.gz \
             --clobber
+
+          # Clone and update formula
+          echo "Updating Homebrew formula..."
+          git clone https://github.com/tusharmewara/homebrew-loom.git /tmp/homebrew-loom-update
+          cd /tmp/homebrew-loom-update
+
+          sed -i "s/version \".*\"/version \"$V\"/" Formula/loom.rb
+          sed -i "s|url \".*/archive/refs/tags/.*\"|url \"https://github.com/tusharmewara/loom/archive/refs/tags/$VERSION.tar.gz\"|" Formula/loom.rb
+          sed -i "s/sha256 \".*\"  # source tarball/sha256 \"$SRC_SHA\"  # source tarball/" Formula/loom.rb
+
+          # Update bottle SHAs
+          sed -i "s|sha256 cellar: :any, $CODENAME:.*|sha256 cellar: :any, $CODENAME:      \"${{ env.BOTTLE_INTEL_SHA }}\"|" Formula/loom.rb
+          sed -i "s|sha256 cellar: :any, arm64_$CODENAME:.*|sha256 cellar: :any, arm64_$CODENAME: \"${{ env.BOTTLE_ARM_SHA }}\"|" Formula/loom.rb
+
+          git config user.name "Loom Bot"
+          git config user.email "bot@loom.sh"
+          git add -A
+          git commit -m "Loom $V" --allow-empty
+          git push
