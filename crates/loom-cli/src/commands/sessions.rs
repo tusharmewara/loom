@@ -1,5 +1,6 @@
 use crate::cli::SessionsAction;
 use crate::commands::resume;
+use loom_sessions::memory::CrossSessionMemory;
 use loom_sessions::{export_session, import_session, write_export, SessionManager};
 use std::path::Path;
 
@@ -78,6 +79,7 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
             provider,
             model,
             agent,
+            inject_memory,
         } => {
             resume::resume_session(
                 loom_dir,
@@ -85,8 +87,59 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                 provider.as_deref(),
                 model.as_deref(),
                 agent.as_deref(),
+                *inject_memory,
             )
             .await?;
+        }
+        SessionsAction::Search { query, limit, json } => {
+            let memory = CrossSessionMemory::new(loom_dir.to_str().unwrap())?;
+            let results = memory.search(query, *limit)?;
+
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                    "schema_version": 1,
+                    "command": "sessions.search",
+                    "query": query,
+                    "count": results.len(),
+                    "results": results,
+                }))?);
+            } else {
+                if results.is_empty() {
+                    println!("No results found for query: {query}");
+                } else {
+                    println!("Cross-session search results for '{}':", query);
+                    for (i, hit) in results.iter().enumerate() {
+                        println!(
+                            "  {}. [{}] {} — {:.120}",
+                            i + 1,
+                            hit.session_id,
+                            hit.role,
+                            hit.content.replace('\n', " "),
+                        );
+                    }
+                }
+            }
+        }
+        SessionsAction::Index => {
+            let memory = CrossSessionMemory::new(loom_dir.to_str().unwrap())?;
+            let manifests = store.list();
+            let mut total = 0usize;
+            for manifest in &manifests {
+                if let Ok(messages) = store.load_messages(&manifest.session_id) {
+                    if !messages.is_empty() {
+                        if let Err(e) = memory.index_session(
+                            &manifest.session_id,
+                            &messages,
+                            &manifest.topic,
+                        ) {
+                            eprintln!("  Warning: failed to index '{}': {e}", manifest.session_id);
+                        } else {
+                            total += messages.len();
+                        }
+                    }
+                }
+            }
+            println!("Indexed {} messages from {} sessions", total, manifests.len());
         }
     }
     Ok(())

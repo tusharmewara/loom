@@ -12,6 +12,7 @@ pub async fn resume_session(
     cli_provider: Option<&str>,
     cli_model: Option<&str>,
     cli_agent: Option<&str>,
+    inject_memory: bool,
 ) -> anyhow::Result<()> {
     let loom_dir_str = loom_dir.to_str().unwrap();
     let manager = SessionManager::new(loom_dir_str);
@@ -20,10 +21,49 @@ pub async fn resume_session(
     let manifest = store
         .get(session_id)
         .ok_or_else(|| anyhow::anyhow!("Session '{session_id}' not found"))?;
-    let messages = store.load_messages(session_id)?;
+    let mut messages = store.load_messages(session_id)?;
 
     if messages.is_empty() {
         anyhow::bail!("Session '{session_id}' has no messages to resume from");
+    }
+
+    // Inject cross-session memory context if requested
+    if inject_memory {
+        if let Ok(memory) = loom_sessions::memory::CrossSessionMemory::new(loom_dir_str) {
+            let relevant = memory.search(&manifest.topic, 5).unwrap_or_default();
+            if !relevant.is_empty() {
+                let context_lines: Vec<String> = relevant
+                    .iter()
+                    .map(|hit| {
+                        format!(
+                            "[session:{} role:{}] {}",
+                            &hit.session_id[..hit.session_id.len().min(8)],
+                            hit.role,
+                            hit.content
+                        )
+                    })
+                    .collect();
+                let context_msg = format!(
+                    "Relevant context from other sessions:\n{}",
+                    context_lines.join("\n")
+                );
+                messages.insert(
+                    0,
+                    loom_core::Message {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        role: loom_core::MessageRole::System,
+                        content: context_msg,
+                        tool_calls: None,
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        metadata: Default::default(),
+                    },
+                );
+                println!(
+                    "  Injected {} relevant context messages from cross-session memory",
+                    relevant.len()
+                );
+            }
+        }
     }
 
     let config = ConfigReader::new(loom_dir_str).load().ok();

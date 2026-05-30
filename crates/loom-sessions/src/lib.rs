@@ -5,6 +5,7 @@ pub mod compression;
 pub mod environment;
 pub mod exporter;
 pub mod importer;
+pub mod memory;
 pub mod migrate;
 pub mod store;
 pub mod agent_provider;
