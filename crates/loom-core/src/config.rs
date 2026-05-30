@@ -30,7 +30,7 @@ impl ConfigReader {
             let raw = std::fs::read_to_string(&config_path)?;
             toml_to_value(&raw)?
         } else {
-            serde_json::to_value(&LoomConfig::default())?
+            serde_json::to_value(LoomConfig::default())?
         };
 
         // Deep-merge layer-specific overlays
@@ -111,7 +111,7 @@ fn deep_merge_overlay(base: &mut serde_json::Value, config_dir: &Path, filename:
         return;
     }
     if let Ok(raw) = std::fs::read_to_string(&overlay_path) {
-        if let Ok(mut overlay_value) = toml_to_value(&raw) {
+        if let Ok(overlay_value) = toml_to_value(&raw) {
             if let Some(key) = section_key {
                 // Wrap the overlay content under the section key so it matches LoomConfig nesting
                 let mut wrapped = serde_json::Map::new();
