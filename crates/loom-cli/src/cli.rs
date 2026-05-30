@@ -151,6 +151,11 @@ pub enum Command {
         #[command(subcommand)]
         action: IssuesAction,
     },
+    /// Show/validate merged config
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -280,7 +285,23 @@ pub enum SessionsAction {
         /// When set, launches the tool instead of the interactive REPL.
         #[arg(long)]
         agent: Option<String>,
+        /// Inject cross-session context from memory store
+        #[arg(long)]
+        inject_memory: bool,
     },
+    /// Search across all session messages using full-text search
+    Search {
+        /// Search query (FTS5 syntax supported)
+        query: String,
+        /// Maximum results
+        #[arg(long, default_value = "10")]
+        limit: usize,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Index all sessions into the cross-session memory store
+    Index,
 }
 
 #[derive(Subcommand)]
@@ -612,6 +633,18 @@ pub enum IssuesAction {
     },
 }
 
+#[derive(Subcommand)]
+pub enum ConfigAction {
+    /// Show the merged config (after deep-merge interpolation)
+    Show {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Validate the merged config for errors
+    Validate,
+}
+
 impl Cli {
     pub async fn execute(self) -> anyhow::Result<()> {
         let loom_dir = crate::loom_dir();
@@ -676,6 +709,9 @@ impl Cli {
             }
             Command::Issues { action } => {
                 crate::commands::issues::run(&agents_path, &action).await
+            }
+            Command::Config { action } => {
+                crate::commands::config::run(&loom_dir, &action).await
             }
         }
     }
