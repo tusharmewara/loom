@@ -8,6 +8,91 @@
 use crate::KnowledgeGraph;
 use loom_core::Message;
 use regex_lite::Regex;
+use serde::Deserialize;
+
+/// LLM extraction response — the model should return this JSON shape.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct LlmExtractionResult {
+    pub entities: Vec<LlmEntity>,
+    pub relationships: Vec<LlmRelationship>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LlmEntity {
+    pub name: String,
+    pub entity_type: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LlmRelationship {
+    pub subject: String,
+    pub predicate: String,
+    pub object: String,
+    #[serde(default)]
+    pub weight: Option<f64>,
+}
+
+/// Extract entities and relationships using an LLM provider response.
+/// Parses the LLM's JSON output and stores results into the knowledge graph.
+pub fn extract_from_llm_response(
+    kg: &KnowledgeGraph,
+    llm_response: &str,
+    source_session: &str,
+) -> anyhow::Result<(usize, usize)> {
+    let mut entity_count = 0usize;
+    let mut rel_count = 0usize;
+
+    // Try to parse as structured JSON
+    let result: LlmExtractionResult = serde_json::from_str(llm_response)
+        .or_else(|_| {
+            // The response might be wrapped in a markdown code block
+            if let Some(start) = llm_response.find("```json") {
+                let rest = &llm_response[start + 7..];
+                if let Some(end) = rest.find("```") {
+                    return serde_json::from_str(rest[..end].trim());
+                }
+            }
+            // Or just a code block without language
+            if let Some(start) = llm_response.find("```") {
+                let rest = &llm_response[start + 3..];
+                if let Some(end) = rest.find("```") {
+                    return serde_json::from_str(rest[..end].trim());
+                }
+            }
+            Err(serde_json::from_str::<LlmExtractionResult>("").unwrap_err())
+        })?;
+
+    for ent in &result.entities {
+        if kg.find_entity(&ent.name)?.is_none() {
+            let etype = if ent.entity_type.is_empty() {
+                "concept"
+            } else {
+                &ent.entity_type
+            };
+            let metadata = serde_json::json!({
+                "extracted": true,
+                "source": "llm",
+                "description": ent.description,
+            });
+            kg.add_entity(&ent.name, etype, Some(&ent.name), metadata)?;
+            entity_count += 1;
+        }
+    }
+
+    for rel in &result.relationships {
+        // Resolve both entities
+        if let (Some(a), Some(b)) = (kg.find_entity(&rel.subject)?, kg.find_entity(&rel.object)?) {
+            let weight = rel.weight.unwrap_or(0.8).clamp(0.0, 1.0);
+            kg.add_relationship(&a.id, &rel.predicate, &b.id, weight, Some(source_session))?;
+            rel_count += 1;
+        }
+    }
+
+    Ok((entity_count, rel_count))
+}
 
 /// Extract entities and relationships from a batch of messages.
 /// Returns (new_entities_count, new_relationships_count).

@@ -1882,6 +1882,7 @@ dependencies = [
  "loom-generic-adapter",
  "loom-hooks",
  "loom-ipc",
+ "loom-knowledge",
  "loom-mcp",
  "loom-sessions",
  "loom-skills",

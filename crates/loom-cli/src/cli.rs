@@ -734,6 +734,9 @@ pub enum KnowledgeAction {
         /// Output machine-readable JSON
         #[arg(long)]
         json: bool,
+        /// Use LLM-based extraction instead of pattern matching
+        #[arg(long)]
+        llm: bool,
     },
     /// Query subgraph around an entity
     Query {

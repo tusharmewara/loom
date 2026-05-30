@@ -4,7 +4,7 @@ use std::path::Path;
 
 pub async fn run(loom_dir: &str, action: &KnowledgeAction) -> anyhow::Result<()> {
     match action {
-        KnowledgeAction::Build { json } => {
+        KnowledgeAction::Build { json, llm } => {
             let kg = KnowledgeGraph::new(loom_dir)?;
 
             // Scan sessions directory for indexed sessions
@@ -13,7 +13,69 @@ pub async fn run(loom_dir: &str, action: &KnowledgeAction) -> anyhow::Result<()>
             let mut total_rels = 0usize;
             let mut session_count = 0usize;
 
-            if sessions_dir.exists() {
+            if *llm {
+                // LLM-based extraction — batch all session content per session
+                if sessions_dir.exists() {
+                    for entry in std::fs::read_dir(&sessions_dir)? {
+                        let entry = entry?;
+                        let path = entry.path();
+                        if path.extension().and_then(|e| e.to_str()) == Some("jsonl")
+                            || path.extension().and_then(|e| e.to_str()) == Some("json")
+                        {
+                            let content = std::fs::read_to_string(&path)?;
+                            let session_id = path
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                            let messages = parse_session_content(&content);
+                            if messages.is_empty() {
+                                continue;
+                            }
+
+                            // Combine messages into an LLM prompt
+                            let combined: String = messages
+                                .iter()
+                                .map(|m| m.content.as_str())
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            let prompt = build_extraction_prompt(&combined);
+
+                            match call_llm_for_extraction(&prompt).await {
+                                Ok(response) => {
+                                    match kg.extract_from_llm_response(&response, &session_id) {
+                                        Ok((e, r)) => {
+                                            total_entities += e;
+                                            total_rels += r;
+                                            session_count += 1;
+                                            eprintln!(
+                                                "  [{}] LLM extracted: {} entities, {} relationships",
+                                                &session_id[..session_id.len().min(12)],
+                                                e, r
+                                            );
+                                        }
+                                        Err(parse_err) => {
+                                            eprintln!(
+                                                "  [{}] Parse warning: {}. Raw: {}",
+                                                &session_id[..session_id.len().min(12)],
+                                                parse_err,
+                                                &response[..response.len().min(200)]
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(llm_err) => {
+                                    eprintln!(
+                                        "  [{}] LLM call failed: {}",
+                                        &session_id[..session_id.len().min(12)],
+                                        llm_err
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
                 for entry in std::fs::read_dir(&sessions_dir)? {
                     let entry = entry?;
                     let path = entry.path();
@@ -39,39 +101,39 @@ pub async fn run(loom_dir: &str, action: &KnowledgeAction) -> anyhow::Result<()>
                         session_count += 1;
                     }
                 }
-            }
 
-            // Also try session directories with subfolders
-            if session_count == 0 {
-                // Check for session data files in nested structure
-                if let Ok(dir) = std::fs::read_dir(&sessions_dir) {
-                    for entry in dir.flatten() {
-                        let path = entry.path();
-                        if path.is_dir() {
-                            for sub in std::fs::read_dir(&path)? {
-                                let sub = sub?;
-                                if sub.path().extension().and_then(|e| e.to_str()) == Some("jsonl")
-                                    || sub
-                                        .path()
-                                        .extension()
-                                        .and_then(|e| e.to_str())
-                                        == Some("json")
-                                {
-                                    let content = std::fs::read_to_string(sub.path())?;
-                                    let session_id = path
-                                        .file_name()
-                                        .and_then(|s| s.to_str())
-                                        .unwrap_or("unknown")
-                                        .to_string();
-                                    let messages = parse_session_content(&content);
-                                    if messages.is_empty() {
-                                        continue;
+                // Also try session directories with subfolders
+                if session_count == 0 {
+                    // Check for session data files in nested structure
+                    if let Ok(dir) = std::fs::read_dir(&sessions_dir) {
+                        for entry in dir.flatten() {
+                            let path = entry.path();
+                            if path.is_dir() {
+                                for sub in std::fs::read_dir(&path)? {
+                                    let sub = sub?;
+                                    if sub.path().extension().and_then(|e| e.to_str()) == Some("jsonl")
+                                        || sub
+                                            .path()
+                                            .extension()
+                                            .and_then(|e| e.to_str())
+                                            == Some("json")
+                                    {
+                                        let content = std::fs::read_to_string(sub.path())?;
+                                        let session_id = path
+                                            .file_name()
+                                            .and_then(|s| s.to_str())
+                                            .unwrap_or("unknown")
+                                            .to_string();
+                                        let messages = parse_session_content(&content);
+                                        if messages.is_empty() {
+                                            continue;
+                                        }
+                                        let (e, r) =
+                                            kg.extract_from_messages(&messages, &session_id)?;
+                                        total_entities += e;
+                                        total_rels += r;
+                                        session_count += 1;
                                     }
-                                    let (e, r) =
-                                        kg.extract_from_messages(&messages, &session_id)?;
-                                    total_entities += e;
-                                    total_rels += r;
-                                    session_count += 1;
                                 }
                             }
                         }
@@ -320,4 +382,99 @@ fn parse_session_content(content: &str) -> Vec<loom_core::Message> {
     }
 
     Vec::new()
+}
+
+/// Build an LLM prompt for entity/relationship extraction from session content.
+fn build_extraction_prompt(content: &str) -> String {
+    format!(
+        r#"You are a knowledge extraction system. Analyze the following conversation and extract:
+1. Entities — important tools, concepts, languages, databases, providers, frameworks, architecture patterns
+2. Relationships — meaningful connections between entities (e.g., "built_with", "uses", "implements", "related_to", "powered_by", "integrates_with", "depends_on")
+
+Return ONLY valid JSON in this exact format (no markdown, no explanation):
+{{
+  "entities": [
+    {{"name": "EntityName", "entity_type": "tool|concept|language|database|provider|framework|pattern", "description": "brief description of what this entity is"}}
+  ],
+  "relationships": [
+    {{"subject": "EntityA", "predicate": "built_with", "object": "EntityB", "weight": 0.9}}
+  ]
+}}
+
+Conversation content:
+---
+{}
+---
+"#,
+        content
+    )
+}
+
+/// Call an LLM provider for extraction.
+/// Uses OPENAI_API_KEY (default) or ANTHROPIC_API_KEY.
+/// Returns the raw response text.
+async fn call_llm_for_extraction(prompt: &str) -> anyhow::Result<String> {
+    // Try Anthropic first, fallback to OpenAI
+    if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
+        return call_anthropic_extraction(&api_key, prompt).await;
+    }
+    let api_key = std::env::var("OPENAI_API_KEY")
+        .map_err(|_| anyhow::anyhow!("Set OPENAI_API_KEY or ANTHROPIC_API_KEY for LLM extraction"))?;
+    call_openai_extraction(&api_key, prompt).await
+}
+
+async fn call_openai_extraction(api_key: &str, prompt: &str) -> anyhow::Result<String> {
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({
+        "model": "gpt-4o-mini",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.1,
+        "max_tokens": 2000,
+    });
+
+    let resp: serde_json::Value = client
+        .post("https://api.openai.com/v1/chat/completions")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+
+    let text = resp["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("No content in OpenAI response"))?
+        .to_string();
+    Ok(text)
+}
+
+async fn call_anthropic_extraction(api_key: &str, prompt: &str) -> anyhow::Result<String> {
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 2000,
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+    });
+
+    let resp: serde_json::Value = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+
+    let text = resp["content"][0]["text"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("No content in Anthropic response"))?
+        .to_string();
+    Ok(text)
 }

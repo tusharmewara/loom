@@ -220,6 +220,118 @@ impl IpcHandler for LoomdIpcHandler {
                     Err(e) => IpcResponse::error(req.request_id, format!("ACP dispatch failed: {e}")),
                 }
             }
+            "knowledge.query" => {
+                let entity_name = req.params.get("entity").and_then(|v| v.as_str()).unwrap_or("");
+                if entity_name.is_empty() {
+                    return IpcResponse::error(req.request_id, "entity parameter required");
+                }
+                let depth = req.params.get("depth").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
+                match loom_knowledge::KnowledgeGraph::new(&self.loom_dir) {
+                    Ok(kg) => match kg.get_entity(entity_name) {
+                        Ok(Some(entity)) => match kg.subgraph(&entity.id, depth) {
+                            Ok(subgraph) => IpcResponse::ok(req.request_id, json!({
+                                "entity": entity, "subgraph": subgraph, "found": true
+                            })),
+                            Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                        },
+                        Ok(None) => IpcResponse::ok(req.request_id, json!({ "entity": null, "found": false })),
+                        Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                    },
+                    Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                }
+            }
+            "knowledge.search" => {
+                let query = req.params.get("query").and_then(|v| v.as_str()).unwrap_or("");
+                let limit = req.params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+                if query.is_empty() {
+                    return IpcResponse::error(req.request_id, "query parameter required");
+                }
+                match loom_knowledge::KnowledgeGraph::new(&self.loom_dir) {
+                    Ok(kg) => match kg.search_entities(query, limit) {
+                        Ok(results) => IpcResponse::ok(req.request_id, json!({ "results": results, "count": results.len(), "query": query })),
+                        Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                    },
+                    Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                }
+            }
+            "knowledge.stats" => {
+                match loom_knowledge::KnowledgeGraph::new(&self.loom_dir) {
+                    Ok(kg) => match kg.stats() {
+                        Ok(stats) => IpcResponse::ok(req.request_id, json!(stats)),
+                        Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                    },
+                    Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                }
+            }
+            "knowledge.build" => {
+                match loom_knowledge::KnowledgeGraph::new(&self.loom_dir) {
+                    Ok(kg) => {
+                        use std::path::Path;
+                        let sessions_dir = Path::new(&self.loom_dir).join("sessions");
+                        let mut total_entities = 0usize;
+                        let mut total_rels = 0usize;
+                        let mut session_count = 0usize;
+
+                        if sessions_dir.exists() {
+                            if let Ok(dir) = std::fs::read_dir(&sessions_dir) {
+                                for entry in dir.flatten() {
+                                    let path = entry.path();
+                                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_string();
+                                    if ext == "jsonl" || ext == "json" {
+                                        if let Ok(content) = std::fs::read_to_string(&path) {
+                                            let session_id = path.file_stem().and_then(|s| s.to_str()).map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string());
+                                            let messages = parse_session_content(&content);
+                                            if !messages.is_empty() {
+                                                if let Ok((e, r)) = kg.extract_from_messages(&messages, &session_id) {
+                                                    total_entities += e;
+                                                    total_rels += r;
+                                                    session_count += 1;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            // Also check nested dirs
+                            if session_count == 0 {
+                                if let Ok(dir) = std::fs::read_dir(&sessions_dir) {
+                                    for entry in dir.flatten() {
+                                        let path = entry.path();
+                                        if path.is_dir() {
+                                            if let Ok(sub) = std::fs::read_dir(&path) {
+                                                for sub_entry in sub.flatten() {
+                                                    let sub_path = sub_entry.path();
+                                                    let ext = sub_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_string();
+                                                    if ext == "jsonl" || ext == "json" {
+                                                        if let Ok(content) = std::fs::read_to_string(&sub_path) {
+                                                            let session_id = path.file_name().and_then(|s| s.to_str()).map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string());
+                                                            let messages = parse_session_content(&content);
+                                                            if !messages.is_empty() {
+                                                                if let Ok((e, r)) = kg.extract_from_messages(&messages, &session_id) {
+                                                                    total_entities += e;
+                                                                    total_rels += r;
+                                                                    session_count += 1;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        IpcResponse::ok(req.request_id, json!({
+                            "entities_added": total_entities,
+                            "relationships_added": total_rels,
+                            "sessions_processed": session_count
+                        }))
+                    }
+                    Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                }
+            }
             _ => IpcResponse::error(req.request_id, format!("Unknown command: {}", req.command)),
         }
     }
@@ -361,4 +473,31 @@ fn dispatch_acp_agent(loom_dir: &str, agent_id: &str, task_id: &str) -> anyhow::
          Register it first with: loom add-acp-agent <agent_id>, \
          or ensure the binary is on PATH"
     )
+}
+
+/// Parse session content as JSONL or JSON array of Messages.
+fn parse_session_content(content: &str) -> Vec<loom_core::Message> {
+    // Try JSONL first (one JSON object per line)
+    if content.contains('\n') {
+        let mut messages = Vec::new();
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Ok(msg) = serde_json::from_str::<loom_core::Message>(line) {
+                messages.push(msg);
+            }
+        }
+        if !messages.is_empty() {
+            return messages;
+        }
+    }
+
+    // Try JSON array
+    if let Ok(msgs) = serde_json::from_str::<Vec<loom_core::Message>>(content) {
+        return msgs;
+    }
+
+    Vec::new()
 }

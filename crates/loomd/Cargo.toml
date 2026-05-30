@@ -16,6 +16,7 @@ loom-telemetry = { path = "../loom-telemetry" }
 loom-ipc = { path = "../loom-ipc" }
 loom-adapters = { path = "../loom-adapters" }
 loom-generic-adapter = { path = "../loom-generic-adapter" }
+loom-knowledge = { path = "../loom-knowledge" }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -19,6 +19,7 @@ pub struct App {
     pub sessions: Value,
     pub workflow: Value,
     pub hooks: Value,
+    pub knowledge: Value,
     pub last_error: Option<String>,
     pub action_palette_open: bool,
     pub action_palette_selected: usize,
@@ -45,7 +46,7 @@ impl App {
         let theme_manager = crate::theme::ThemeManager::new();
         let theme = theme_manager.current();
         Self {
-            tabs: vec!["Dashboard", "Daemon", "Discovery", "MCP", "Skills", "Sessions", "Logs"],
+            tabs: vec!["Dashboard", "Daemon", "Discovery", "MCP", "Skills", "Sessions", "Logs", "Knowledge"],
             tab_index: 0,
             last_refresh: Instant::now(),
             status: Value::Null,
@@ -57,6 +58,7 @@ impl App {
             sessions: Value::Null,
             workflow: Value::Null,
             hooks: Value::Null,
+            knowledge: Value::Null,
             last_error: None,
             action_palette_open: false,
             action_palette_selected: 0,
@@ -64,7 +66,7 @@ impl App {
             last_action_result: None,
             action_in_progress: false,
             help_overlay_open: false,
-            scroll_offsets: vec![0; 7],
+            scroll_offsets: vec![0; 8],
             task_selection_index: 0,
             dispatch_menu_open: false,
             dispatch_menu_selected: 0,
@@ -150,6 +152,7 @@ impl App {
         let sessions = self.adapter.fetch_sessions_list().await?;
         let workflow = self.adapter.fetch_workflow_list().await?;
         let hooks = self.adapter.fetch_hooks_list().await?;
+        let knowledge = self.adapter.fetch_knowledge_stats().await.unwrap_or_default();
         self.status = status;
         self.scan = scan;
         self.doctor = doctor;
@@ -159,6 +162,7 @@ impl App {
         self.sessions = sessions;
         self.workflow = workflow;
         self.hooks = hooks;
+        self.knowledge = knowledge;
         self.last_error = None;
         self.last_refresh = Instant::now();
         Ok(())

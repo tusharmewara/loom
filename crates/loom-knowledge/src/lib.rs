@@ -475,6 +475,16 @@ impl KnowledgeGraph {
         extraction::extract_from_messages(self, messages, source_session)
     }
 
+    /// Extract entities and relationships from an LLM response JSON string.
+    /// The LLM should return a JSON object with `entities` and `relationships` arrays.
+    pub fn extract_from_llm_response(
+        &self,
+        llm_response: &str,
+        source_session: &str,
+    ) -> Result<(usize, usize)> {
+        extraction::extract_from_llm_response(self, llm_response, source_session)
+    }
+
     // ─── Helpers ────────────────────────────────────────────────────
 
     fn map_entity(row: &rusqlite::Row) -> rusqlite::Result<KnowledgeEntity> {

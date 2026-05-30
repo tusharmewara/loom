@@ -66,7 +66,7 @@ JSON-line protocol over Unix domain socket (`loom-ipc` crate):
 {"request_id":"uuid","status":"ok","data":"ok","data":{...}}
 ```
 
-Commands: `health.check`, `discovery.scan`, `skills.list`, `skills.show`, `mcp.list`, `mcp.health`, `sessions.list`, `auth.list`, `hooks.list`, `version`, `register_tool`, `touch`.
+Commands: `health.check`, `discovery.scan`, `skills.list`, `skills.show`, `mcp.list`, `mcp.health`, `sessions.list`, `auth.list`, `hooks.list`, `version`, `register_tool`, `touch`, `knowledge.query`, `knowledge.search`, `knowledge.stats`, `knowledge.build`.
 
 ### Event Bus
 
@@ -200,7 +200,7 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 - `loom routing catalog [--refresh] [--json]` — List models
 
 ### Knowledge
-- `loom knowledge build [--json]` — Build knowledge graph from indexed sessions
+- `loom knowledge build [--json] [--llm]` — Build knowledge graph from indexed sessions (--llm uses LLM extraction)
 - `loom knowledge query <entity> [--depth <n>] [--json]` — Query subgraph around entity
 - `loom knowledge stats [--json]` — Show graph statistics
 - `loom knowledge add <name> [--entity-type <type>] [--canonical <name>]` — Add entity
@@ -229,7 +229,7 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 9. **ACP dispatch not wired** — reports "requires daemon IPC" but no implementation.
 10. **EmbeddedPane dispatch** — explicit "not yet implemented".
 11. **`loom-ipc` uses Unix sockets only** — no TCP or Windows named pipe support.
-12. **Config `DocType` is v2.0.0 for all crates** (workspace version).
+12. **Config `DocType` is v0.3.0 for all crates** (workspace version).
 13. **Knowledge extraction auto-runs on `loom sessions index` and `loom sessions export`** — entities and relationships are automatically extracted into `~/.loom/knowledge/graph.db` during session indexing.
 14. **Knowledge graph boosts routing decisions** — when evaluating a prompt with `loom routing evaluate`, if the prompt mentions known entities in the knowledge graph, the complexity score receives a boost (up to +0.25) based on entity degree and type. Entities found are listed in `knowledge_entities` in the signals.
 15. **Knowledge-enhanced session resume** — `loom sessions resume --inject-knowledge` queries the knowledge graph for entities matching the session topic and recent messages, then injects entity definitions and their relationships as a system message before resuming.
