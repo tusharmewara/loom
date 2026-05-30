@@ -1587,6 +1587,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "loom-core",
+ "loom-routing",
  "serde",
  "serde_json",
  "wasm-bindgen",

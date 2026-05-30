@@ -63,6 +63,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
             &app.command_palette_query,
         );
     }
+
+    if app.embedded_task.is_some() {
+        overlays::draw_embedded_pane(frame, frame.area(), app, theme);
+    }
 }
 
 fn draw_content_body(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, theme: &Theme) {

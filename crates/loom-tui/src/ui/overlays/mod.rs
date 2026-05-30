@@ -2,11 +2,13 @@ mod command_palette;
 mod help;
 mod action_palette;
 mod dispatch_menu;
+mod embedded_pane;
 
 pub use command_palette::*;
 pub use help::*;
 pub use action_palette::*;
 pub use dispatch_menu::*;
+pub use embedded_pane::*;
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 

@@ -86,9 +86,10 @@ async fn run_loop(
                                 Box::new(crate::dispatch::EmbeddedPane),
                             ];
                             if app.dispatch_menu_selected < dispatchers.len() {
-                                if let Some(task) = app.selected_task() {
+                                let task = app.selected_task().cloned();
+                                if let Some(task) = task {
                                     let result =
-                                        dispatchers[app.dispatch_menu_selected].dispatch(task);
+                                        dispatchers[app.dispatch_menu_selected].dispatch(&task);
                                     app.last_action_result = Some(crate::adapter::CommandResult {
                                         action: dispatchers[app.dispatch_menu_selected]
                                             .name()
@@ -96,6 +97,10 @@ async fn run_loop(
                                         success: result.success,
                                         message: result.message,
                                     });
+                                    // EmbeddedPane: store task for inline display
+                                    if app.dispatch_menu_selected == 2 {
+                                        app.embedded_task = Some(task);
+                                    }
                                 }
                             }
                             app.close_dispatch_menu();
@@ -172,6 +177,12 @@ async fn run_loop(
                         }
                         _ => {}
                     }
+                    continue;
+                }
+
+                // Embedded pane: Esc to close
+                if app.embedded_task.is_some() && matches!(key.code, KeyCode::Esc) {
+                    app.close_embedded_pane();
                     continue;
                 }
 

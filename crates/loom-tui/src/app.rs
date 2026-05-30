@@ -35,6 +35,7 @@ pub struct App {
     pub command_palette_selected: usize,
     pub theme: Theme,
     pub sidebar_visible: bool,
+    pub embedded_task: Option<Value>,
     theme_manager: crate::theme::ThemeManager,
     adapter: LoomCliAdapter,
 }
@@ -72,6 +73,7 @@ impl App {
             command_palette_selected: 0,
             theme,
             sidebar_visible: true,
+            embedded_task: None,
             theme_manager,
             adapter,
         }
@@ -269,6 +271,10 @@ impl App {
 
     pub fn close_dispatch_menu(&mut self) {
         self.dispatch_menu_open = false;
+    }
+
+    pub fn close_embedded_pane(&mut self) {
+        self.embedded_task = None;
     }
 
     pub fn dispatch_menu_next(&mut self) {

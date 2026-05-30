@@ -54,3 +54,55 @@ pub unsafe extern "C" fn loom_free_string(s: *mut std::ffi::CString) {
         unsafe { drop(Box::from_raw(s)); }
     }
 }
+
+// ─── Routing C FFI (not available on WASM) ─────────────────────────
+
+#[cfg(not(target_arch = "wasm32"))]
+mod routing_ffi {
+    use loom_routing::RoutingEngine;
+
+    /// Classify a prompt and return the complexity score as a JSON string.
+    /// Caller must free the result with `loom_free_string`.
+    #[no_mangle]
+    pub extern "C" fn loom_classify_prompt(prompt: *const std::ffi::c_char) -> *mut std::ffi::CString {
+        let prompt_str = unsafe {
+            if prompt.is_null() {
+                return Box::into_raw(Box::new(std::ffi::CString::new(r#"{"error":"null prompt"}"#).unwrap()));
+            }
+            match std::ffi::CStr::from_ptr(prompt).to_str() {
+                Ok(s) => s,
+                Err(_) => {
+                    return Box::into_raw(Box::new(std::ffi::CString::new(r#"{"error":"invalid utf-8"}"#).unwrap()));
+                }
+            }
+        };
+
+        let engine = RoutingEngine::new("");
+        let score = engine.classify(prompt_str);
+        let json = serde_json::to_string(&score).unwrap_or_default();
+        Box::into_raw(Box::new(std::ffi::CString::new(json).unwrap()))
+    }
+
+    /// Resolve a routing decision for a prompt, returning the decision as a JSON string.
+    /// Caller must free the result with `loom_free_string`.
+    #[no_mangle]
+    pub extern "C" fn loom_resolve_route(prompt: *const std::ffi::c_char) -> *mut std::ffi::CString {
+        let prompt_str = unsafe {
+            if prompt.is_null() {
+                return Box::into_raw(Box::new(std::ffi::CString::new(r#"{"error":"null prompt"}"#).unwrap()));
+            }
+            match std::ffi::CStr::from_ptr(prompt).to_str() {
+                Ok(s) => s,
+                Err(_) => {
+                    return Box::into_raw(Box::new(std::ffi::CString::new(r#"{"error":"invalid utf-8"}"#).unwrap()));
+                }
+            }
+        };
+
+        let engine = RoutingEngine::new("");
+        let score = engine.classify(prompt_str);
+        let decision = engine.decide(score);
+        let json = serde_json::to_string(&decision).unwrap_or_default();
+        Box::into_raw(Box::new(std::ffi::CString::new(json).unwrap()))
+    }
+}
