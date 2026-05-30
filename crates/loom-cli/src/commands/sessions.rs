@@ -155,6 +155,74 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
             }
             println!("Indexed {} messages from {} sessions", total, manifests.len());
         }
+        SessionsAction::Branch { id, from, checkpoint } => {
+            cmd_branch(loom_dir, store, id, from, *checkpoint)?;
+        }
     }
+    Ok(())
+}
+
+fn cmd_branch(
+    loom_dir: &Path,
+    store: &loom_sessions::store::SessionStore,
+    new_id: &Option<String>,
+    from_id: &str,
+    checkpoint: Option<usize>,
+) -> anyhow::Result<()> {
+    // Validate source session exists
+    let source_manifest = store
+        .get(from_id)
+        .ok_or_else(|| anyhow::anyhow!("Source session '{}' not found", from_id))?;
+
+    // Load source messages
+    let messages = store.load_messages(from_id)?;
+    let total_messages = messages.len();
+
+    // Determine checkpoint
+    let cp = checkpoint.unwrap_or(total_messages);
+    if cp > total_messages {
+        anyhow::bail!(
+            "Checkpoint {} exceeds message count {} for session '{}'",
+            cp,
+            total_messages,
+            from_id
+        );
+    }
+
+    // Truncate at checkpoint
+    let branch_messages: Vec<_> = messages.into_iter().take(cp).collect();
+
+    // Generate new session ID
+    let branch_id = new_id
+        .clone()
+        .unwrap_or_else(|| format!("{}-branch-{}", from_id, uuid::Uuid::new_v4().to_string().split('-').next().unwrap()));
+
+    // Create branch manifest (clone source then override)
+    let mut branch_manifest = source_manifest.clone();
+    branch_manifest.session_id = branch_id.clone();
+    branch_manifest.message_count = branch_messages.len() as u32;
+    branch_manifest.topic = format!(
+        "Branch of '{}' at message {}",
+        source_manifest.topic,
+        cp,
+    );
+    branch_manifest.exported_at = chrono::Utc::now().to_rfc3339();
+
+    // Save the new session
+    store.save_manifest(&branch_manifest)?;
+    store.replace_messages(&branch_id, &branch_messages)?;
+
+    println!("✓ Branched session '{}' from '{}'", branch_id, from_id);
+    println!("  Source messages: {} (up to checkpoint {})", cp, cp);
+    println!("  Branch messages: {}", branch_messages.len());
+    println!("  Topic: {}", branch_manifest.topic);
+
+    // Auto-index into cross-session memory
+    if let Ok(memory) = loom_sessions::memory::CrossSessionMemory::new(loom_dir.to_str().unwrap()) {
+        if let Err(e) = memory.index_session(&branch_id, &branch_messages, &branch_manifest.topic) {
+            eprintln!("  Warning: failed to index branch in memory: {e}");
+        }
+    }
+
     Ok(())
 }

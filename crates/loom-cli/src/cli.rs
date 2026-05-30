@@ -302,6 +302,17 @@ pub enum SessionsAction {
     },
     /// Index all sessions into the cross-session memory store
     Index,
+    /// Branch a session at a checkpoint, creating a forked copy
+    Branch {
+        /// New session ID for the branch (default: auto-generated)
+        id: Option<String>,
+        /// Source session ID to branch from
+        #[arg(long, short)]
+        from: String,
+        /// Message line number to branch at (0-based). If omitted, branches at end.
+        #[arg(long, short)]
+        checkpoint: Option<usize>,
+    },
 }
 
 #[derive(Subcommand)]
