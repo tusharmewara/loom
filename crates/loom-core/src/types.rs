@@ -414,6 +414,9 @@ pub struct ComplexitySignals {
     // User override
     #[serde(default)]
     pub user_override: Option<ComplexityLevel>,
+    // Knowledge graph context
+    #[serde(default)]
+    pub knowledge_entities: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

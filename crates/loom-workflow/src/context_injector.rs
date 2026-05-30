@@ -71,6 +71,7 @@ mod tests {
                 phase_iteration_count: None,
                 error_rate: None,
                 user_override: None,
+                knowledge_entities: Vec::new(),
             },
         }
     }

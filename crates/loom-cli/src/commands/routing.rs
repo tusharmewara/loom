@@ -6,6 +6,62 @@ use serde_json::json;
 use std::fs;
 use std::path::Path;
 
+/// Query knowledge graph for entities mentioned in the prompt.
+/// Returns (entity_names, numeric_boost) where boost is 0.0–0.15.
+fn knowledge_context(loom_dir: &Path, prompt: &str) -> (Vec<String>, f64) {
+    match loom_knowledge::KnowledgeGraph::new(loom_dir.to_str().unwrap()) {
+        Ok(kg) => {
+            let lower = prompt.to_lowercase();
+            let mut entities = Vec::new();
+            let mut boost = 0.0f64;
+
+            // Search for entities by extracting known names from the knowledge graph
+            // We look for capitalized words that might match entities
+            // Simple approach: check if lowercase prompt contains entity names
+            if let Ok(stats) = kg.stats() {
+                if stats.entity_count == 0 {
+                    return (Vec::new(), 0.0);
+                }
+            }
+
+            // Get top connected entities and check if prompt mentions them
+            if let Ok(stats) = kg.stats() {
+                for (name, etype, degree) in &stats.top_entities {
+                    if lower.contains(&name.to_lowercase()) {
+                        entities.push(name.clone());
+                        // Higher-degree entities → larger boost
+                        let degree_boost = (*degree as f64 * 0.02).clamp(0.0, 0.08);
+                        boost += degree_boost;
+
+                        // Type-specific boost
+                        let type_boost = match etype.as_str() {
+                            "architecture" | "pattern" | "framework" => 0.07,
+                            "tool" | "language" | "database" => 0.03,
+                            "concept" => 0.02,
+                            _ => 0.0,
+                        };
+                        boost += type_boost;
+                    }
+                }
+            }
+
+            // Search for the prompt terms directly in entity FTS
+            if let Ok(results) = kg.search_entities(prompt, 5) {
+                for entity in &results {
+                    let name_lower = entity.name.to_lowercase();
+                    if !entities.iter().any(|e| e.to_lowercase() == name_lower) {
+                        entities.push(entity.name.clone());
+                        boost += 0.03;
+                    }
+                }
+            }
+
+            (entities, boost.clamp(0.0, 0.25))
+        }
+        Err(_) => (Vec::new(), 0.0),
+    }
+}
+
 /// Load a task JSON from the workflow tasks directory.
 fn load_task(loom_dir: &Path, task_id: &str) -> anyhow::Result<Task> {
     let tasks_dir = loom_dir.join("workflow").join("tasks");
@@ -93,18 +149,43 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
             }
         }
         RoutingAction::Evaluate { prompt, json } => {
-            let score = classifier.classify(prompt);
+            let mut score = classifier.classify(prompt);
+            // Inject knowledge graph context
+            let (knowledge_entities, knowledge_boost) = knowledge_context(loom_dir, prompt);
+            if knowledge_boost > 0.0 {
+                score.numeric = (score.numeric + knowledge_boost).clamp(0.0, 1.0);
+                score.signals.knowledge_entities = knowledge_entities.clone();
+                // Recompute level and model_tier based on boosted score
+                score.level = if score.numeric < 0.35 {
+                    loom_core::ComplexityLevel::Low
+                } else if score.numeric < 0.7 {
+                    loom_core::ComplexityLevel::Medium
+                } else {
+                    loom_core::ComplexityLevel::High
+                };
+                score.model_tier = match score.level {
+                    loom_core::ComplexityLevel::Low => loom_core::ModelTier::Slm,
+                    loom_core::ComplexityLevel::Medium => loom_core::ModelTier::Mid,
+                    loom_core::ComplexityLevel::High => loom_core::ModelTier::Flagship,
+                };
+            }
             let decision = engine.decide(score.clone());
             let result = json!({
                 "schema_version": 1,
                 "command": "routing.evaluate",
                 "complexity": score,
                 "decision": decision,
+                "knowledge_entities": knowledge_entities,
+                "knowledge_boost": knowledge_boost,
             });
             if *json {
                 println!("{}", serde_json::to_string_pretty(&result)?);
             } else {
                 println!("Complexity: {:?} (numeric={:.2})", score.level, score.numeric);
+                if knowledge_boost > 0.0 {
+                    println!("Knowledge context: {} entities found, boost=+{:.2}",
+                        knowledge_entities.join(", "), knowledge_boost);
+                }
                 println!("Decision: {}", decision.reason);
                 println!("  Model: {} ({})", decision.recommended_model, decision.recommended_provider);
                 println!("  Tier: {:?}", decision.recommended_tier);
@@ -115,11 +196,30 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
             }
         }
         RoutingAction::Score { prompt, json } => {
-            let score = classifier.classify(prompt);
+            let mut score = classifier.classify(prompt);
+            let (knowledge_entities, knowledge_boost) = knowledge_context(loom_dir, prompt);
+            if knowledge_boost > 0.0 {
+                score.numeric = (score.numeric + knowledge_boost).clamp(0.0, 1.0);
+                score.signals.knowledge_entities = knowledge_entities.clone();
+                score.level = if score.numeric < 0.35 {
+                    loom_core::ComplexityLevel::Low
+                } else if score.numeric < 0.7 {
+                    loom_core::ComplexityLevel::Medium
+                } else {
+                    loom_core::ComplexityLevel::High
+                };
+                score.model_tier = match score.level {
+                    loom_core::ComplexityLevel::Low => loom_core::ModelTier::Slm,
+                    loom_core::ComplexityLevel::Medium => loom_core::ModelTier::Mid,
+                    loom_core::ComplexityLevel::High => loom_core::ModelTier::Flagship,
+                };
+            }
             let result = json!({
                 "schema_version": 1,
                 "command": "routing.score",
                 "complexity": score,
+                "knowledge_entities": knowledge_entities,
+                "knowledge_boost": knowledge_boost,
             });
             if *json {
                 println!("{}", serde_json::to_string_pretty(&result)?);

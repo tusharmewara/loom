@@ -4,6 +4,29 @@ use loom_sessions::memory::CrossSessionMemory;
 use loom_sessions::{export_session, import_session, write_export, SessionManager};
 use std::path::Path;
 
+/// Extract entities and relationships from loaded messages into the knowledge graph.
+fn extract_to_knowledge(loom_dir: &Path, session_id: &str, messages: &[loom_core::Message]) {
+    if messages.is_empty() {
+        return;
+    }
+    match loom_knowledge::KnowledgeGraph::new(loom_dir.to_str().unwrap()) {
+        Ok(kg) => {
+            match kg.extract_from_messages(messages, session_id) {
+                Ok((entities, rels)) => {
+                    if entities > 0 || rels > 0 {
+                        println!(
+                            "  Extracted {} entities, {} relationships into knowledge graph",
+                            entities, rels
+                        );
+                    }
+                }
+                Err(e) => eprintln!("  Warning: knowledge extraction failed: {e}"),
+            }
+        }
+        Err(e) => eprintln!("  Warning: could not open knowledge graph: {e}"),
+    }
+}
+
 pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()> {
     let manager = SessionManager::new(loom_dir.to_str().unwrap());
     let store = manager.store();
@@ -80,6 +103,8 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                         } else {
                             println!("  Indexed {} messages into cross-session memory", messages.len());
                         }
+                        // Auto-extract entities/relationships into knowledge graph
+                        extract_to_knowledge(loom_dir, id, &messages);
                     }
                 }
             }
@@ -150,6 +175,8 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                         } else {
                             total += messages.len();
                         }
+                        // Auto-extract entities/relationships into knowledge graph
+                        extract_to_knowledge(loom_dir, &manifest.session_id, &messages);
                     }
                 }
             }

@@ -194,6 +194,7 @@ pub fn score_static_signals(signals: &StaticSignals) -> ComplexityScore {
             phase_iteration_count: None,
             error_rate: None,
             user_override: None,
+            knowledge_entities: Vec::new(),
         },
     }
 }
