@@ -230,6 +230,8 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 10. **EmbeddedPane dispatch** — explicit "not yet implemented".
 11. **`loom-ipc` uses Unix sockets only** — no TCP or Windows named pipe support.
 12. **Config `DocType` is v2.0.0 for all crates** (workspace version).
+13. **Knowledge extraction auto-runs on `loom sessions index` and `loom sessions export`** — entities and relationships are automatically extracted into `~/.loom/knowledge/graph.db` during session indexing.
+14. **Knowledge graph boosts routing decisions** — when evaluating a prompt with `loom routing evaluate`, if the prompt mentions known entities in the knowledge graph, the complexity score receives a boost (up to +0.25) based on entity degree and type. Entities found are listed in `knowledge_entities` in the signals.
 
 ## TUI Architecture
 
