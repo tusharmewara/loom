@@ -37,6 +37,7 @@ loom-core  ←  everything else (types, constants, errors, traits)
     ↓
 loom-ipc          — Unix socket IPC protocol (JSON-line)
 loom-event-bus    — in-process (tokio broadcast) + cross-process (ZeroMQ ipc://)
+loom-knowledge    — Knowledge graph (SQLite entities + relationships, FTS5, recursive CTE traversal)
     ↓
 loom-{discovery,skills,mcp,auth,sessions,hooks,workflow,routing,telemetry}
     ↓                ↓
@@ -93,6 +94,8 @@ Everything lives in `~/.loom/` (AGENTS_DIR constant in `loom-core`):
 ├── tools/                    # Tool TOML registration files
 ├── workflow/                 # Task orchestration
 │   └── tasks/               # Task manifests
+├── knowledge/                # Knowledge graph DB
+│   └── graph.db             # SQLite (entities, relationships, FTS5)
 ├── mcp_registry.db           # SQLite MCP server registry
 ├── loomd.sock                # Daemon IPC socket
 ├── .loom-events              # ZeroMQ cross-process event socket
@@ -195,6 +198,15 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 - `loom routing recommend <task-id> [--json]` — Get recommendation
 - `loom routing override <task-id> --tier <tier> [--reason]` — Override decision
 - `loom routing catalog [--refresh] [--json]` — List models
+
+### Knowledge
+- `loom knowledge build [--json]` — Build knowledge graph from indexed sessions
+- `loom knowledge query <entity> [--depth <n>] [--json]` — Query subgraph around entity
+- `loom knowledge stats [--json]` — Show graph statistics
+- `loom knowledge add <name> [--entity-type <type>] [--canonical <name>]` — Add entity
+- `loom knowledge relate <from> <predicate> <to> [--weight <w>]` — Add relationship
+- `loom knowledge search <query> [--limit <n>] [--json]` — Search entities
+- `loom knowledge clear --force` — Clear the entire graph
 
 ### Daemon
 - `loom daemon start` — Start loomd
@@ -307,3 +319,5 @@ Key constants in `loom-core/src/constants.rs`:
 | Context injection | <5ms | ~2ms |
 | Event delivery | <100us | ~15us |
 | Vault decrypt | <10ms | ~3ms |
+| Knowledge query (subgraph, depth 2) | <20ms | ~5ms |
+| Knowledge build (100 sessions) | <5s | TBD |
