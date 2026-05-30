@@ -13,3 +13,7 @@ tracing.workspace = true
 uuid.workspace = true
 sha2.workspace = true
 regex-lite = "0.1"
+shellexpand.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

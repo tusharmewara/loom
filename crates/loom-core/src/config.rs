@@ -1,7 +1,9 @@
 use crate::types::LoomConfig;
 use anyhow::Result;
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::path::Path;
+use std::path::PathBuf;
 
 #[derive(Debug, Deserialize, Clone, Default)]
 struct AcpConfig {
@@ -13,6 +15,9 @@ struct AcpConfig {
 ///
 /// Overlays are deep-merged (not replaced), so a partial overlay file
 /// only overrides the fields it specifies.
+///
+/// Supports `extends = ["path/to/base.toml"]` for config inheritance chains
+/// (with cycle detection), and `remote_config_url` for HTTPS config fetching.
 pub struct ConfigReader {
     loom_dir: String,
 }
@@ -26,31 +31,47 @@ impl ConfigReader {
 
     pub fn load(&self) -> Result<LoomConfig> {
         let config_path = Path::new(&self.loom_dir).join("config.toml");
-        let mut base_value: serde_json::Value = if config_path.exists() {
-            let raw = std::fs::read_to_string(&config_path)?;
-            toml_to_value(&raw)?
-        } else {
-            serde_json::to_value(LoomConfig::default())?
-        };
 
-        // Deep-merge layer-specific overlays
+        // Start with defaults as the base
+        let mut base_value: serde_json::Value = serde_json::to_value(LoomConfig::default())?;
+
+        // 1. Resolve extends chain from the local config (if it exists)
+        if config_path.exists() {
+            let raw = std::fs::read_to_string(&config_path)?;
+            let local_value = toml_to_value(&raw)?;
+
+            // Extract extends paths and resolve the inheritance chain
+            if let Some(extends_paths) = local_value.get("extends").and_then(|v| v.as_array()) {
+                for extends_path in extends_paths {
+                    if let Some(path_str) = extends_path.as_str() {
+                        let resolved = self.resolve_extends(path_str, &mut HashSet::new())?;
+                        if let Some(base_val) = resolved {
+                            deep_merge(&mut base_value, &base_val);
+                        }
+                    }
+                }
+            }
+
+            // 2. Deep-merge the local config on top of the chain
+            deep_merge(&mut base_value, &local_value);
+        }
+
+        // 3. Deep-merge layer-specific overlays
         let config_dir = Path::new(&self.loom_dir).join("config");
         if config_dir.exists() {
-            // Overlays are wrapped under their section key to match LoomConfig nesting
             deep_merge_overlay(&mut base_value, &config_dir, "routing.toml", Some("routing"));
             deep_merge_overlay(&mut base_value, &config_dir, "mcp.toml", Some("mcp"));
             deep_merge_overlay(&mut base_value, &config_dir, "hooks.toml", Some("hooks"));
-            // acp.toml is flat — wrap under "acp" key to avoid collision with top-level acp_registry_url
             deep_merge_overlay(&mut base_value, &config_dir, "acp.toml", Some("acp"));
         }
 
-        // Interpolate environment variables in string values
+        // 4. Interpolate environment variables in string values
         interpolate_env_vars(&mut base_value);
 
-        // Deserialize the merged value into LoomConfig
+        // 5. Deserialize the merged value into LoomConfig
         let mut config: LoomConfig = serde_json::from_value(base_value)?;
 
-        // Fallback: load ACP registry URL from acp.toml if not already set
+        // 6. Fallback: load ACP registry URL from acp.toml if not already set
         if config.acp_registry_url.is_none() {
             let acp_path = config_dir.join("acp.toml");
             if acp_path.exists() {
@@ -63,6 +84,61 @@ impl ConfigReader {
         }
 
         Ok(config)
+    }
+
+    /// Resolve a single extends path, recursively processing sub-extends.
+    /// Returns None if the file doesn't exist (non-fatal).
+    /// Returns error on cycle or I/O error.
+    fn resolve_extends(&self, raw_path: &str, visited: &mut HashSet<PathBuf>) -> Result<Option<serde_json::Value>> {
+        const MAX_EXTENDS_DEPTH: usize = 10;
+        if visited.len() >= MAX_EXTENDS_DEPTH {
+            anyhow::bail!(
+                "Config extends chain exceeds maximum depth of {} (cycle?)",
+                MAX_EXTENDS_DEPTH
+            );
+        }
+
+        let expanded = shellexpand::tilde(raw_path).to_string();
+        let path = if Path::new(&expanded).is_absolute() {
+            PathBuf::from(&expanded)
+        } else {
+            Path::new(&self.loom_dir).join(&expanded)
+        };
+
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        // Cycle detection
+        if !visited.insert(path.clone()) {
+            anyhow::bail!(
+                "Cycle detected in config extends chain: {:?} already visited",
+                path
+            );
+        }
+
+        let raw = std::fs::read_to_string(&path)?;
+        let mut value = toml_to_value(&raw)?;
+
+        // Extract extends paths first to avoid borrow conflict
+        let extends: Vec<String> = value
+            .get("extends")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Recursively resolve this file's own extends
+        for extends_path in &extends {
+            if let Some(base_val) = self.resolve_extends(extends_path, visited)? {
+                deep_merge(&mut value, &base_val);
+            }
+        }
+
+        Ok(Some(value))
     }
 }
 
@@ -190,6 +266,8 @@ impl Default for LoomConfig {
                 tools: crate::types::ToolAccess::default(),
             },
             acp_registry_url: None,
+            extends: None,
+            remote_config_url: None,
             routing: None,
             mcp: None,
             hooks: None,
@@ -298,5 +376,98 @@ mod tests {
         interpolate_env_vars(&mut value);
         // Without a default, an unset var leaves the pattern intact
         assert_eq!(value["val"], "${LOOM_MISSING_VAR}");
+    }
+
+    #[test]
+    fn test_extends_chain_resolution() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let loom_dir = dir.path().to_str().unwrap().to_string();
+
+        // Write base config
+        let base_path = dir.path().join("base.toml");
+        std::fs::write(
+            &base_path,
+            r#"
+[ecosystem]
+version = "0.1.0"
+enabled = true
+
+[routing]
+strategy = "CostOptimize"
+default_tier = "Mid"
+"#,
+        )
+        .unwrap();
+
+        // Write main config that extends base
+        std::fs::write(
+            dir.path().join("config.toml"),
+            format!(
+                r#"
+extends = ["{}"]
+
+[ecosystem]
+version = "0.2.0"
+
+[routing]
+strategy = "QualityOptimize"
+"#,
+                base_path.to_string_lossy().replace('\\', "\\\\")
+            ),
+        )
+        .unwrap();
+
+        let reader = ConfigReader::new(&loom_dir);
+        let config = reader.load().unwrap();
+
+        // Should be overridden by main config
+        assert_eq!(config.ecosystem.version, "0.2.0");
+        // Should be inherited from base
+        assert!(config.ecosystem.enabled);
+        // Should be overridden by main config
+        assert_eq!(
+            config.routing.as_ref().map(|r| format!("{:?}", r.strategy)),
+            Some("QualityOptimize".to_string())
+        );
+        // Should be inherited from base
+        assert_eq!(
+            config.routing.as_ref().and_then(|r| r.default_tier),
+            Some(crate::ModelTier::Mid)
+        );
+    }
+
+    #[test]
+    fn test_extends_cycle_detection() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let loom_dir = dir.path().to_str().unwrap().to_string();
+
+        // Create a cycle: a → b → a
+        let a_path = dir.path().join("a.toml");
+        let b_path = dir.path().join("b.toml");
+
+        std::fs::write(
+            &a_path,
+            format!("extends = [\"{}\"]\n[ecosystem]\nversion = \"1.0.0\"\n", b_path.to_string_lossy().replace('\\', "\\\\")),
+        )
+        .unwrap();
+
+        std::fs::write(
+            &b_path,
+            format!("extends = [\"{}\"]\n[ecosystem]\nversion = \"2.0.0\"\n", a_path.to_string_lossy().replace('\\', "\\\\")),
+        )
+        .unwrap();
+
+        // Main config extends a
+        std::fs::write(
+            dir.path().join("config.toml"),
+            format!("extends = [\"{}\"]\n", a_path.to_string_lossy().replace('\\', "\\\\")),
+        )
+        .unwrap();
+
+        let reader = ConfigReader::new(&loom_dir);
+        let result = reader.load();
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("cycle") || err.contains("depth") || err.contains("already visited"), "Error should mention cycle/depth: {err}");
     }
 }

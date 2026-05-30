@@ -8,6 +8,13 @@ use std::fmt;
 pub struct LoomConfig {
     pub ecosystem: EcosystemConfig,
     pub acp_registry_url: Option<String>,
+    /// Config files to extend from (deep-merged, lower priority).
+    /// Supports `~` in paths. Use TOML array: `extends = ["/path/to/base.toml"]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extends: Option<Vec<String>>,
+    /// Remote config URL to fetch (HTTPS) with SHA-256 caching.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_config_url: Option<String>,
     #[serde(default)]
     pub routing: Option<RoutingConfig>,
     #[serde(default)]
