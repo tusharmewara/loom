@@ -21,3 +21,4 @@ pub mod thread;
 pub mod tools_acp;
 pub mod workflow;
 pub mod plugin;
+pub mod knowledge;

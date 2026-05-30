@@ -733,3 +733,58 @@ pub struct PluginManifest {
     #[serde(default)]
     pub checksum: Option<String>,
 }
+
+// ─── Knowledge Graph ──────────────────────────────────────────────
+
+/// A node in the knowledge graph — an entity extracted or manually added.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct KnowledgeEntity {
+    pub id: String,
+    pub name: String,
+    /// Entity type: "tool", "concept", "pattern", "person", "skill", "api", etc.
+    pub entity_type: String,
+    /// Canonical/parent name for grouping variants.
+    #[serde(default)]
+    pub canonical_name: Option<String>,
+    /// Free-form metadata (JSON).
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+    /// ISO-8601 timestamp.
+    pub created_at: String,
+}
+
+/// A directed relationship (triple) between two entities.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Relationship {
+    pub id: String,
+    pub subject_id: String,
+    pub subject_name: String,
+    pub predicate: String,
+    pub object_id: String,
+    pub object_name: String,
+    /// Confidence weight 0.0–1.0.
+    pub weight: f64,
+    /// Optional source session that produced this relationship.
+    #[serde(default)]
+    pub source_session: Option<String>,
+    pub created_at: String,
+}
+
+/// Result of a subgraph query around an entity.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SubgraphResult {
+    /// The central entity queried.
+    pub entity: KnowledgeEntity,
+    /// Directly related entities at depth 1.
+    #[serde(default)]
+    pub related: Vec<RelatedEntity>,
+}
+
+/// A related entity with relationship details.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelatedEntity {
+    pub entity: KnowledgeEntity,
+    pub relationship: Relationship,
+    /// Traversal depth from the query root.
+    pub depth: u32,
+}

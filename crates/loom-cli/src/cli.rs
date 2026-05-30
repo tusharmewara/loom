@@ -161,6 +161,11 @@ pub enum Command {
         #[command(subcommand)]
         action: PluginAction,
     },
+    /// Manage the knowledge graph (extract, query, add entities, stats)
+    Knowledge {
+        #[command(subcommand)]
+        action: KnowledgeAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -719,6 +724,73 @@ pub enum ConfigAction {
     },
 }
 
+#[derive(Subcommand)]
+pub enum KnowledgeAction {
+    /// Build knowledge graph from indexed sessions
+    Build {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Query subgraph around an entity
+    Query {
+        /// Entity name or ID to query
+        entity: String,
+        /// Maximum traversal depth (default: 2)
+        #[arg(long, default_value = "2")]
+        depth: u32,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show graph statistics
+    Stats {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Add an entity manually
+    Add {
+        /// Entity name
+        name: String,
+        /// Entity type (tool, concept, language, database, provider, etc.)
+        #[arg(long, default_value = "concept")]
+        entity_type: String,
+        /// Canonical/parent name for grouping
+        #[arg(long)]
+        canonical: Option<String>,
+    },
+    /// Add a relationship between two entities
+    Relate {
+        /// Source entity name
+        from: String,
+        /// Predicate (e.g., "built_with", "uses", "related_to")
+        predicate: String,
+        /// Target entity name
+        to: String,
+        /// Confidence weight (0.0–1.0)
+        #[arg(long, default_value = "1.0")]
+        weight: f64,
+    },
+    /// Search entities by name/type
+    Search {
+        /// Search query
+        query: String,
+        /// Maximum results (default: 10)
+        #[arg(long, default_value = "10")]
+        limit: usize,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Clear the entire knowledge graph
+    Clear {
+        /// Confirm destruction
+        #[arg(long, short)]
+        force: bool,
+    },
+}
+
 impl Cli {
     pub async fn execute(self) -> anyhow::Result<()> {
         let loom_dir = crate::loom_dir();
@@ -789,6 +861,9 @@ impl Cli {
             }
             Command::Plugin { action } => {
                 crate::commands::plugin::run(&agents_path, &action).await
+            }
+            Command::Knowledge { action } => {
+                crate::commands::knowledge::run(&loom_dir, &action).await
             }
         }
     }

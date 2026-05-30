@@ -1503,6 +1503,7 @@ dependencies = [
  "loom-generic-adapter",
  "loom-hooks",
  "loom-ipc",
+ "loom-knowledge",
  "loom-mcp",
  "loom-mcp-server",
  "loom-parallel",
@@ -1685,6 +1686,23 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "loom-knowledge"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "loom-core",
+ "regex-lite",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
  "tracing",
  "uuid",
 ]
