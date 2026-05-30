@@ -643,6 +643,12 @@ pub enum ConfigAction {
     },
     /// Validate the merged config for errors
     Validate,
+    /// Fetch remote config from URL (HTTPS) with SHA-256 caching
+    Fetch {
+        /// Remote config URL (overrides config.toml setting)
+        #[arg(long)]
+        url: Option<String>,
+    },
 }
 
 impl Cli {
