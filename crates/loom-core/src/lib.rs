@@ -2,6 +2,7 @@ pub mod types;
 pub mod config;
 pub mod constants;
 pub mod error;
+pub mod plugin_registry;
 
 pub use types::*;
 pub use config::*;

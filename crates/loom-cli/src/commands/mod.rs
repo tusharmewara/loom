@@ -20,3 +20,4 @@ pub mod lock;
 pub mod thread;
 pub mod tools_acp;
 pub mod workflow;
+pub mod plugin;

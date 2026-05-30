@@ -701,3 +701,35 @@ pub trait RoutingTarget: Send + Sync {
     fn routing_info(&self) -> anyhow::Result<Vec<ModelEntry>>;
     fn current_tier(&self) -> anyhow::Result<ModelTier>;
 }
+
+// ─── Plugin Registry ───────────────────────────────────────────────
+
+/// Manifest for a registered plugin (extension/tool integration).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginManifest {
+    /// Unique plugin name (also the filename stem).
+    pub name: String,
+    /// Semantic version of the plugin.
+    pub version: String,
+    /// Human-readable description.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Author or maintainer.
+    #[serde(default)]
+    pub author: Option<String>,
+    /// Homepage URL.
+    #[serde(default)]
+    pub homepage: Option<String>,
+    /// Source repository URL.
+    #[serde(default)]
+    pub repository: Option<String>,
+    /// URL to download the tool TOML that this plugin provides.
+    #[serde(default)]
+    pub tool_toml_url: Option<String>,
+    /// ISO-8601 timestamp of installation.
+    #[serde(default)]
+    pub installed_at: Option<String>,
+    /// SHA-256 checksum of the downloaded tool TOML (hex).
+    #[serde(default)]
+    pub checksum: Option<String>,
+}

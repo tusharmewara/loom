@@ -156,6 +156,63 @@ pub enum Command {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Manage the plugin registry (search, install, update, remove)
+    Plugin {
+        #[command(subcommand)]
+        action: PluginAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PluginAction {
+    /// Search registered plugins by name or description
+    Search {
+        /// Search query
+        query: String,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Install a plugin from a tool TOML URL
+    Install {
+        /// Plugin name
+        name: String,
+        /// URL to the tool TOML file
+        url: String,
+        /// Optional version string
+        #[arg(long)]
+        version: Option<String>,
+    },
+    /// Register a plugin from a local tool TOML file
+    Register {
+        /// Plugin name
+        name: String,
+        /// Path to the tool TOML file
+        path: String,
+    },
+    /// Update a plugin (re-download its tool TOML)
+    Update {
+        /// Plugin name
+        name: String,
+    },
+    /// Remove a plugin and its tool TOML
+    Remove {
+        /// Plugin name
+        name: String,
+    },
+    /// List all installed plugins
+    List {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show detail for a specific plugin
+    Show {
+        name: String,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -729,6 +786,9 @@ impl Cli {
             }
             Command::Config { action } => {
                 crate::commands::config::run(&loom_dir, &action).await
+            }
+            Command::Plugin { action } => {
+                crate::commands::plugin::run(&agents_path, &action).await
             }
         }
     }
