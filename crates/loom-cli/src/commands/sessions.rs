@@ -69,6 +69,20 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                 });
             write_export(&export, &out_path)?;
             println!("Exported session '{}' to {}", id, out_path.display());
+
+            // Auto-index the exported session into cross-session memory
+            if let Ok(memory) = CrossSessionMemory::new(loom_dir.to_str().unwrap()) {
+                if let Ok(messages) = store.load_messages(id) {
+                    if !messages.is_empty() {
+                        let topic = export.manifest.topic.clone();
+                        if let Err(e) = memory.index_session(id, &messages, &topic) {
+                            eprintln!("  Warning: failed to index session in memory: {e}");
+                        } else {
+                            println!("  Indexed {} messages into cross-session memory", messages.len());
+                        }
+                    }
+                }
+            }
         }
         SessionsAction::Import { path } => {
             let session_id = import_session(store, Path::new(path))?;

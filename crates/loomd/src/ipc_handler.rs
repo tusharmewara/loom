@@ -96,6 +96,45 @@ impl IpcHandler for LoomdIpcHandler {
                 let sessions = self.sessions.store().list();
                 IpcResponse::ok(req.request_id, json!({ "sessions": sessions }))
             }
+            "sessions.search" => {
+                let query = req.params.get("query").and_then(|v| v.as_str()).unwrap_or("");
+                let limit = req.params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+                if query.is_empty() {
+                    return IpcResponse::error(req.request_id, "query parameter required");
+                }
+                match loom_sessions::memory::CrossSessionMemory::new(&self.loom_dir) {
+                    Ok(memory) => match memory.search(query, limit) {
+                        Ok(results) => IpcResponse::ok(req.request_id, json!({ "results": results, "count": results.len(), "query": query })),
+                        Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                    },
+                    Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                }
+            }
+            "sessions.index" => {
+                match loom_sessions::memory::CrossSessionMemory::new(&self.loom_dir) {
+                    Ok(memory) => {
+                        let sessions = self.sessions.store().list();
+                        let mut total = 0usize;
+                        for manifest in &sessions {
+                            if let Ok(messages) = self.sessions.store().load_messages(&manifest.session_id) {
+                                if !messages.is_empty() {
+                                    if let Err(e) = memory.index_session(
+                                        &manifest.session_id,
+                                        &messages,
+                                        &manifest.topic,
+                                    ) {
+                                        tracing::warn!("Failed to index session '{}': {e}", manifest.session_id);
+                                    } else {
+                                        total += messages.len();
+                                    }
+                                }
+                            }
+                        }
+                        IpcResponse::ok(req.request_id, json!({ "indexed_messages": total, "sessions_count": sessions.len() }))
+                    }
+                    Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                }
+            }
             "auth.list" => {
                 let providers = self.auth.list_providers();
                 IpcResponse::ok(req.request_id, json!({ "providers": providers }))
@@ -106,6 +145,13 @@ impl IpcHandler for LoomdIpcHandler {
                 IpcResponse::ok(req.request_id, json!({ "hooks": hooks }))
             }
             "version" => IpcResponse::ok(req.request_id, json!({ "version": self.version })),
+            "config.show" => {
+                let reader = loom_core::config::ConfigReader::new(&self.loom_dir);
+                match reader.load() {
+                    Ok(config) => IpcResponse::ok(req.request_id, json!(config)),
+                    Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                }
+            }
             "register_tool" => {
                 let name = req
                     .params

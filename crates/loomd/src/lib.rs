@@ -123,6 +123,41 @@ impl Loomd {
             ),
         }
 
+        // ── Warm cross-session memory store ──────────────────────────────
+        // Index existing sessions into the FTS5 memory store on startup
+        // so cross-session search is immediately available.
+        let memory_loom_dir = self.loom_dir.clone();
+        let sessions = self.sessions.clone();
+        tokio::spawn(async move {
+            match loom_sessions::memory::CrossSessionMemory::new(&memory_loom_dir) {
+                Ok(memory) => {
+                    let manifests = sessions.store().list();
+                    let mut total = 0usize;
+                    for manifest in &manifests {
+                        if let Ok(messages) = sessions.store().load_messages(&manifest.session_id) {
+                            if !messages.is_empty() {
+                                if let Err(e) = memory.index_session(
+                                    &manifest.session_id,
+                                    &messages,
+                                    &manifest.topic,
+                                ) {
+                                    tracing::warn!("Failed to index session '{}': {e}", manifest.session_id);
+                                } else {
+                                    total += messages.len();
+                                }
+                            }
+                        }
+                    }
+                    if total > 0 {
+                        tracing::info!("  ✅ Indexed {} messages from {} sessions into cross-session memory", total, manifests.len());
+                    } else {
+                        tracing::info!("  ✓ No sessions to index into cross-session memory");
+                    }
+                }
+                Err(e) => tracing::warn!("  ⚠️  Failed to open cross-session memory store: {e}"),
+            }
+        });
+
         let socket_path = Path::new(&self.loom_dir).join("loomd.sock");
         let socket_path_str = socket_path.to_str().unwrap().to_string();
 

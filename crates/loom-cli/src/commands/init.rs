@@ -46,6 +46,9 @@ pub async fn run(_import: bool, recommended: bool, loom_dir: &str) -> Result<()>
         println!("  config.toml already exists (not overwritten)");
     }
 
+    // 3b. Write example overlay files in config/ if they don't exist
+    write_overlay_templates(loom_dir)?;
+
     // 4. Migrate legacy session JSON files to JSONL layout
     let sessions = SessionManager::new(loom_dir);
     let migrated = sessions.migrate().unwrap_or(0);
@@ -116,6 +119,67 @@ fn install_example_hooks(loom_dir: &str) -> Result<()> {
     Ok(())
 }
 
+/// Write commented-out example overlay files into config/ for discoverability.
+fn write_overlay_templates(loom_dir: &str) -> Result<()> {
+    let config_dir = Path::new(loom_dir).join("config");
+    let overlays: Vec<(&str, &str)> = vec![
+        (
+            "routing.toml",
+            r#"# Loom Routing Overlay
+# Override routing strategy and complexity thresholds.
+# These values deep-merge on top of config.toml.
+#
+# strategy = "cost_optimized"   # Options: cost_optimized, performance, balanced
+# default_tier = "Mid"          # Default model tier: Slm, Mid, Flagship
+# default_provider = "anthropic"
+# default_model = "claude-sonnet-4-20250514"
+#
+# [complexity_thresholds]
+# low_max = 0.33    # Max score for Low complexity (default: 0.33)
+# high_min = 0.66   # Min score for High complexity (default: 0.66)
+"#,
+        ),
+        (
+            "mcp.toml",
+            r#"# Loom MCP Overlay
+# Override MCP global configuration settings.
+# These values deep-merge on top of config.toml.
+#
+# health_interval_ms = 300000   # Health check interval (default: 5 min)
+# max_connections = 50           # Max concurrent MCP connections
+"#,
+        ),
+        (
+            "hooks.toml",
+            r#"# Loom Hooks Overlay
+# Override hooks global configuration settings.
+# These values deep-merge on top of config.toml.
+#
+# timeout_ms = 30000            # Default hook execution timeout (default: 30s)
+# max_concurrent = 10            # Max concurrent hook executions
+"#,
+        ),
+        (
+            "acp.toml",
+            r#"# Loom ACP Registry Overlay
+# Configure the ACP (Agent Client Protocol) registry URL.
+#
+# registry_url = "https://cdn.agentclientprotocol.com"
+"#,
+        ),
+    ];
+
+    for (filename, content) in &overlays {
+        let path = config_dir.join(filename);
+        if !path.exists() {
+            std::fs::write(&path, content)
+                .with_context(|| format!("Failed to write {path:?}"))?;
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,6 +204,12 @@ mod tests {
         // Verify config.toml and VERSION
         assert!(dir.path().join("config.toml").exists());
         assert!(dir.path().join("VERSION").exists());
+
+        // Verify overlay template files
+        assert!(dir.path().join("config").join("routing.toml").exists());
+        assert!(dir.path().join("config").join("mcp.toml").exists());
+        assert!(dir.path().join("config").join("hooks.toml").exists());
+        assert!(dir.path().join("config").join("acp.toml").exists());
 
         // Verify SQLite snapshot exists
         assert!(dir.path().join(".cache").join("snapshot.db").exists());
