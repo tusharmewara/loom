@@ -80,12 +80,12 @@ jobs:
           echo "Building bottles for v$V ($CODENAME)..."
 
           # ARM bottle (from arm64 binaries)
-          tar -czf "loom-${V}--${CODENAME}--arm64.bottle.tar.gz" -C bottle-arm64 loom
-          echo "BOTTLE_ARM_SHA=$(shasum -a 256 "loom-${V}--${CODENAME}--arm64.bottle.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+          tar -czf "loom-${V}.arm64_${CODENAME}.bottle.tar.gz" -C bottle-arm64 loom
+          echo "BOTTLE_ARM_SHA=$(shasum -a 256 "loom-${V}.arm64_${CODENAME}.bottle.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_ENV"
 
           # Intel bottle (from x86_64 binaries)
-          tar -czf "loom-${V}--${CODENAME}--x86_64.bottle.tar.gz" -C bottle-x86 loom
-          echo "BOTTLE_INTEL_SHA=$(shasum -a 256 "loom-${V}--${CODENAME}--x86_64.bottle.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+          tar -czf "loom-${V}.${CODENAME}.bottle.tar.gz" -C bottle-x86 loom
+          echo "BOTTLE_INTEL_SHA=$(shasum -a 256 "loom-${V}.${CODENAME}.bottle.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_ENV"
 
           echo "Created:"
           ls -lh *.bottle.tar.gz
@@ -93,7 +93,7 @@ jobs:
       - name: Upload macOS bottles to loom release
         uses: softprops/action-gh-release@v3
         with:
-          files: loom-*--*.bottle.tar.gz
+          files: loom-*.bottle.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -125,15 +125,15 @@ jobs:
           VERSION: ${{ github.event.inputs.version || github.ref_name }}
         run: |
           V=$(echo "$VERSION" | sed 's/^v//')
-          tar -czf "loom-${V}--linux--x86_64.bottle.tar.gz" -C bottle-linux loom
-          echo "BOTTLE_LINUX_SHA=$(shasum -a 256 "loom-${V}--linux--x86_64.bottle.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+          tar -czf "loom-${V}.x86_64_linux.bottle.tar.gz" -C bottle-linux loom
+          echo "BOTTLE_LINUX_SHA=$(shasum -a 256 "loom-${V}.x86_64_linux.bottle.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_ENV"
           echo "Created:"
           ls -lh *.bottle.tar.gz
 
       - name: Upload Linux bottle to loom release
         uses: softprops/action-gh-release@v3
         with:
-          files: loom-*--*.bottle.tar.gz
+          files: loom-*.bottle.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -202,20 +202,16 @@ jobs:
           BOTTLE_ENTRIES=""
           for f in /tmp/bottles/loom-*.bottle.tar.gz; do
             BASENAME=$(basename "$f")
-            # Parse: loom-VERSION--OS--ARCH.bottle.tar.gz
-            PARTS=(${BASENAME//--/ })
-            OS_ARCH="${PARTS[1]}--${PARTS[2]%.bottle.tar.gz}"
+            # Parse: loom-VERSION.TAG.bottle.tar.gz
+            TAG="${BASENAME#loom-*.}"
+            TAG="${TAG%.bottle.tar.gz}"
             SHA=$(shasum -a 256 "$f" | cut -d' ' -f1)
-
-            case "$OS_ARCH" in
-              linux--x86_64)
+            case "$TAG" in
+              x86_64_linux)
                 BOTTLE_ENTRIES+="    sha256 cellar: :any_skip_relocation, x86_64_linux: \"$SHA\"\n"
                 ;;
-              arm64-*)
-                BOTTLE_ENTRIES+="    sha256 cellar: :any, ${OS_ARCH}: \"$SHA\"\n"
-                ;;
               *)
-                BOTTLE_ENTRIES+="    sha256 cellar: :any, ${OS_ARCH}: \"$SHA\"\n"
+                BOTTLE_ENTRIES+="    sha256 cellar: :any, ${TAG}: \"$SHA\"\n"
                 ;;
             esac
           done
