@@ -143,26 +143,16 @@ impl App {
     }
 
     pub async fn refresh(&mut self) -> Result<()> {
-        let status = self.adapter.fetch_status().await?;
-        let scan = self.adapter.fetch_scan().await?;
-        let doctor = self.adapter.fetch_doctor().await?;
-        let daemon = self.adapter.fetch_daemon_status().await?;
-        let mcp = self.adapter.fetch_mcp_list().await?;
-        let skills = self.adapter.fetch_skills_list().await?;
-        let sessions = self.adapter.fetch_sessions_list().await?;
-        let workflow = self.adapter.fetch_workflow_list().await?;
-        let hooks = self.adapter.fetch_hooks_list().await?;
-        let knowledge = self.adapter.fetch_knowledge_stats().await.unwrap_or_default();
-        self.status = status;
-        self.scan = scan;
-        self.doctor = doctor;
-        self.daemon = daemon;
-        self.mcp = mcp;
-        self.skills = skills;
-        self.sessions = sessions;
-        self.workflow = workflow;
-        self.hooks = hooks;
-        self.knowledge = knowledge;
+        self.status = self.adapter.fetch_status().await?;
+        self.scan = self.adapter.fetch_scan().await?;
+        self.doctor = self.adapter.fetch_doctor().await?;
+        self.daemon = self.adapter.fetch_daemon_status().await?;
+        self.mcp = self.adapter.fetch_mcp_list().await?;
+        self.skills = self.adapter.fetch_skills_list().await?;
+        self.sessions = self.adapter.fetch_sessions_list().await?;
+        self.workflow = self.adapter.fetch_workflow_list().await?;
+        self.hooks = self.adapter.fetch_hooks_list().await?;
+        self.knowledge = self.adapter.fetch_knowledge_stats().await.unwrap_or_default();
         self.last_error = None;
         self.last_refresh = Instant::now();
         Ok(())
