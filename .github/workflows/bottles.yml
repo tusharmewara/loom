@@ -38,23 +38,34 @@ jobs:
       # No special linker needed — macOS system clang cross-compiles x86_64
       # natively on ARM64 runners when using CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER
 
+      - name: Extract version
+        id: extract_version
+        run: |
+          VERSION_INPUT="${{ github.event.inputs.version || github.ref_name }}"
+          V=$(echo "$VERSION_INPUT" | sed 's/^v//')
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Using version: v$V"
+
       - name: Build ARM64 binaries (native)
+        env:
+          V: ${{ steps.extract_version.outputs.version }}
         run: |
           cargo build --release --bins -p loom -p loomd --target aarch64-apple-darwin
-          mkdir -p bottle-arm64/loom/bin
+          mkdir -p bottle-arm64/{loom/"$V"/bin}
           cp target/aarch64-apple-darwin/release/loom \
              target/aarch64-apple-darwin/release/loomd \
-             bottle-arm64/loom/bin/
+             bottle-arm64/loom/"$V"/bin/
 
       - name: Build x86_64 binaries (cross-compiled)
         env:
+          V: ${{ steps.extract_version.outputs.version }}
           CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER: /usr/bin/clang
         run: |
           cargo build --release --bins -p loom -p loomd --target x86_64-apple-darwin
-          mkdir -p bottle-x86/loom/bin
+          mkdir -p bottle-x86/{loom/"$V"/bin}
           cp target/x86_64-apple-darwin/release/loom \
              target/x86_64-apple-darwin/release/loomd \
-             bottle-x86/loom/bin/
+             bottle-x86/loom/"$V"/bin/
 
       - name: Detect macOS version codename
         id: os_version
@@ -114,11 +125,21 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq pkg-config libssl-dev
 
+      - name: Extract version
+        id: extract_version
+        run: |
+          VERSION_INPUT="${{ github.event.inputs.version || github.ref_name }}"
+          V=$(echo "$VERSION_INPUT" | sed 's/^v//')
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Using version: v$V"
+
       - name: Build Linux x86_64 binaries
+        env:
+          V: ${{ steps.extract_version.outputs.version }}
         run: |
           cargo build --release --bins -p loom -p loomd
-          mkdir -p bottle-linux/loom/bin
-          cp target/release/loom target/release/loomd bottle-linux/loom/bin/
+          mkdir -p bottle-linux/{loom/"$V"/bin}
+          cp target/release/loom target/release/loomd bottle-linux/loom/"$V"/bin/
 
       - name: Create Linux bottle
         env:
