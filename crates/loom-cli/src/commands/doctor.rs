@@ -339,9 +339,9 @@ fn service_status_check() -> (CheckStatus, String) {
     match Command::new("launchctl")
         .arg("print")
         .arg(&service_target)
-        .status()
+        .output()
     {
-        Ok(s) if s.success() => (
+        Ok(o) if o.status.success() => (
             CheckStatus::Pass,
             format!(
                 "launchd service installed and loaded ({})",

@@ -55,21 +55,12 @@ fn build_status_spans<'a>(app: &App, theme: &Theme) -> Vec<Span<'a>> {
         .and_then(Value::as_array)
         .map(|a| a.len())
         .unwrap_or(0);
-    let skill_count = app
-        .skills
-        .pointer("/count")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    let mcp_count = app
-        .mcp
-        .pointer("/count")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    let task_count = app
-        .workflow
-        .pointer("/count")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
+
+    // Use aggregated resource counts from status for consistency
+    let resource_counts = app.status.pointer("/resources/counts");
+    let skill_count = resource_counts.and_then(|c| c.pointer("/skills").and_then(Value::as_u64)).unwrap_or(0);
+    let mcp_count = resource_counts.and_then(|c| c.pointer("/mcp_servers").and_then(Value::as_u64)).unwrap_or(0);
+    let task_count = app.workflow.pointer("/count").and_then(Value::as_u64).unwrap_or(0);
 
     spans.push(Span::styled("Tools:", theme.text_dim));
     spans.push(Span::styled(format!("{} ", tool_count), theme.text));

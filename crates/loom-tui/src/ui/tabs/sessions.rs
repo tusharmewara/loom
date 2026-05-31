@@ -47,6 +47,8 @@ pub fn draw_sessions(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, 
                 let msgs = s.pointer("/message_count").and_then(Value::as_u64).unwrap_or(0);
                 let topic = s.pointer("/topic").and_then(Value::as_str).unwrap_or("");
                 let exported = s.pointer("/exported_at").and_then(Value::as_str).unwrap_or("");
+                let working_dir = s.pointer("/working_directory").and_then(Value::as_str).unwrap_or("");
+                let src_ver = s.pointer("/source_version").and_then(Value::as_str).unwrap_or("");
 
                 let prefix = if i == app.task_selection_index && app.tab_index == 5 {
                     "▸ "
@@ -68,11 +70,18 @@ pub fn draw_sessions(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, 
                     Span::styled(tool, theme.text),
                     Span::styled(" | Messages: ", theme.text_dim),
                     Span::styled(format!("{}", msgs), theme.text),
+                    Span::styled(format!(" | v{}", src_ver), theme.text_dim),
                 ]));
                 if !topic.is_empty() {
                     lines.push(Line::from(vec![
                         Span::styled("     Topic: ", theme.text_dim),
                         Span::styled(topic, theme.text_bright),
+                    ]));
+                }
+                if !working_dir.is_empty() {
+                    lines.push(Line::from(vec![
+                        Span::styled("     Dir: ", theme.text_dim),
+                        Span::styled(working_dir, theme.text_dim),
                     ]));
                 }
                 if !exported.is_empty() {

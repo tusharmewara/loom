@@ -143,16 +143,40 @@ impl App {
     }
 
     pub async fn refresh(&mut self) -> Result<()> {
-        self.status = self.adapter.fetch_status().await?;
-        self.scan = self.adapter.fetch_scan().await?;
-        self.doctor = self.adapter.fetch_doctor().await?;
-        self.daemon = self.adapter.fetch_daemon_status().await?;
-        self.mcp = self.adapter.fetch_mcp_list().await?;
-        self.skills = self.adapter.fetch_skills_list().await?;
-        self.sessions = self.adapter.fetch_sessions_list().await?;
-        self.workflow = self.adapter.fetch_workflow_list().await?;
-        self.hooks = self.adapter.fetch_hooks_list().await?;
-        self.knowledge = self.adapter.fetch_knowledge_stats().await.unwrap_or_default();
+        // Each fetch is independent — one failure must not skip remaining fields.
+        // Assign each value immediately so partial refresh still works.
+        if let Ok(v) = self.adapter.fetch_status().await {
+            self.status = v;
+        }
+        if let Ok(v) = self.adapter.fetch_scan().await {
+            self.scan = v;
+        }
+        if let Ok(v) = self.adapter.fetch_doctor().await {
+            self.doctor = v;
+        }
+        if let Ok(v) = self.adapter.fetch_daemon_status().await {
+            self.daemon = v;
+        }
+        if let Ok(v) = self.adapter.fetch_mcp_list().await {
+            self.mcp = v;
+        }
+        if let Ok(v) = self.adapter.fetch_skills_list().await {
+            self.skills = v;
+        }
+        if let Ok(v) = self.adapter.fetch_sessions_list().await {
+            self.sessions = v;
+        }
+        if let Ok(v) = self.adapter.fetch_workflow_list().await {
+            self.workflow = v;
+        }
+        if let Ok(v) = self.adapter.fetch_hooks_list().await {
+            self.hooks = v;
+        }
+        if let Ok(v) = self.adapter.fetch_knowledge_stats().await {
+            self.knowledge = v;
+        } else if self.knowledge.is_null() {
+            self.knowledge = Value::Object(Default::default());
+        }
         self.last_error = None;
         self.last_refresh = Instant::now();
         Ok(())

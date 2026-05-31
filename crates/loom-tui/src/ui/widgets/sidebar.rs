@@ -62,31 +62,14 @@ fn build_sidebar_lines<'a>(app: &App, theme: &Theme) -> Vec<Line<'a>> {
         .and_then(Value::as_array)
         .map(|a| a.len())
         .unwrap_or(0);
-    let skill_count = app
-        .skills
-        .pointer("/count")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    let mcp_count = app
-        .mcp
-        .pointer("/count")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    let session_count = app
-        .sessions
-        .pointer("/count")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    let hook_count = app
-        .hooks
-        .pointer("/count")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    let task_count = app
-        .workflow
-        .pointer("/count")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
+
+    // Use aggregated resource counts from status for consistency
+    let resource_counts = app.status.pointer("/resources/counts");
+    let skill_count = resource_counts.and_then(|c| c.pointer("/skills").and_then(Value::as_u64)).unwrap_or(0);
+    let mcp_count = resource_counts.and_then(|c| c.pointer("/mcp_servers").and_then(Value::as_u64)).unwrap_or(0);
+    let session_count = resource_counts.and_then(|c| c.pointer("/sessions").and_then(Value::as_u64)).unwrap_or(0);
+    let hook_count = app.hooks.pointer("/count").and_then(Value::as_u64).unwrap_or(0);
+    let task_count = app.workflow.pointer("/count").and_then(Value::as_u64).unwrap_or(0);
 
     lines.push(format_line("Tools", tool_count as u64, theme));
     lines.push(format_line("Skills", skill_count, theme));

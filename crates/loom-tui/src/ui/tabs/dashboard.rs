@@ -85,10 +85,16 @@ pub fn draw_dashboard(frame: &mut Frame, area: ratatui::layout::Rect, app: &App,
 
     lines.push(Line::from(Span::styled("", Style::default())));
 
+    // Use resource counts from status for consistent numbers across dashboard.
+    // The individual tab views (MCP, Skills) may show registered-only counts,
+    // but the dashboard aggregates all detected resources.
     let tool_count = app.scan.pointer("/system_audit/tool_hits").and_then(Value::as_array).map(|a| a.len()).unwrap_or(0);
-    let skill_count = app.skills.pointer("/count").and_then(Value::as_u64).unwrap_or(0);
-    let mcp_count = app.mcp.pointer("/count").and_then(Value::as_u64).unwrap_or(0);
-    let session_count = app.sessions.pointer("/count").and_then(Value::as_u64).unwrap_or(0);
+
+    let resource_counts = app.status.pointer("/resources/counts");
+    let skill_count = resource_counts.and_then(|c| c.pointer("/skills").and_then(Value::as_u64)).unwrap_or(0);
+    let mcp_count = resource_counts.and_then(|c| c.pointer("/mcp_servers").and_then(Value::as_u64)).unwrap_or(0);
+    let session_count = resource_counts.and_then(|c| c.pointer("/sessions").and_then(Value::as_u64)).unwrap_or(0);
+    // hooks, tasks don't appear in resource_counts — fall back to their own commands
     let hook_count = app.hooks.pointer("/count").and_then(Value::as_u64).unwrap_or(0);
     let task_count = app.workflow.pointer("/count").and_then(Value::as_u64).unwrap_or(0);
 
