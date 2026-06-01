@@ -423,6 +423,10 @@ async fn launch_agent_with_task_context(
     env_vars.insert("LOOM_TASK_ID".to_string(), task.task_id.clone());
     env_vars.insert("LOOM_TASK_PHASE".to_string(), format!("{:?}", task.phase));
     env_vars.insert("LOOM_TASK_TITLE".to_string(), task.title.clone());
+    env_vars.insert(
+        "LOOM_TASK_DESCRIPTION".to_string(),
+        task.description.clone(),
+    );
 
     // Inject routing decision from the task as env vars
     if let Some(rd) = &task.routing_decision {
@@ -508,10 +512,30 @@ async fn launch_agent_with_task_context(
     // Find the binary
     let binary_path = find_binary(agent)?;
 
+    // Build the prompt: if no explicit tool_args, use task title + description
+    // as the prompt passed to the agent.
+    let final_args: Vec<String> = if tool_args.is_empty() {
+        let mut prompt = if task.description.is_empty() {
+            task.title.clone()
+        } else {
+            format!("{} — {}", task.title, task.description)
+        };
+
+        // Truncate to a reasonable length (most agents have an arg limit)
+        const MAX_PROMPT_LEN: usize = 4096;
+        if prompt.len() > MAX_PROMPT_LEN {
+            prompt.truncate(MAX_PROMPT_LEN);
+            prompt.push_str("…");
+        }
+        vec![prompt]
+    } else {
+        tool_args.to_vec()
+    };
+
     if dry_run {
         println!("\n=== Dry Run: dispatch {} with {} ===", task.task_id, agent);
         println!("Binary: {}", binary_path.display());
-        println!("Args: {:?}", tool_args);
+        println!("Args: {:?}", final_args);
         println!("\nTask context:");
         println!("  phase={:?}  title={}", task.phase, task.title);
         if let Some(rd) = &task.routing_decision {
@@ -529,7 +553,7 @@ async fn launch_agent_with_task_context(
 
     // Spawn the agent tool
     let mut cmd = std::process::Command::new(&binary_path);
-    cmd.args(tool_args);
+    cmd.args(&final_args);
     cmd.envs(&env_vars);
     cmd.stdin(std::process::Stdio::inherit());
     cmd.stdout(std::process::Stdio::inherit());
