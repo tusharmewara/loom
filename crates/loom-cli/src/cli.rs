@@ -529,6 +529,13 @@ pub enum WorkflowAction {
         /// `.result.md` for a plain summary).
         #[arg(long)]
         auto_advance: bool,
+        /// Skip session capture for this dispatch. By default, every dispatch
+        /// (single or part of --auto-advance) is saved as a session in
+        /// `~/.loom/sessions/{task_id}.{phase}/` and indexed into cross-
+        /// session memory and the knowledge graph, so the next phase can
+        /// see what prior phases produced.
+        #[arg(long)]
+        no_capture_session: bool,
     },
     /// Configure per-phase sub-agents for a task
     SetSubAgents {

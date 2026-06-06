@@ -201,6 +201,7 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
             tool_args,
             dry_run,
             auto_advance,
+            no_capture_session,
         } => {
             // Link issue if provided
             if let Some(issue_ref) = link_issue {
@@ -282,16 +283,46 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
             let mut current_agent = resolved_agent.clone();
             let mut current_tool_args: &[String] = tool_args;
 
+            // Track sessions captured for prior phases of this task so we
+            // can pass them to the next phase as LOOM_PRIOR_SESSIONS.
+            let mut prior_sessions: Vec<String> = Vec::new();
+            if !*no_capture_session {
+                prior_sessions = prior_session_ids_for_task(loom_dir_str, task_id);
+                if !prior_sessions.is_empty() {
+                    println!(
+                        "📚 Found {} prior session(s) for task {}: {}",
+                        prior_sessions.len(),
+                        task_id,
+                        prior_sessions.join(", ")
+                    );
+                }
+            }
+
             // Auto-advance loop: dispatch → capture result → advance → re-dispatch
             // until the task is in Finish phase (or an agent exits non-zero,
             // or the user only requested a single dispatch).
             loop {
+                // Build the prompt that will actually be passed to the agent,
+                // so the session-capture step can include it in the user
+                // message. This mirrors the logic in
+                // `launch_agent_with_task_context` exactly.
+                let prompt_for_capture: String = if current_tool_args.is_empty() {
+                    if current_task.description.is_empty() {
+                        current_task.title.clone()
+                    } else {
+                        format!("{} — {}", current_task.title, current_task.description)
+                    }
+                } else {
+                    current_tool_args.join(" ")
+                };
+
                 launch_agent_with_task_context(
                     loom_dir_str,
                     &current_task,
                     &current_agent,
                     current_tool_args,
                     *dry_run,
+                    &prior_sessions,
                 )
                 .await?;
                 if *dry_run {
@@ -321,6 +352,29 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                         "ℹ  No phase result file found for phase '{}' (agent did not write one)",
                         phase_name
                     );
+                }
+
+                // Capture this dispatch as a session, unless the user opted
+                // out. This is what makes the dispatch loop *visible* to
+                // cross-session memory, the knowledge graph, and (via
+                // LOOM_PRIOR_SESSIONS) the next phase.
+                if !*no_capture_session {
+                    match capture_dispatch_session(
+                        loom_dir_str,
+                        &current_task,
+                        &current_agent,
+                        &phase_name,
+                        &prompt_for_capture,
+                        exit_code,
+                    ) {
+                        Ok(sid) => {
+                            println!("💾 Captured session {sid} for phase '{phase_name}'");
+                            prior_sessions.push(sid);
+                        }
+                        Err(e) => eprintln!(
+                            "⚠  Could not capture session for phase '{phase_name}': {e}"
+                        ),
+                    }
                 }
 
                 if !*auto_advance || mode != "sub-agents" {
@@ -496,6 +550,7 @@ async fn launch_agent_with_task_context(
     agent: &str,
     tool_args: &[String],
     dry_run: bool,
+    prior_sessions: &[String],
 ) -> anyhow::Result<i32> {
     let home = std::env::var("HOME").expect("HOME not set");
 
@@ -609,6 +664,29 @@ async fn launch_agent_with_task_context(
         );
     }
 
+    // Inject prior sessions captured for prior phases of this task. The
+    // env var is a comma-separated list of session IDs; the agent can
+    // `loom sessions show <id>` to see them. For agents that prefer a
+    // single file, we also write a small context file with the prior
+    // assistant message bodies (truncated) so they don't have to
+    // round-trip through the database.
+    if !prior_sessions.is_empty() {
+        env_vars.insert(
+            "LOOM_PRIOR_SESSIONS".to_string(),
+            prior_sessions.join(","),
+        );
+        if let Some(ctx_path) = build_prior_sessions_context(
+            loom_dir,
+            &task.task_id,
+            prior_sessions,
+        ) {
+            env_vars.insert(
+                "LOOM_PRIOR_SESSIONS_CONTEXT_PATH".to_string(),
+                ctx_path.display().to_string(),
+            );
+        }
+    }
+
     // Build the prompt: if no explicit tool_args, use task title + description
     // as the prompt passed to the agent.
     let final_args: Vec<String> = if tool_args.is_empty() {
@@ -650,14 +728,44 @@ async fn launch_agent_with_task_context(
 
     // Spawn the agent tool. We do NOT bail on non-zero exit here so the
     // --auto-advance loop can decide whether to stop or continue.
+    //
+    // We pipe stdout/stderr through tee-style threads: a copy goes to the
+    // terminal (so the user still sees agent output interactively) and a
+    // copy goes to a per-dispatch log file (so the session-capture step
+    // can index the agent's actual output into cross-session memory).
+    let stdout_log = capture_log_path(loom_dir, &task.task_id, phase_name, "stdout");
+    let stderr_log = capture_log_path(loom_dir, &task.task_id, phase_name, "stderr");
+
     let mut cmd = std::process::Command::new(&binary_path);
     cmd.args(&final_args);
     cmd.envs(&env_vars);
     cmd.stdin(std::process::Stdio::inherit());
-    cmd.stdout(std::process::Stdio::inherit());
-    cmd.stderr(std::process::Stdio::inherit());
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
 
-    let status = cmd.status()?;
+    let mut child = cmd.spawn()?;
+    let child_stdout = child.stdout.take();
+    let child_stderr = child.stderr.take();
+
+    // Spawn tee threads: each reads half of the pipe and writes to both the
+    // original terminal FD and the log file.
+    let stdout_thread = child_stdout.map(|pipe| {
+        let path = stdout_log.clone();
+        std::thread::spawn(move || tee_pipe(pipe, &path))
+    });
+    let stderr_thread = child_stderr.map(|pipe| {
+        let path = stderr_log.clone();
+        std::thread::spawn(move || tee_pipe(pipe, &path))
+    });
+
+    let status = child.wait()?;
+    if let Some(t) = stdout_thread {
+        let _ = t.join();
+    }
+    if let Some(t) = stderr_thread {
+        let _ = t.join();
+    }
+
     // Stash the exit code for `last_exit_code()` consumers (auto-advance loop,
     // PostPhase hooks). This is a process-local slot; safe because the
     // dispatch is synchronous within a single CLI invocation.
@@ -844,4 +952,350 @@ fn days_to_date(z: i64) -> (i64, u32, u32) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     (y, m as u32, d as u32)
+}
+
+// ─── Dispatch output capture (session tee) ───────────────────────────
+
+/// Canonical path of the per-dispatch log file. Used as both the tee
+/// destination and the source for `capture_dispatch_session` to build a
+/// `SessionManifest` from.
+///
+/// Layout: `~/.loom/workflow/tasks/{task_id}.{phase}.{stream}.log`
+fn capture_log_path(loom_dir: &str, task_id: &str, phase_name: &str, stream: &str) -> PathBuf {
+    PathBuf::from(loom_dir)
+        .join("workflow")
+        .join("tasks")
+        .join(format!("{task_id}.{phase_name}.{stream}.log"))
+}
+
+/// Read a child process's pipe in 8KB chunks, writing each chunk to both
+/// the originating terminal FD (1 for stdout, 2 for stderr) and a log file.
+/// Returns when the pipe closes (EOF). Best-effort: log-file write errors
+/// are swallowed so a transient disk hiccup never crashes the dispatch.
+fn tee_pipe<R: std::io::Read + Send + 'static>(
+    mut pipe: R,
+    log_path: &PathBuf,
+) -> std::io::Result<()> {
+    use std::io::Write;
+
+    // Determine which terminal FD to mirror to based on the log suffix.
+    // `.stdout.log` -> FD 1, `.stderr.log` -> FD 2. The caller is responsible
+    // for the suffix via `capture_log_path`; we parse it back here.
+    //
+    // We can't stash a `Box<dyn Write + Send>` (Stdout/Stderr locks aren't
+    // Send), so we route through a small `is_stderr` flag and acquire the
+    // lock on every write.
+    let is_stderr = log_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n.ends_with(".stderr.log"))
+        .unwrap_or(false);
+
+    if let Some(parent) = log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut log_file = match std::fs::File::create(log_path) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("⚠  Could not create log file {}: {e}", log_path.display());
+            // Still tee to the terminal even if the file is unwritable.
+            let mut buf = [0u8; 8192];
+            loop {
+                let n = pipe.read(&mut buf)?;
+                if n == 0 {
+                    return Ok(());
+                }
+                write_terminal(is_stderr, &buf[..n]);
+            }
+        }
+    };
+
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = match pipe.read(&mut buf) {
+            Ok(0) => return Ok(()),
+            Ok(n) => n,
+            Err(_) => return Ok(()),
+        };
+        let _ = log_file.write_all(&buf[..n]);
+        write_terminal(is_stderr, &buf[..n]);
+    }
+}
+
+/// Write `chunk` to stdout (or stderr if `is_stderr`). Best-effort: errors
+/// from the terminal FD are swallowed so a broken pipe to the user's
+/// terminal doesn't kill the tee.
+fn write_terminal(is_stderr: bool, chunk: &[u8]) {
+    use std::io::Write;
+    let mut lock: Box<dyn Write> = if is_stderr {
+        Box::new(std::io::stderr().lock())
+    } else {
+        Box::new(std::io::stdout().lock())
+    };
+    let _ = lock.write_all(chunk);
+}
+
+// ─── Dispatch → Session capture ──────────────────────────────────────
+
+/// Build a `SessionManifest` + message list from a completed dispatch and
+/// persist it under `~/.loom/sessions/{task_id}.{phase}/`. Then index the
+/// resulting session into cross-session memory and the knowledge graph so
+/// the next phase (or a future session) can see what the agent produced.
+///
+/// Returns the `session_id` (which doubles as the lookup key in
+/// `LOOM_PRIOR_SESSIONS` on subsequent dispatches).
+fn capture_dispatch_session(
+    loom_dir: &str,
+    task: &loom_core::Task,
+    agent: &str,
+    phase_name: &str,
+    prompt: &str,
+    exit_code: i32,
+) -> anyhow::Result<String> {
+    use loom_sessions::memory::CrossSessionMemory;
+    use loom_sessions::SessionManager;
+
+    let session_id = format!("{}.{}", task.task_id, phase_name);
+    let stdout_log = capture_log_path(loom_dir, &task.task_id, phase_name, "stdout");
+    let stderr_log = capture_log_path(loom_dir, &task.task_id, phase_name, "stderr");
+
+    // Read the captured agent output. The stdout log is the primary
+    // source; stderr is appended as a system note (or a separate Tool
+    // message) so debugging context isn't lost.
+    let stdout_text = read_log_tail(&stdout_log, 64 * 1024);
+    let stderr_text = read_log_tail(&stderr_log, 16 * 1024);
+
+    let now = rfc3339_now_local();
+    let provider_model = task
+        .routing_decision
+        .as_ref()
+        .map(|rd| format!("{}/{}", rd.recommended_provider, rd.recommended_model))
+        .unwrap_or_else(|| agent.to_string());
+
+    let mut messages = Vec::new();
+
+    // 1. System context: the task itself, plus the LOOM_TASK_* env vars
+    //    the agent saw.
+    let mut sys_content = format!(
+        "Workflow task dispatch\n  task_id: {}\n  task_title: {}\n  task_description: {}\n  phase: {}\n  agent: {}\n  exit_code: {}",
+        task.task_id, task.title, task.description, phase_name, agent, exit_code,
+    );
+    if let Some(rd) = &task.routing_decision {
+        sys_content.push_str(&format!(
+            "\n  routing: provider={} model={} tier={:?}",
+            rd.recommended_provider, rd.recommended_model, rd.recommended_tier,
+        ));
+    }
+    if let Some(last) = task.phase_results.last() {
+        sys_content.push_str(&format!(
+            "\n  prior_phase_result: phase={} agent={} summary_len={}",
+            last.phase, last.agent, last.summary.len(),
+        ));
+    }
+    messages.push(loom_core::Message {
+        id: uuid::Uuid::new_v4().to_string(),
+        role: loom_core::MessageRole::System,
+        content: sys_content,
+        tool_calls: None,
+        timestamp: now.clone(),
+        metadata: Default::default(),
+    });
+
+    // 2. User prompt: the prompt that was passed to the agent.
+    messages.push(loom_core::Message {
+        id: uuid::Uuid::new_v4().to_string(),
+        role: loom_core::MessageRole::User,
+        content: prompt.to_string(),
+        tool_calls: None,
+        timestamp: now.clone(),
+        metadata: Default::default(),
+    });
+
+    // 3. Assistant response: the captured agent stdout (possibly empty).
+    //    If there is also stderr with diagnostic content, fold it in as a
+    //    trailing note so the knowledge extractor sees it.
+    let mut assistant_content = if stdout_text.is_empty() {
+        "(agent produced no stdout)".to_string()
+    } else {
+        stdout_text
+    };
+    if !stderr_text.is_empty()
+        && !stderr_text.trim_start().starts_with("⚠")
+        && !stderr_text.contains("loomd (shadowed by")
+    {
+        // Only fold in stderr if it looks substantive (not our own warning
+        // banner from `find_binary` / `tee_pipe`).
+        assistant_content.push_str("\n\n--- stderr ---\n");
+        assistant_content.push_str(&stderr_text);
+    }
+    messages.push(loom_core::Message {
+        id: uuid::Uuid::new_v4().to_string(),
+        role: loom_core::MessageRole::Assistant,
+        content: assistant_content,
+        tool_calls: None,
+        timestamp: now.clone(),
+        metadata: {
+            let mut m = std::collections::HashMap::new();
+            m.insert("agent".into(), serde_json::Value::String(agent.to_string()));
+            m.insert("phase".into(), serde_json::Value::String(phase_name.to_string()));
+            m.insert("exit_code".into(), serde_json::Value::from(exit_code));
+            m
+        },
+    });
+
+    let manifest = loom_core::SessionManifest {
+        session_id: session_id.clone(),
+        source_tool: format!("loom-workflow/{}", agent),
+        source_version: env!("CARGO_PKG_VERSION").to_string(),
+        exported_at: now.clone(),
+        topic: task.title.clone(),
+        message_count: messages.len() as u32,
+        active_skills: vec![],
+        active_mcp_servers: vec![],
+        working_directory: std::env::current_dir()
+            .ok()
+            .and_then(|p| p.to_str().map(String::from))
+            .unwrap_or_default(),
+        model_provider: provider_model,
+        files_modified: vec![],
+        compatibility_note: Some(format!(
+            "Captured from workflow phase '{}' (agent={}, exit={})",
+            phase_name, agent, exit_code,
+        )),
+    };
+
+    // Persist via the existing SessionStore. This makes the session show
+    // up in `loom sessions list` / `loom sessions show` without any
+    // additional wiring.
+    let manager = SessionManager::new(loom_dir);
+    let store = manager.store();
+    store.save_manifest(&manifest)?;
+    store.replace_messages(&session_id, &messages)?;
+
+    // Index into cross-session memory and the knowledge graph. Failures
+    // here are non-fatal: a corrupt memory DB shouldn't break dispatch.
+    if let Ok(memory) = CrossSessionMemory::new(loom_dir) {
+        if let Err(e) = memory.index_session(&session_id, &messages, &task.title) {
+            eprintln!("⚠  Cross-session memory index failed: {e}");
+        }
+    }
+    if let Ok(kg) = loom_knowledge::KnowledgeGraph::new(loom_dir) {
+        match kg.extract_from_messages(&messages, &session_id) {
+            Ok((entities, rels)) if entities > 0 || rels > 0 => {
+                println!(
+                    "🧠 Extracted {} entities / {} relationships from phase '{}'",
+                    entities, rels, phase_name
+                );
+            }
+            Ok(_) => {}
+            Err(e) => eprintln!("⚠  Knowledge extraction failed: {e}"),
+        }
+    }
+
+    Ok(session_id)
+}
+
+/// Return up to `max_bytes` from the end of a log file as a UTF-8 string.
+/// Returns an empty string if the file doesn't exist or can't be read.
+fn read_log_tail(path: &std::path::Path, max_bytes: usize) -> String {
+    let Ok(raw) = std::fs::read(path) else {
+        return String::new();
+    };
+    let start = raw.len().saturating_sub(max_bytes);
+    String::from_utf8_lossy(&raw[start..]).to_string()
+}
+
+/// Find sessions previously captured for prior phases of the same task.
+/// Returns session_ids in the order they should be presented as context
+/// (oldest phase first, so the agent reads them as a chronological log).
+fn prior_session_ids_for_task(loom_dir: &str, task_id: &str) -> Vec<String> {
+    let manager = loom_sessions::SessionManager::new(loom_dir);
+    let store = manager.store();
+    let prefix = format!("{task_id}.");
+    let mut ids: Vec<String> = store
+        .list()
+        .into_iter()
+        .map(|m| m.session_id)
+        .filter(|id| id.starts_with(&prefix))
+        .collect();
+    // Stable, predictable order: chronological by phase, not alphabetical.
+    let order = |id: &str| -> u8 {
+        let phase = id.strip_prefix(&prefix).unwrap_or("");
+        match phase {
+            "Plan" => 0,
+            "Implement" => 1,
+            "Verify" => 2,
+            "Finish" => 3,
+            _ => 99,
+        }
+    };
+    ids.sort_by_key(|id| order(id));
+    ids
+}
+
+/// Write a JSON context file with the assistant message bodies of every
+/// session in `prior_sessions`, truncated to keep the dispatch prompt
+/// small. Returns the path on success, `None` on any failure (which the
+/// caller treats as "skip the env var, the agent will look up sessions
+/// via the comma-separated `LOOM_PRIOR_SESSIONS` list instead").
+fn build_prior_sessions_context(
+    loom_dir: &str,
+    task_id: &str,
+    prior_sessions: &[String],
+) -> Option<std::path::PathBuf> {
+    let manager = loom_sessions::SessionManager::new(loom_dir);
+    let store = manager.store();
+    let mut entries: Vec<serde_json::Value> = Vec::new();
+    for sid in prior_sessions {
+        let messages = match store.load_messages(sid) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        // Capture only the assistant (agent output) messages, truncated.
+        let mut bodies: Vec<serde_json::Value> = Vec::new();
+        for m in &messages {
+            if matches!(m.role, loom_core::MessageRole::Assistant) {
+                let truncated: String = m.content.chars().take(4096).collect();
+                let ellipsis = if m.content.chars().count() > 4096 {
+                    "…"
+                } else {
+                    ""
+                };
+                bodies.push(serde_json::json!({
+                    "phase": m.metadata.get("phase").cloned().unwrap_or(serde_json::Value::Null),
+                    "agent":  m.metadata.get("agent").cloned().unwrap_or(serde_json::Value::Null),
+                    "content": format!("{truncated}{ellipsis}"),
+                }));
+            }
+        }
+        entries.push(serde_json::json!({
+            "session_id": sid,
+            "messages": bodies,
+        }));
+    }
+
+    let ctx_dir = std::path::Path::new(loom_dir)
+        .join("workflow")
+        .join("tasks");
+    let ctx_path = ctx_dir.join(format!("{task_id}.prior_sessions.json"));
+    if let Err(e) = std::fs::create_dir_all(&ctx_dir) {
+        eprintln!("⚠  Could not create {}: {e}", ctx_dir.display());
+        return None;
+    }
+    let payload = serde_json::json!({
+        "task_id": task_id,
+        "prior_sessions": entries,
+    });
+    let payload = match serde_json::to_string_pretty(&payload) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("⚠  Could not serialize prior-sessions context: {e}");
+            return None;
+        }
+    };
+    if let Err(e) = std::fs::write(&ctx_path, payload) {
+        eprintln!("⚠  Could not write prior-sessions context: {e}");
+        return None;
+    }
+    Some(ctx_path)
 }
