@@ -1,0 +1,72 @@
+.TH LOOMD 1 "June 2026" "loom 0.3.4" "User Commands"
+.SH NAME
+loomd \- Loom background daemon
+.SH SYNOPSIS
+.B loomd
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B loomd
+is the background daemon that aggregates the Loom subsystem crates
+(skills, MCP, sessions, auth, hooks, workflow, routing, knowledge,
+telemetry, etc.) and exposes them over a Unix domain socket so the
+.BR loom (1)
+CLI and other clients can talk to a single long\-lived process instead
+of paying startup cost on every invocation.
+.PP
+The daemon reads its configuration from
+.BR ~/.loom/config.toml
+(plus any layer overlays under
+.BR ~/.loom/config/ ),
+stores per\-crate state in
+.BR ~/.loom/ ,
+and emits events on the cross\-process ZeroMQ socket
+.BR ~/.loom/.loom-events
+when built with the
+.B cross-process
+feature.
+.PP
+If the daemon receives no IPC traffic for
+.B DAEMON_DEFAULT_IDLE_TIMEOUT_MS
+(5 minutes by default), it shuts itself down.
+.SH OPTIONS
+The daemon currently takes no command line options; it reads its
+configuration from
+.BR ~/.loom/config.toml .
+.SH FILES
+.TP
+.B ~/.loom/config.toml
+Main configuration.
+.TP
+.B ~/.loom/config/
+Optional per\-subsystem configuration overlays
+(\fBrouting.toml\fR, \fBmcp.toml\fR, \fBhooks.toml\fR, \fBacp.toml\fR).
+.TP
+.B ~/.loom/loomd.sock
+The Unix domain socket the daemon listens on.
+.TP
+.B ~/.loom/.loom-events
+The ZeroMQ socket used to broadcast cross\-process events.
+.TP
+.BR ~/.loom/.cache/ " (or \fB$CACHE_DIR\fR)"
+Snapshot cache used to keep cold starts below the 50ms budget.
+.SH SIGNALS
+.TP
+.B SIGINT ", " SIGTERM
+Initiate graceful shutdown: stop accepting new connections, drain
+in\-flight requests, then exit.
+.SH EXIT STATUS
+.TP
+.B 0
+Clean shutdown after a
+.BR SIGINT / SIGTERM
+or after the idle timeout fires.
+.TP
+.B non\-zero
+Startup error (could not bind the socket, configuration could not be
+parsed, etc.).
+.SH SEE ALSO
+.BR loom (1)
+.PP
+Project home: <https://github.com/tusharmewara/loom>
+.SH AUTHORS
+Loom is developed by the Loom contributors.

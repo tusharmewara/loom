@@ -1,0 +1,195 @@
+.TH LOOM 1 "June 2026" "loom 0.3.4" "User Commands"
+.SH NAME
+loom \- unified agentic ecosystem for sharing skills, sessions, and MCP servers
+.SH SYNOPSIS
+.B loom
+[\fIOPTIONS\fR] \fICOMMAND\fR [\fIARGS\fR]...
+.SH DESCRIPTION
+.B loom
+is a single CLI front\-end for an ecosystem of agentic coding tools
+(claude\-code, jcode, crush, opencode, goose, and others).
+.PP
+It manages a shared directory at
+.BR ~/.loom/
+that contains discovered skills, MCP server configurations, session
+exports, authentication credentials, hooks, and a knowledge graph, so
+that the same context is available to every tool the developer
+launches.
+.PP
+A background daemon,
+.BR loomd (1),
+aggregates the per\-crate subsystems and exposes them over a Unix
+domain socket; the CLI connects to the daemon when one is running, or
+runs a small subset of operations standalone.
+.SH COMMANDS
+.SS Lifecycle
+.TP
+.B init
+Initialize the
+.B ~/.loom/
+ecosystem directory.  Accepts
+.B \-\-import
+to scan the local filesystem and
+.B \-\-recommended
+to install the recommended set of MCP servers.
+.TP
+.B scan
+Print a summary of the resources currently registered with the
+ecosystem.
+.TP
+.B status
+Show ecosystem and daemon health.
+.TP
+.B doctor
+Run deep diagnostics for the daemon, service installation, and
+persistence layer.
+.TP
+.B tui
+Launch the terminal UI dashboard (seven tabs, 1s auto refresh).
+.SS Tool and integration management
+.TP
+.B thread \fItool\fR
+Register or update an agentic tool.  Accepts
+.B \-\-apply\-routing \fIdecision\fR
+to immediately adopt a routing decision.
+.TP
+.B exec \fItools...\fR
+Execute one or more tools with the Loom ecosystem loaded.
+.TP
+.B init\-shell \fI[\-\-shell bash|zsh|fish]\fR
+Generate shell integration that activates Loom on
+.BR cd .
+.TP
+.B add\-acp\-agent \fIagent_id\fR
+Pull an agent entry from the public ACP registry and add it locally.
+.TP
+.B sync
+Sync Loom\-managed resources to tool\-native filesystem locations.
+.SS Subsystems
+.TP
+.B mcp
+Manage MCP servers (\fBlist\fR, \fBshow\fR, \fBadd\fR, \fBremove\fR,
+\fBinstall\fR, \fBlist\-known\fR).
+.TP
+.B skills
+Manage skills (\fBlist\fR, \fBshow\fR, \fBinstall\fR, \fBremove\fR).
+.TP
+.B sessions
+Manage session exports (\fBlist\fR, \fBshow\fR, \fBexport\fR,
+\fBimport\fR, \fBresume\fR).  Resumption can inject memory and
+knowledge entities.
+.TP
+.B auth
+Manage authentication providers and the encrypted credential vault.
+.TP
+.B hooks
+Manage event hooks (\fBlist\fR, \fBshow\fR, \fBregister\fR,
+\fBremove\fR, \fBrun\fR, \fBverify\fR).  Supported event types include
+\fBPreToolUse\fR, \fBPostToolUse\fR, \fBUserPromptSubmit\fR, and
+\fBPostPhase\fR (fired after a workflow phase completes).
+.TP
+.B workflow
+Manage workflow tasks (\fBlist\fR, \fBshow\fR, \fBcreate\fR,
+\fBadvance\fR, \fBassign\fR, \fBdispatch\fR).  The \fBdispatch\fR
+subcommand accepts
+.B \-\-auto\-advance
+which runs every phase of a task back to back, capturing each
+phase's result and passing it to the next phase as the
+.B LOOM_PRIOR_PHASE_RESULT
+environment variable.
+.TP
+.B routing
+Inspect and override the complexity\-scoring based model router
+(\fBshow\fR, \fBevaluate\fR, \fBscore\fR, \fBrecommend\fR,
+\fBoverride\fR, \fBcatalog\fR).
+.TP
+.B knowledge
+Build and query the SQLite knowledge graph (\fBbuild\fR,
+\fBquery\fR, \fBstats\fR, \fBadd\fR, \fBrelate\fR, \fBsearch\fR).
+.TP
+.B memory
+Manage the AgentMemory persistent memory server.
+.TP
+.B issues
+Manage the issue tracker integration (currently GitHub Issues).
+.TP
+.B lock
+Manage the skill lock file used to pin skill versions for
+reproducibility.
+.TP
+.B plugin
+Manage the plugin registry (\fBsearch\fR, \fBinstall\fR,
+\fBupdate\fR, \fBremove\fR).
+.SS Daemon
+.TP
+.B daemon \fIstart|stop|status|restart\fR
+Manage the background
+.BR loomd (1)
+process.
+.TP
+.B daemon install\-service
+Install
+.B loomd
+as a user\-level launchd service.
+.TP
+.B daemon uninstall\-service
+Remove the launchd service.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Print help information.
+.TP
+.BR \-V ", " \-\-version
+Print the Loom version.
+.SH ENVIRONMENT
+.TP
+.B LOOM_TASK_ID
+Set during hook script execution to the current workflow task id.
+.TP
+.B LOOM_PHASE
+Set during hook script execution to the current workflow phase.
+.TP
+.B LOOM_AGENT
+Set during hook script execution to the current agent identifier.
+.TP
+.B LOOM_EXIT_CODE
+Set during \fBPostPhase\fR hook execution to the agent's exit code.
+.TP
+.B LOOM_EXPECTED_RESULT_PATH
+Set during workflow dispatch to the path the agent should write its
+result file to.
+.TP
+.B LOOM_PRIOR_PHASE_RESULT
+Set during workflow dispatch to the JSON of the most recent phase
+result, when one exists.
+.TP
+.B LOOM_DIR
+Override the location of the Loom data directory (default
+.BR ~/.loom/ ).
+.SH FILES
+.TP
+.B ~/.loom/
+The shared ecosystem directory.
+.TP
+.B ~/.loom/loomd.sock
+The daemon's Unix domain IPC socket.
+.TP
+.B ~/.loom/workflow/tasks/
+Workflow task manifests and per\-phase result files.
+.TP
+.B ~/.loom/hooks/
+Hook configuration files and scripts.
+.TP
+.B ~/.loom/knowledge/graph.db
+The SQLite knowledge graph.
+.SH EXIT STATUS
+The CLI exits 0 on success and non\-zero on error.  When
+\fBdispatch\fR is invoked with \fB\-\-auto\-advance\fR, the first
+non\-zero agent exit code propagates as the CLI exit code and aborts
+the phase chain.
+.SH SEE ALSO
+.BR loomd (1)
+.PP
+Project home: <https://github.com/tusharmewara/loom>
+.SH AUTHORS
+Loom is developed by the Loom contributors.
