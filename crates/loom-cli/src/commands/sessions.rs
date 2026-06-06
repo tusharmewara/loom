@@ -161,6 +161,43 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                 }
             }
         }
+        SessionsAction::Recall { query, limit, json } => {
+            let memory = CrossSessionMemory::new(loom_dir.to_str().unwrap())?;
+            let results = memory.recall(query, *limit)?;
+
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                    "schema_version": 1,
+                    "command": "sessions.recall",
+                    "query": query,
+                    "count": results.len(),
+                    "results": results,
+                }))?);
+            } else {
+                if results.is_empty() {
+                    println!("No sessions recalled for query: {query}");
+                } else {
+                    println!("Recalled sessions for '{}':", query);
+                    for (i, r) in results.iter().enumerate() {
+                        let preview = r.top_match.replace('\n', " ");
+                        let topic = if r.topic.is_empty() {
+                            "(no topic)".to_string()
+                        } else {
+                            format!("topic=\"{}\"", r.topic)
+                        };
+                        println!(
+                            "  {}. [{}]  {} hits  {}  top[{:.3}]: {:.200}",
+                            i + 1,
+                            r.session_id,
+                            r.hit_count,
+                            topic,
+                            r.top_score,
+                            preview,
+                        );
+                    }
+                }
+            }
+        }
         SessionsAction::Index => {
             let memory = CrossSessionMemory::new(loom_dir.to_str().unwrap())?;
             let manifests = store.list();

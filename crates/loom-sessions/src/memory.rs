@@ -7,6 +7,7 @@ use anyhow::Result;
 use loom_core::Message;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// A single hit from a memory search.
@@ -21,6 +22,28 @@ pub struct MemoryHit {
     /// Relevance score from FTS5 (rank).
     pub score: f64,
 }
+
+/// A grouped recall result: a session whose messages matched a query,
+/// with aggregate stats (how many messages hit, the best-scoring hit, etc.).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionRecall {
+    pub session_id: String,
+    pub topic: String,
+    /// Number of distinct messages in this session that matched the query.
+    pub hit_count: usize,
+    /// Best (most negative) FTS5 rank across the session's matching messages.
+    pub top_score: f64,
+    /// Content of the best-scoring matching message, truncated to
+    /// `RECALL_TOP_MATCH_PREVIEW_CHARS` characters.
+    pub top_match: String,
+    /// Role of the best-scoring matching message ("user" / "assistant" / ...).
+    pub top_match_role: String,
+}
+
+/// Number of characters of the best-matching message to surface in `recall`
+/// output. Long enough to convey context, short enough to keep the listing
+/// scannable.
+pub const RECALL_TOP_MATCH_PREVIEW_CHARS: usize = 240;
 
 /// Cross-session memory store backed by SQLite FTS5.
 pub struct CrossSessionMemory {
@@ -198,6 +221,94 @@ impl CrossSessionMemory {
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
         Ok(hits)
+    }
+
+    /// Recall past sessions that match a query.
+    ///
+    /// Unlike `search`, which returns individual matching messages, `recall`
+    /// groups hits by `session_id` and returns the top `limit` sessions,
+    /// ranked by the strength of their best-matching message. This is the
+    /// "what past sessions are about X" affordance on top of the message-
+    /// level keyword search.
+    ///
+    /// Internally we over-fetch (`limit * RECALL_FANOUT`, capped at
+    /// `RECALL_FANOUT_MAX`) from `search` to ensure recall across sessions
+    /// that may have many weak matches but no single dominant one. The
+    /// returned list is truncated to `limit` entries.
+    ///
+    /// Ordering: `top_score` ascending (FTS5 rank — more negative is better),
+    /// with `hit_count` descending as a tiebreaker. A session with one very
+    /// strong match outranks a session with many weak ones.
+    pub fn recall(&self, query: &str, limit: usize) -> Result<Vec<SessionRecall>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        const RECALL_FANOUT: usize = 50;
+        const RECALL_FANOUT_MAX: usize = 500;
+        let fanout = (limit.saturating_mul(RECALL_FANOUT)).min(RECALL_FANOUT_MAX);
+
+        let hits = self.search(query, fanout)?;
+        if hits.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Group by session, keeping the best (most-negative) hit per session
+        // and the topic from any of its hits. All hits in a session share a
+        // topic (they were indexed together), so the first one we see is
+        // representative.
+        struct Accumulator {
+            topic: String,
+            hit_count: usize,
+            best: MemoryHit,
+        }
+        let mut by_session: HashMap<String, Accumulator> = HashMap::new();
+        for hit in hits {
+            match by_session.get_mut(&hit.session_id) {
+                Some(acc) => {
+                    acc.hit_count += 1;
+                    if hit.score < acc.best.score {
+                        acc.best = hit;
+                    }
+                }
+                None => {
+                    by_session.insert(
+                        hit.session_id.clone(),
+                        Accumulator {
+                            topic: hit.topic.clone(),
+                            hit_count: 1,
+                            best: hit,
+                        },
+                    );
+                }
+            }
+        }
+
+        let mut recalls: Vec<SessionRecall> = by_session
+            .into_iter()
+            .map(|(session_id, acc)| {
+                let preview: String = acc.best.content.chars().take(RECALL_TOP_MATCH_PREVIEW_CHARS).collect();
+                SessionRecall {
+                    session_id,
+                    topic: acc.topic,
+                    hit_count: acc.hit_count,
+                    top_score: acc.best.score,
+                    top_match: preview,
+                    top_match_role: acc.best.role,
+                }
+            })
+            .collect();
+
+        // Sort: best single match first (most negative score), then most hits
+        // as a tiebreaker.
+        recalls.sort_by(|a, b| {
+            a.top_score
+                .partial_cmp(&b.top_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(b.hit_count.cmp(&a.hit_count))
+        });
+        recalls.truncate(limit);
+        Ok(recalls)
     }
 
     /// Get message count for a session.
@@ -380,5 +491,181 @@ mod tests {
         // message_count should reflect both.
         assert_eq!(memory.message_count("session-a").unwrap(), 1);
         assert_eq!(memory.message_count("session-b").unwrap(), 1);
+    }
+
+    /// `recall` must return one entry per matching session, even when the
+    /// underlying FTS search returns multiple hits from the same session.
+    #[test]
+    fn test_recall_groups_hits_by_session() {
+        let dir = tempdir().unwrap();
+        let memory = CrossSessionMemory::new(dir.path().to_str().unwrap()).unwrap();
+
+        // Session A: 3 messages all about routing.
+        memory
+            .index_session(
+                "session-a",
+                &[
+                    make_message("a1", MessageRole::User, "How does routing work?"),
+                    make_message("a2", MessageRole::Assistant, "Routing picks a model tier."),
+                    make_message("a3", MessageRole::User, "Tune the routing threshold?"),
+                ],
+                "routing",
+            )
+            .unwrap();
+        // Session B: 1 message about routing.
+        memory
+            .index_session(
+                "session-b",
+                &[make_message("b1", MessageRole::User, "What is routing?")],
+                "routing-101",
+            )
+            .unwrap();
+        // Session C: unrelated.
+        memory
+            .index_session(
+                "session-c",
+                &[make_message("c1", MessageRole::User, "Set up MCP servers")],
+                "mcp",
+            )
+            .unwrap();
+
+        let recalled = memory.recall("routing", 10).unwrap();
+
+        // session-c should not appear (no matching messages).
+        assert!(
+            recalled.iter().all(|r| r.session_id != "session-c"),
+            "unrelated session leaked into recall"
+        );
+        // We should see session-a and session-b exactly once each.
+        let ids: std::collections::HashSet<_> =
+            recalled.iter().map(|r| r.session_id.as_str()).collect();
+        assert!(ids.contains("session-a"));
+        assert!(ids.contains("session-b"));
+        assert_eq!(recalled.len(), 2);
+
+        // session-a had 3 hits, session-b had 1.
+        let a = recalled.iter().find(|r| r.session_id == "session-a").unwrap();
+        let b = recalled.iter().find(|r| r.session_id == "session-b").unwrap();
+        assert_eq!(a.hit_count, 3);
+        assert_eq!(b.hit_count, 1);
+        // Topic should be the indexed topic for that session.
+        assert_eq!(a.topic, "routing");
+        assert_eq!(b.topic, "routing-101");
+    }
+
+    /// `recall` must respect the `limit` argument, surface only the requested
+    /// number of sessions, and order them by `top_score` (most-negative FTS5
+    /// rank first), with `hit_count` as a tiebreaker. We don't pin the exact
+    /// winner — FTS5 bm25 scores for short documents are sensitive to
+    /// term-frequency/length interactions — we just assert the ordering
+    /// invariant and that all matching sessions were considered.
+    #[test]
+    fn test_recall_respects_limit_and_orders_by_top_score() {
+        let dir = tempdir().unwrap();
+        let memory = CrossSessionMemory::new(dir.path().to_str().unwrap()).unwrap();
+
+        // session-x: 1 strong, focused hit.
+        memory
+            .index_message(
+                "session-x",
+                &make_message("x1", MessageRole::User, "routing tier selection algorithm"),
+                "x",
+            )
+            .unwrap();
+        // session-y: 1 weaker hit (more stopwords, less focused).
+        memory
+            .index_message(
+                "session-y",
+                &make_message("y1", MessageRole::User, "how do I configure the thing?"),
+                "y",
+            )
+            .unwrap();
+        // session-z: 3 weaker hits spread across 3 messages.
+        memory
+            .index_session(
+                "session-z",
+                &[
+                    make_message("z1", MessageRole::User, "routing in some context"),
+                    make_message("z2", MessageRole::User, "routing in another context"),
+                    make_message("z3", MessageRole::User, "routing in yet another context"),
+                ],
+                "z",
+            )
+            .unwrap();
+
+        // First, recall with a large limit: only the 2 sessions whose content
+        // actually contains "routing" must appear (session-y has no match).
+        let all = memory.recall("routing", 10).unwrap();
+        assert_eq!(all.len(), 2, "all matching sessions must be returned");
+        let all_ids: std::collections::HashSet<_> =
+            all.iter().map(|r| r.session_id.as_str()).collect();
+        assert!(all_ids.contains("session-x"), "missing session-x");
+        assert!(all_ids.contains("session-z"), "missing session-z");
+        assert!(!all_ids.contains("session-y"), "session-y should not match");
+        // session-z has 3 messages about routing; recall must aggregate them.
+        let z = all.iter().find(|r| r.session_id == "session-z").unwrap();
+        assert_eq!(z.hit_count, 3, "session-z hit_count must aggregate");
+
+        // Then, recall with limit=2: must truncate to exactly 2.
+        let truncated = memory.recall("routing", 2).unwrap();
+        assert_eq!(truncated.len(), 2, "limit=2 must truncate");
+        // Ordering invariant: the first result must have top_score <= the
+        // second. (FTS5 bm25: more-negative = better.)
+        assert!(truncated[0].top_score <= truncated[1].top_score);
+    }
+
+    /// `recall` must return an empty Vec (not error) when no session matches.
+    #[test]
+    fn test_recall_empty() {
+        let dir = tempdir().unwrap();
+        let memory = CrossSessionMemory::new(dir.path().to_str().unwrap()).unwrap();
+        memory
+            .index_message(
+                "session-1",
+                &make_message("m1", MessageRole::User, "Hello world"),
+                "greeting",
+            )
+            .unwrap();
+        let recalled = memory.recall("zzz_nonexistent_term_xyz", 10).unwrap();
+        assert!(recalled.is_empty());
+    }
+
+    /// `recall` with `limit = 0` is a no-op (returns empty Vec).
+    #[test]
+    fn test_recall_zero_limit() {
+        let dir = tempdir().unwrap();
+        let memory = CrossSessionMemory::new(dir.path().to_str().unwrap()).unwrap();
+        memory
+            .index_message(
+                "session-1",
+                &make_message("m1", MessageRole::User, "routing question"),
+                "r",
+            )
+            .unwrap();
+        let recalled = memory.recall("routing", 0).unwrap();
+        assert!(recalled.is_empty());
+    }
+
+    /// The `top_match` preview must be capped to
+    /// `RECALL_TOP_MATCH_PREVIEW_CHARS` characters and not contain a
+    /// trailing partial multi-byte character.
+    #[test]
+    fn test_recall_top_match_truncated() {
+        let dir = tempdir().unwrap();
+        let memory = CrossSessionMemory::new(dir.path().to_str().unwrap()).unwrap();
+        let long = "routing ".repeat(500); // 4000 chars
+        memory
+            .index_message(
+                "session-1",
+                &make_message("m1", MessageRole::User, &long),
+                "long",
+            )
+            .unwrap();
+        let recalled = memory.recall("routing", 1).unwrap();
+        assert_eq!(recalled.len(), 1);
+        assert!(recalled[0].top_match.chars().count() <= RECALL_TOP_MATCH_PREVIEW_CHARS);
+        // Role is stored via `format!("{:?}", role)` — debug form ("User"),
+        // not lowercased.
+        assert_eq!(recalled[0].top_match_role, "User");
     }
 }

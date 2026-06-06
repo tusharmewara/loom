@@ -365,6 +365,20 @@ pub enum SessionsAction {
         #[arg(long)]
         json: bool,
     },
+    /// Recall past sessions that match a query, grouped by session
+    /// (best-matching top, hit count + best match per session).
+    /// Use this when you want to find prior work relevant to a topic;
+    /// use `search` to find individual messages.
+    Recall {
+        /// Search query (FTS5 syntax supported)
+        query: String,
+        /// Maximum number of sessions to return
+        #[arg(long, default_value = "10")]
+        limit: usize,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Index all sessions into the cross-session memory store
     Index,
     /// Branch a session at a checkpoint, creating a forked copy

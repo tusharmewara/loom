@@ -1,4 +1,4 @@
-.TH LOOM 1 "June 2026" "loom 0.3.4" "User Commands"
+.TH LOOM 1 "June 2026" "loom 0.3.7" "User Commands"
 .SH NAME
 loom \- unified agentic ecosystem for sharing skills, sessions, and MCP servers
 .SH SYNOPSIS
@@ -76,8 +76,10 @@ Manage skills (\fBlist\fR, \fBshow\fR, \fBinstall\fR, \fBremove\fR).
 .TP
 .B sessions
 Manage session exports (\fBlist\fR, \fBshow\fR, \fBexport\fR,
-\fBimport\fR, \fBresume\fR).  Resumption can inject memory and
-knowledge entities.
+\fBimport\fR, \fBresume\fR, \fBsearch\fR, \fBrecall\fR, \fBindex\fR,
+\fBbranch\fR).  Resumption can inject memory and
+knowledge entities.  \fBrecall\fR groups matching messages by session,
+returning the top sessions (hit count + best match) for a query.
 .TP
 .B auth
 Manage authentication providers and the encrypted credential vault.
