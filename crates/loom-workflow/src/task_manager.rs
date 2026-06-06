@@ -128,6 +128,7 @@ impl TaskManager {
             last_agent: None,
             linked_issue: None,
             sub_agents: None,
+            phase_results: Vec::new(),
             created_at: now.clone(),
             updated_at: now,
             status: TaskStatus::Pending,
@@ -390,6 +391,27 @@ impl TaskManager {
             None => task.last_agent.clone(),
         };
         Ok(agent)
+    }
+
+    /// Append (or replace) a phase result on the task. If a result for the
+    /// same phase already exists it is replaced (re-runs overwrite).
+    pub fn set_phase_result(&self, task_id: &str, result: loom_core::PhaseResult) -> Result<Task> {
+        let mut task = self
+            .get(task_id)?
+            .with_context(|| format!("task '{task_id}' not found"))?;
+        task.phase_results.retain(|r| r.phase != result.phase);
+        task.phase_results.push(result);
+        task.updated_at = rfc3339_now();
+        self.write_task(&task)?;
+        Ok(task)
+    }
+
+    /// Get the most recent phase result (across all phases), if any.
+    pub fn latest_phase_result(&self, task_id: &str) -> Result<Option<loom_core::PhaseResult>> {
+        let task = self
+            .get(task_id)?
+            .with_context(|| format!("task '{task_id}' not found"))?;
+        Ok(task.phase_results.last().cloned())
     }
 }
 

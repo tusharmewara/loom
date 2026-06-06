@@ -65,4 +65,14 @@ impl TaskOrchestrator {
     pub fn resolve_agent(&self, task_id: &str) -> Result<Option<String>> {
         self.manager.resolve_agent(task_id)
     }
+
+    /// Append (or replace) a phase result on the task.
+    pub fn set_phase_result(&self, task_id: &str, result: loom_core::PhaseResult) -> Result<Task> {
+        self.manager.set_phase_result(task_id, result)
+    }
+
+    /// Get the most recent phase result, if any.
+    pub fn latest_phase_result(&self, task_id: &str) -> Result<Option<loom_core::PhaseResult>> {
+        self.manager.latest_phase_result(task_id)
+    }
 }

@@ -522,6 +522,13 @@ pub enum WorkflowAction {
         /// Dry run (print env vars without launching)
         #[arg(long)]
         dry_run: bool,
+        /// After agent exits, capture phase result and advance to next phase
+        /// (only with --mode sub-agents). Loops until phase is Finish or an
+        /// agent exits non-zero. Requires the agent to write a result file
+        /// at `~/.loom/workflow/tasks/{task_id}.{phase}.result.json` (or
+        /// `.result.md` for a plain summary).
+        #[arg(long)]
+        auto_advance: bool,
     },
     /// Configure per-phase sub-agents for a task
     SetSubAgents {

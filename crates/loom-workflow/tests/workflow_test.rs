@@ -1,4 +1,4 @@
-use loom_core::{SubAgentConfig, TaskPhase};
+use loom_core::{PhaseResult, SubAgentConfig, TaskPhase};
 use loom_workflow::WorkflowEngine;
 use tempfile::tempdir;
 
@@ -62,4 +62,75 @@ fn test_sub_agents_resolution() {
     orch.advance_phase(&task.task_id).unwrap();
     let resolved = orch.resolve_agent(&task.task_id).unwrap();
     assert_eq!(resolved, Some("finish-agent".to_string()));
+}
+
+#[test]
+fn test_phase_result_capture_and_replace() {
+    let dir = tempdir().unwrap();
+    let engine = WorkflowEngine::new(dir.path().to_str().unwrap());
+    let orch = engine.orchestrator();
+
+    let task = orch
+        .create_task("Phase result test", "Capture and replace per phase")
+        .unwrap();
+
+    // No results yet
+    assert!(orch.latest_phase_result(&task.task_id).unwrap().is_none());
+
+    // Append a Plan-phase result
+    let plan = PhaseResult {
+        phase: "Plan".into(),
+        agent: "opencode".into(),
+        summary: "Plan: use JWT + refresh tokens".into(),
+        artifacts: vec!["plan.md".into()],
+        completed_at: "2026-06-06T04:00:00Z".into(),
+    };
+    orch.set_phase_result(&task.task_id, plan.clone()).unwrap();
+
+    let latest = orch.latest_phase_result(&task.task_id).unwrap().unwrap();
+    assert_eq!(latest.phase, "Plan");
+    assert_eq!(latest.agent, "opencode");
+    assert_eq!(latest.summary, "Plan: use JWT + refresh tokens");
+
+    // Advance to Implement and append a different-phase result
+    orch.advance_phase(&task.task_id).unwrap();
+    let impl_result = PhaseResult {
+        phase: "Implement".into(),
+        agent: "goose".into(),
+        summary: "Implemented auth middleware".into(),
+        artifacts: vec![],
+        completed_at: "2026-06-06T04:05:00Z".into(),
+    };
+    orch.set_phase_result(&task.task_id, impl_result.clone()).unwrap();
+
+    let latest = orch.latest_phase_result(&task.task_id).unwrap().unwrap();
+    assert_eq!(latest.phase, "Implement");
+    assert_eq!(latest.agent, "goose");
+
+    // Re-running the Plan phase replaces the prior Plan result (doesn't add a second)
+    let plan_v2 = PhaseResult {
+        phase: "Plan".into(),
+        agent: "opencode".into(),
+        summary: "Plan: revised to use OAuth2 PKCE".into(),
+        artifacts: vec!["plan-v2.md".into()],
+        completed_at: "2026-06-06T04:10:00Z".into(),
+    };
+    orch.set_phase_result(&task.task_id, plan_v2).unwrap();
+
+    let reloaded = orch.get_task(&task.task_id).unwrap().unwrap();
+    assert_eq!(reloaded.phase_results.len(), 2, "duplicate Plan result should replace, not append");
+    let plan_in_store = reloaded
+        .phase_results
+        .iter()
+        .find(|r| r.phase == "Plan")
+        .unwrap();
+    assert_eq!(plan_in_store.summary, "Plan: revised to use OAuth2 PKCE");
+}
+
+#[test]
+fn test_task_phase_name_helper() {
+    assert_eq!(TaskPhase::Plan.name(), "Plan");
+    assert_eq!(TaskPhase::Implement.name(), "Implement");
+    assert_eq!(TaskPhase::Verify.name(), "Verify");
+    assert_eq!(TaskPhase::Finish.name(), "Finish");
 }

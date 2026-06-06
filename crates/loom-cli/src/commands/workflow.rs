@@ -200,6 +200,7 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
             mode,
             tool_args,
             dry_run,
+            auto_advance,
         } => {
             // Link issue if provided
             if let Some(issue_ref) = link_issue {
@@ -277,10 +278,91 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
             };
             println!("🚀 Dispatching '{resolved_agent}' for task {task_id}{phase_label}...");
 
-            launch_agent_with_task_context(loom_dir_str, &task, &resolved_agent, tool_args, *dry_run)
+            let mut current_task = task.clone();
+            let mut current_agent = resolved_agent.clone();
+            let mut current_tool_args: &[String] = tool_args;
+
+            // Auto-advance loop: dispatch → capture result → advance → re-dispatch
+            // until the task is in Finish phase (or an agent exits non-zero,
+            // or the user only requested a single dispatch).
+            loop {
+                launch_agent_with_task_context(
+                    loom_dir_str,
+                    &current_task,
+                    &current_agent,
+                    current_tool_args,
+                    *dry_run,
+                )
                 .await?;
-            if !dry_run {
-                orchestrator.set_last_agent(task_id, &resolved_agent)?;
+                if *dry_run {
+                    break;
+                }
+                orchestrator.set_last_agent(task_id, &current_agent)?;
+
+                let exit_code = last_exit_code();
+                let phase_name = current_task.phase.name().to_string();
+
+                // Fire PostPhase hooks (best-effort, never blocks the chain).
+                fire_post_phase_hooks(loom_dir_str, task_id, &phase_name, &current_agent, exit_code)
+                    .await;
+
+                // Capture any phase-result file the agent wrote.
+                if let Some(result) =
+                    capture_phase_result(loom_dir_str, task_id, &phase_name, &current_agent)?
+                {
+                    orchestrator.set_phase_result(task_id, result.clone())?;
+                    println!(
+                        "📝 Captured result for phase '{}' ({} bytes summary)",
+                        phase_name,
+                        result.summary.len()
+                    );
+                } else {
+                    println!(
+                        "ℹ  No phase result file found for phase '{}' (agent did not write one)",
+                        phase_name
+                    );
+                }
+
+                if !*auto_advance || mode != "sub-agents" {
+                    // Single-shot dispatch: preserve old fail-fast behavior.
+                    if exit_code != 0 {
+                        anyhow::bail!(
+                            "Agent tool '{current_agent}' exited with status code {exit_code}"
+                        );
+                    }
+                    break;
+                }
+
+                // Auto-advance: stop the chain if the agent failed, unless
+                // the agent still wrote a result (operator may want to keep
+                // going with a partial result). Default to stopping on
+                // non-zero exit.
+                if exit_code != 0 {
+                    eprintln!(
+                        "🛑 Agent '{current_agent}' exited with {exit_code}; stopping auto-advance chain"
+                    );
+                    break;
+                }
+
+                // Advance to the next phase. If we're already in Finish, stop.
+                use loom_core::TaskPhase;
+                if matches!(current_task.phase, TaskPhase::Finish) {
+                    println!("✅ Task {task_id} reached Finish phase — chain complete");
+                    break;
+                }
+                let advanced = orchestrator.advance_phase(task_id)?;
+                println!("➡️  Advanced task to phase {:?}", advanced.phase);
+
+                // Re-resolve the agent for the new phase (sub-agents mode).
+                let next_agent = orchestrator
+                    .resolve_agent(task_id)?
+                    .unwrap_or_else(|| current_agent.clone());
+                println!("🚀 Dispatching '{next_agent}' for task {task_id} (phase: {:?})...", advanced.phase);
+
+                current_task = advanced;
+                current_agent = next_agent;
+                // Subsequent phases get the default prompt (no extra args).
+                current_tool_args = &[];
             }
         }
         WorkflowAction::SetSubAgents {
@@ -414,7 +496,7 @@ async fn launch_agent_with_task_context(
     agent: &str,
     tool_args: &[String],
     dry_run: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<i32> {
     let home = std::env::var("HOME").expect("HOME not set");
 
     let mut env_vars: HashMap<String, String> = HashMap::new();
@@ -512,6 +594,21 @@ async fn launch_agent_with_task_context(
     // Find the binary
     let binary_path = find_binary(agent)?;
 
+    // Compute the canonical phase-result path so the agent knows where to
+    // write a result file (consumed by the next dispatch in --auto-advance).
+    let phase_name = task.phase.name();
+    let result_path = phase_result_path(loom_dir, &task.task_id, phase_name);
+    env_vars.insert("LOOM_EXPECTED_RESULT_PATH".to_string(), result_path.display().to_string());
+
+    // Inject the most recent phase result (if any) so the next phase's agent
+    // can see what the prior agent produced.
+    if let Some(last) = task.phase_results.last() {
+        env_vars.insert(
+            "LOOM_PRIOR_PHASE_RESULT".to_string(),
+            serde_json::to_string(last).unwrap_or_default(),
+        );
+    }
+
     // Build the prompt: if no explicit tool_args, use task title + description
     // as the prompt passed to the agent.
     let final_args: Vec<String> = if tool_args.is_empty() {
@@ -548,10 +645,11 @@ async fn launch_agent_with_task_context(
         for (key, value) in &env_vars {
             println!("  {key}={value}");
         }
-        return Ok(());
+        return Ok(0);
     }
 
-    // Spawn the agent tool
+    // Spawn the agent tool. We do NOT bail on non-zero exit here so the
+    // --auto-advance loop can decide whether to stop or continue.
     let mut cmd = std::process::Command::new(&binary_path);
     cmd.args(&final_args);
     cmd.envs(&env_vars);
@@ -560,10 +658,18 @@ async fn launch_agent_with_task_context(
     cmd.stderr(std::process::Stdio::inherit());
 
     let status = cmd.status()?;
+    // Stash the exit code for `last_exit_code()` consumers (auto-advance loop,
+    // PostPhase hooks). This is a process-local slot; safe because the
+    // dispatch is synchronous within a single CLI invocation.
+    LAST_EXIT_CODE.with(|cell| {
+        *cell.borrow_mut() = status.code().unwrap_or(-1);
+    });
     if !status.success() {
-        anyhow::bail!("Agent tool '{agent}' exited with status: {status}");
+        eprintln!(
+            "⚠  Agent tool '{agent}' exited with status: {status} (continuing per dispatch policy)"
+        );
     }
-    Ok(())
+    Ok(status.code().unwrap_or(-1))
 }
 
 fn find_binary(name: &str) -> anyhow::Result<std::path::PathBuf> {
@@ -591,4 +697,151 @@ fn find_binary(name: &str) -> anyhow::Result<std::path::PathBuf> {
         }
     }
     anyhow::bail!("Binary '{name}' not found in PATH")
+}
+
+// ─── Phase-result capture and PostPhase hooks ──────────────────────────
+
+use std::cell::RefCell;
+use std::path::PathBuf;
+
+thread_local! {
+    /// Exit code from the most recent agent dispatch. Read by the
+    /// auto-advance loop and PostPhase hooks.
+    static LAST_EXIT_CODE: RefCell<i32> = const { RefCell::new(0) };
+}
+
+fn last_exit_code() -> i32 {
+    LAST_EXIT_CODE.with(|cell| *cell.borrow())
+}
+
+/// Canonical path where the agent for a given phase should write its result.
+/// `~/.loom/workflow/tasks/{task_id}.{phase}.result.json` (or `.md`).
+fn phase_result_path(loom_dir: &str, task_id: &str, phase_name: &str) -> PathBuf {
+    PathBuf::from(loom_dir)
+        .join("workflow")
+        .join("tasks")
+        .join(format!("{task_id}.{phase_name}.result.json"))
+}
+
+/// Read the phase result file the agent wrote. Supports either a JSON
+/// `PhaseResult` (preferred) or a plain Markdown summary (wrapped into a
+/// `PhaseResult` with no artifacts). Returns `Ok(None)` if no file was found.
+fn capture_phase_result(
+    loom_dir: &str,
+    task_id: &str,
+    phase_name: &str,
+    agent: &str,
+) -> anyhow::Result<Option<loom_core::PhaseResult>> {
+    let json_path = phase_result_path(loom_dir, task_id, phase_name);
+    let md_path = json_path.with_extension("md");
+
+    // Preferred: a structured JSON PhaseResult.
+    if json_path.exists() {
+        let raw = std::fs::read_to_string(&json_path)?;
+        // Try strict PhaseResult first; fall back to a thin wrapper.
+        if let Ok(pr) = serde_json::from_str::<loom_core::PhaseResult>(&raw) {
+            return Ok(Some(pr));
+        }
+        // Fallback: treat the JSON as `{ "summary": "...", "artifacts": [...] }`.
+        #[derive(serde::Deserialize)]
+        struct Loose {
+            #[serde(default)]
+            summary: String,
+            #[serde(default)]
+            artifacts: Vec<String>,
+        }
+        if let Ok(loose) = serde_json::from_str::<Loose>(&raw) {
+            return Ok(Some(loom_core::PhaseResult {
+                phase: phase_name.to_string(),
+                agent: agent.to_string(),
+                summary: loose.summary,
+                artifacts: loose.artifacts,
+                completed_at: rfc3339_now_local(),
+            }));
+        }
+        // Last resort: use the raw JSON as the summary.
+        return Ok(Some(loom_core::PhaseResult {
+            phase: phase_name.to_string(),
+            agent: agent.to_string(),
+            summary: raw,
+            artifacts: vec![],
+            completed_at: rfc3339_now_local(),
+        }));
+    }
+
+    // Fallback: a plain markdown summary.
+    if md_path.exists() {
+        let summary = std::fs::read_to_string(&md_path)?;
+        return Ok(Some(loom_core::PhaseResult {
+            phase: phase_name.to_string(),
+            agent: agent.to_string(),
+            summary,
+            artifacts: vec![],
+            completed_at: rfc3339_now_local(),
+        }));
+    }
+
+    Ok(None)
+}
+
+/// Fire all `PostPhase` hooks. Errors are logged but never propagated —
+/// the chain should keep going even if a hook script fails.
+async fn fire_post_phase_hooks(
+    loom_dir: &str,
+    task_id: &str,
+    phase_name: &str,
+    agent: &str,
+    exit_code: i32,
+) {
+    let registry = loom_hooks::HookRegistry::new();
+    // Load any persisted hooks from ~/.loom/hooks/*.toml
+    let hooks_dir = std::path::Path::new(loom_dir).join("hooks");
+    if hooks_dir.exists() {
+        if let Err(e) = registry.load_from_dir(&hooks_dir).await {
+            eprintln!("⚠  Failed to load hooks from {}: {e}", hooks_dir.display());
+            return;
+        }
+    } else {
+        return;
+    }
+    match loom_hooks::run_post_phase_hooks(&registry, task_id, phase_name, agent, exit_code).await
+    {
+        Ok(n) if n > 0 => println!("🔗 Fired {n} PostPhase hook(s)"),
+        Ok(_) => {} // no hooks registered — silent
+        Err(e) => eprintln!("⚠  PostPhase hook error: {e}"),
+    }
+}
+
+fn rfc3339_now_local() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // Delegate to the same RFC3339 helper used by the workflow crate.
+    // We replicate it here to avoid a cross-crate dependency.
+    let days = secs / 86400;
+    let time_secs = secs % 86400;
+    let hours = time_secs / 3600;
+    let minutes = (time_secs % 3600) / 60;
+    let seconds = time_secs % 60;
+    let (year, month, day) = days_to_date(days as i64 + 719468);
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year, month, day, hours, minutes, seconds
+    )
+}
+
+fn days_to_date(z: i64) -> (i64, u32, u32) {
+    let z = z - 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m as u32, d as u32)
 }

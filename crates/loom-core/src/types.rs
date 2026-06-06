@@ -481,6 +481,9 @@ pub enum HookEventType {
     PreToolUse,
     PostToolUse,
     SessionStart,
+    /// Fired after a workflow phase completes (agent exit). Provides
+    /// `LOOM_TASK_ID`, `LOOM_TASK_PHASE`, `LOOM_AGENT`, `LOOM_EXIT_CODE`.
+    PostPhase,
 }
 
 impl std::fmt::Display for HookEventType {
@@ -489,6 +492,7 @@ impl std::fmt::Display for HookEventType {
             HookEventType::PreToolUse => write!(f, "PreToolUse"),
             HookEventType::PostToolUse => write!(f, "PostToolUse"),
             HookEventType::SessionStart => write!(f, "SessionStart"),
+            HookEventType::PostPhase => write!(f, "PostPhase"),
         }
     }
 }
@@ -528,9 +532,33 @@ pub struct Task {
     /// Per-phase sub-agent configuration for multi-agent dispatch.
     #[serde(default)]
     pub sub_agents: Option<SubAgentConfig>,
+    /// Results captured after each phase completes. Keyed by phase name
+    /// (e.g. "Plan", "Implement", "Verify", "Finish"). The most recent
+    /// completed phase's result is injected as `LOOM_PRIOR_PHASE_RESULT`
+    /// when the next phase is dispatched.
+    #[serde(default)]
+    pub phase_results: Vec<PhaseResult>,
     pub created_at: String,
     pub updated_at: String,
     pub status: TaskStatus,
+}
+
+/// Output captured from a dispatched agent after a phase completes.
+/// The agent writes `~/.loom/workflow/tasks/{task_id}.{phase}.result.json`
+/// (or its body) and loom parses/stores it here for the next phase.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PhaseResult {
+    /// Phase name (e.g. "Plan", "Implement").
+    pub phase: String,
+    /// Agent tool that produced the result (e.g. "opencode").
+    pub agent: String,
+    /// Human-readable summary written by the agent.
+    pub summary: String,
+    /// Files modified or produced by the agent during this phase.
+    #[serde(default)]
+    pub artifacts: Vec<String>,
+    /// RFC3339 timestamp when the result was captured.
+    pub completed_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -539,6 +567,20 @@ pub enum TaskPhase {
     Implement,
     Verify,
     Finish,
+}
+
+impl TaskPhase {
+    /// Canonical phase name used in `phase_history` and `PhaseResult.phase`.
+    /// Matches the existing `format!("{:?}", phase)` output for backward
+    /// compatibility with previously-written task JSON files.
+    pub fn name(&self) -> &'static str {
+        match self {
+            TaskPhase::Plan => "Plan",
+            TaskPhase::Implement => "Implement",
+            TaskPhase::Verify => "Verify",
+            TaskPhase::Finish => "Finish",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

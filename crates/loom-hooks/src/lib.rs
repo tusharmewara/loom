@@ -227,6 +227,23 @@ async fn execute_hook_script(script_path: &str, context: &HookContext) -> Result
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    // For PostPhase events, surface task/agent/exit info as flat env vars
+    // so simple shell scripts can read them without parsing JSON.
+    if context.event_type == "PostPhase" {
+        if let Some(tid) = context.payload.get("task_id").and_then(|v| v.as_str()) {
+            cmd.env("LOOM_TASK_ID", tid);
+        }
+        if let Some(p) = context.payload.get("phase").and_then(|v| v.as_str()) {
+            cmd.env("LOOM_PHASE", p);
+        }
+        if let Some(a) = context.payload.get("agent").and_then(|v| v.as_str()) {
+            cmd.env("LOOM_AGENT", a);
+        }
+        if let Some(c) = context.payload.get("exit_code").and_then(|v| v.as_i64()) {
+            cmd.env("LOOM_EXIT_CODE", c.to_string());
+        }
+    }
+
     let output = timeout(std::time::Duration::from_secs(30), cmd.output())
         .await
         .map_err(|_| anyhow::anyhow!("hook timed out"))??;
@@ -263,6 +280,30 @@ pub fn verify_hook(hook: &Hook, signature: &str) -> Result<bool> {
 fn verify_signature(hook: &Hook, signature: &str) -> Result<bool> {
     let expected = sign_hook(hook);
     Ok(expected == signature)
+}
+
+/// Fire all `PostPhase` hooks. Errors are logged to stderr but never
+/// propagated — the workflow chain should keep going even if a hook script
+/// fails. The agent process and the workflow loop are unaffected.
+pub async fn run_post_phase_hooks(
+    registry: &HookRegistry,
+    task_id: &str,
+    phase_name: &str,
+    agent: &str,
+    exit_code: i32,
+) -> Result<usize> {
+    let context = HookContext {
+        event_type: "PostPhase".to_string(),
+        payload: serde_json::json!({
+            "task_id": task_id,
+            "phase": phase_name,
+            "agent": agent,
+            "exit_code": exit_code,
+        }),
+        tool_name: Some(agent.to_string()),
+    };
+    let results = execute_hooks(registry, "PostPhase", &context).await?;
+    Ok(results.len())
 }
 
 /// Audit log for hook executions
