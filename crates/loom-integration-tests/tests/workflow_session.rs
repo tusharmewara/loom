@@ -114,6 +114,7 @@ fn build_session(
         model_provider: "openai/gpt-4".into(),
         files_modified: vec![],
         compatibility_note: Some(format!("Captured from {} phase", phase.name())),
+        tags: vec![],
     };
     (session_id, manifest, messages)
 }
@@ -458,6 +459,7 @@ fn test_five_captures_index_into_memory() -> Result<()> {
             model_provider: "test".into(),
             files_modified: vec![],
             compatibility_note: None,
+            tags: vec![],
         })?;
         store.replace_messages(&sid, &m)?;
         memory.index_session(&sid, &m, "test")?;

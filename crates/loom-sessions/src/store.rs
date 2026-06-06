@@ -122,6 +122,49 @@ impl SessionStore {
         Ok(())
     }
 
+    /// Replace the full tag set for a session. Returns the new tag set,
+    /// deduplicated and whitespace-trimmed (preserves original ordering
+    /// of first occurrence). Fails if the session does not exist.
+    pub fn set_tags(&self, session_id: &str, tags: &[String]) -> Result<Vec<String>> {
+        let mut manifest = self
+            .read_manifest(session_id)
+            .map_err(|_| anyhow::anyhow!("session '{session_id}' not found"))?;
+        manifest.tags = normalize_tags(tags);
+        self.save_manifest(&manifest)?;
+        Ok(manifest.tags)
+    }
+
+    /// Add one or more tags to a session, returning the new full set.
+    /// Existing tags are preserved; duplicates (after normalization) are
+    /// collapsed. No-op if `tags` is empty.
+    pub fn add_tags(&self, session_id: &str, tags: &[String]) -> Result<Vec<String>> {
+        let mut manifest = self
+            .read_manifest(session_id)
+            .map_err(|_| anyhow::anyhow!("session '{session_id}' not found"))?;
+        let merged = merge_tag_sets(&manifest.tags, tags);
+        manifest.tags = merged.clone();
+        self.save_manifest(&manifest)?;
+        Ok(merged)
+    }
+
+    /// Remove one or more tags from a session, returning the new full set.
+    /// Removal is case- and whitespace-sensitive (tags are matched
+    /// verbatim after the same normalization `add_tags` applies).
+    pub fn remove_tags(&self, session_id: &str, tags: &[String]) -> Result<Vec<String>> {
+        let mut manifest = self
+            .read_manifest(session_id)
+            .map_err(|_| anyhow::anyhow!("session '{session_id}' not found"))?;
+        let to_remove: std::collections::HashSet<String> = normalize_tags(tags).into_iter().collect();
+        manifest.tags = manifest
+            .tags
+            .iter()
+            .filter(|t| !to_remove.contains(*t))
+            .cloned()
+            .collect();
+        self.save_manifest(&manifest)?;
+        Ok(manifest.tags)
+    }
+
     /// Load all messages for a session from JSONL (falls back to empty).
     pub fn load_messages(&self, session_id: &str) -> Result<Vec<Message>> {
         let path = self.messages_path(session_id);
@@ -264,5 +307,82 @@ impl SessionStore {
             self.replace_messages(session_id, &messages)?;
         }
         Ok(removed)
+    }
+}
+
+/// Normalize a tag list: trim whitespace, drop empties, dedupe
+/// preserving first-occurrence order. Public so callers (CLI, IPC)
+/// can reuse the same rules the store applies internally. Tags are
+/// stored verbatim (no case folding) — the CLI does not enforce a
+/// case convention.
+pub fn normalize_tags(tags: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(tags.len());
+    for t in tags {
+        let trimmed = t.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if seen.insert(trimmed.to_string()) {
+            out.push(trimmed.to_string());
+        }
+    }
+    out
+}
+
+/// Merge two tag sets: existing tags first (in their original order),
+/// then new tags (normalized, deduped, skipping anything already in
+/// existing). Preserves the ordering of the existing set, which makes
+/// `add_tags` commutative-friendly for the most common case. Public
+/// so CLI / IPC callers can compute the post-add set without a
+/// round-trip through the store.
+pub fn merge_tag_sets(existing: &[String], additions: &[String]) -> Vec<String> {
+    let mut seen: std::collections::HashSet<String> = existing.iter().cloned().collect();
+    let mut out: Vec<String> = existing.to_vec();
+    for t in normalize_tags(additions) {
+        if seen.insert(t.clone()) {
+            out.push(t);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_tags_trims_and_dedupes() {
+        let input = vec!["foo".into(), "  bar  ".into(), "foo".into(), "".into(), "  ".into()];
+        let out = normalize_tags(&input);
+        assert_eq!(out, vec!["foo".to_string(), "bar".to_string()]);
+    }
+
+    #[test]
+    fn test_normalize_tags_preserves_order() {
+        let input = vec!["z".into(), "a".into(), "m".into()];
+        assert_eq!(
+            normalize_tags(&input),
+            vec!["z".to_string(), "a".to_string(), "m".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_merge_tag_sets_appends_new() {
+        let existing = vec!["a".into(), "b".into()];
+        let additions = vec!["c".into(), "d".into()];
+        let merged = merge_tag_sets(&existing, &additions);
+        assert_eq!(
+            merged,
+            vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_merge_tag_sets_dedupes_overlap() {
+        let existing = vec!["a".into(), "b".into()];
+        let additions = vec!["b".into(), "c".into(), "  a  ".into()];
+        let merged = merge_tag_sets(&existing, &additions);
+        assert_eq!(merged, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
     }
 }

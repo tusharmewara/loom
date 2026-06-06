@@ -93,6 +93,16 @@ impl CrossSessionMemory {
                 content_rowid=id,
                 tokenize='porter unicode61'
             );
+
+            CREATE TABLE IF NOT EXISTS session_tags (
+                session_id TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (session_id, tag)
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_tags_tag
+                ON session_tags(tag);
+            CREATE INDEX IF NOT EXISTS idx_session_tags_session
+                ON session_tags(session_id);
             ",
         )?;
         Ok(())
@@ -157,24 +167,164 @@ impl CrossSessionMemory {
         messages: &[Message],
         topic: &str,
     ) -> Result<()> {
-        // Remove existing entries for this session
+        self.index_session_with_tags(session_id, messages, topic, &[])
+    }
+
+    /// Index multiple messages plus a tag set for a session. Existing
+    /// messages for the session are dropped before the new index, but
+    /// `session_tags` rows are NOT touched (tags are orthogonal to message
+    /// content). Use `set_session_tags` to mutate tags separately.
+    pub fn index_session_with_tags(
+        &self,
+        session_id: &str,
+        messages: &[Message],
+        topic: &str,
+        tags: &[String],
+    ) -> Result<()> {
         let conn = self.conn()?;
         conn.execute(
             "DELETE FROM session_messages WHERE session_id = ?1",
             params![session_id],
         )?;
-
         for msg in messages {
             self.index_message(session_id, msg, topic)?;
+        }
+        // Replace the tag set atomically with the new tags (additive
+        // semantics: existing tags NOT touched only when this method is
+        // called once at index time. For post-hoc edits use the
+        // add/remove helpers below.)
+        if !tags.is_empty() {
+            self.set_session_tags(session_id, tags)?;
         }
         Ok(())
     }
 
+    /// Replace the full tag set for a session. Tags are normalized the
+    /// same way the store does it (trim whitespace, drop empties, dedupe,
+    /// preserve first-occurrence order).
+    pub fn set_session_tags(&self, session_id: &str, tags: &[String]) -> Result<()> {
+        let conn = self.conn()?;
+        let normalized = normalize_tag_input(tags);
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "DELETE FROM session_tags WHERE session_id = ?1",
+            params![session_id],
+        )?;
+        for t in &normalized {
+            tx.execute(
+                "INSERT OR IGNORE INTO session_tags (session_id, tag) VALUES (?1, ?2)",
+                params![session_id, t],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Add a single tag to a session. No-op if the tag is already present.
+    /// Returns `true` if the tag was newly inserted.
+    pub fn add_session_tag(&self, session_id: &str, tag: &str) -> Result<bool> {
+        let trimmed = tag.trim();
+        if trimmed.is_empty() {
+            return Ok(false);
+        }
+        let conn = self.conn()?;
+        let rows = conn.execute(
+            "INSERT OR IGNORE INTO session_tags (session_id, tag) VALUES (?1, ?2)",
+            params![session_id, trimmed],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// Remove a single tag from a session. Returns `true` if a row was
+    /// deleted.
+    pub fn remove_session_tag(&self, session_id: &str, tag: &str) -> Result<bool> {
+        let conn = self.conn()?;
+        let rows = conn.execute(
+            "DELETE FROM session_tags WHERE session_id = ?1 AND tag = ?2",
+            params![session_id, tag.trim()],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// List the tags currently attached to a session, in the order they
+    /// were first inserted. Returns an empty Vec if the session has no
+    /// tags (or doesn't exist — tag lookups don't distinguish).
+    pub fn session_tags(&self, session_id: &str) -> Result<Vec<String>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare("SELECT tag FROM session_tags WHERE session_id = ?1 ORDER BY rowid")?;
+        let tags = stmt
+            .query_map(params![session_id], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(tags)
+    }
+
+    /// Return all distinct tags across all indexed sessions, with the
+    /// number of sessions that have each tag. Useful for `loom sessions
+    /// tags` (a future "list all tags" affordance).
+    pub fn tag_facets(&self) -> Result<Vec<(String, usize)>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT tag, COUNT(DISTINCT session_id) AS n
+             FROM session_tags
+             GROUP BY tag
+             ORDER BY n DESC, tag ASC",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Return the set of session_ids whose tag set intersects `tag_filter`.
+    /// `Some(&[])` returns an empty Vec (filter that matches nothing).
+    /// `None` returns `None` (no filter — caller should not apply one).
+    pub fn session_ids_with_tags(
+        &self,
+        tag_filter: Option<&[String]>,
+    ) -> Result<Option<Vec<String>>> {
+        match tag_filter {
+            None => Ok(None),
+            Some(filter) => {
+                if filter.is_empty() {
+                    return Ok(Some(Vec::new()));
+                }
+                let conn = self.conn()?;
+                // Use a parameter per filter tag. Bound the list size to
+                // a reasonable constant — a typical CLI invocation has
+                // 1–3 tags; this is a safety net, not a normal path.
+                const MAX_TAGS: usize = 64;
+                if filter.len() > MAX_TAGS {
+                    anyhow::bail!("tag filter has {} entries (max {})", filter.len(), MAX_TAGS);
+                }
+                let placeholders: Vec<&str> = (0..filter.len()).map(|_| "?").collect();
+                let sql = format!(
+                    "SELECT DISTINCT session_id FROM session_tags WHERE tag IN ({})",
+                    placeholders.join(",")
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let params: Vec<&dyn rusqlite::ToSql> =
+                    filter.iter().map(|t| t as &dyn rusqlite::ToSql).collect();
+                let ids = stmt
+                    .query_map(params.as_slice(), |row| row.get::<_, String>(0))?
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                Ok(Some(ids))
+            }
+        }
+    }
+
     /// Remove all messages for a session from the memory store.
+    /// Also drops any tag rows for the session, since the session is
+    /// leaving the index entirely.
     pub fn remove_session(&self, session_id: &str) -> Result<()> {
         let conn = self.conn()?;
         conn.execute(
             "DELETE FROM session_messages WHERE session_id = ?1",
+            params![session_id],
+        )?;
+        conn.execute(
+            "DELETE FROM session_tags WHERE session_id = ?1",
             params![session_id],
         )?;
         // FTS will be cleaned up via the content sync on next rebuild,
@@ -186,10 +336,48 @@ impl CrossSessionMemory {
     /// Search across all indexed session messages using FTS5.
     /// Returns up to `limit` results, ordered by relevance.
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<MemoryHit>> {
+        self.search_with_tags(query, limit, None)
+    }
+
+    /// Search with an optional tag filter. When `tag_filter` is `Some`,
+    /// only messages from sessions whose tag set intersects the filter
+    /// are returned. `Some(&[])` matches nothing (a "filter that
+    /// excludes everything" — useful for `loom sessions search <q>
+    /// --tag ''` shell-script gotchas).
+    pub fn search_with_tags(
+        &self,
+        query: &str,
+        limit: usize,
+        tag_filter: Option<&[String]>,
+    ) -> Result<Vec<MemoryHit>> {
         let conn = self.conn()?;
 
-        // Use FTS5 to search, joining back to the main table for metadata
-        let sql = "
+        // If a tag filter is set, resolve it to a session-id whitelist
+        // first and embed it as a subquery in the FTS join.
+        let allowed_ids = self.session_ids_with_tags(tag_filter)?;
+        if matches!(allowed_ids, Some(ref v) if v.is_empty()) {
+            return Ok(Vec::new());
+        }
+
+        let sql = if allowed_ids.is_some() {
+            "
+            SELECT
+                sm.session_id,
+                sm.message_id,
+                sm.role,
+                sm.content,
+                sm.timestamp,
+                sm.topic,
+                fts.rank AS score
+            FROM message_fts fts
+            JOIN session_messages sm ON fts.rowid = sm.id
+            WHERE message_fts MATCH ?1
+              AND sm.session_id IN (SELECT value FROM json_each(?2))
+            ORDER BY rank
+            LIMIT ?3
+            "
+        } else {
+            "
             SELECT
                 sm.session_id,
                 sm.message_id,
@@ -203,11 +391,13 @@ impl CrossSessionMemory {
             WHERE message_fts MATCH ?1
             ORDER BY rank
             LIMIT ?2
-        ";
+            "
+        };
 
         let mut stmt = conn.prepare(sql)?;
-        let hits = stmt
-            .query_map(params![query, limit as i64], |row| {
+        let hits: Vec<MemoryHit> = if let Some(ref ids) = allowed_ids {
+            let ids_json = serde_json::to_string(ids)?;
+            stmt.query_map(params![query, ids_json, limit as i64], |row| {
                 Ok(MemoryHit {
                     session_id: row.get(0)?,
                     message_id: row.get(1)?,
@@ -218,8 +408,21 @@ impl CrossSessionMemory {
                     score: row.get(6)?,
                 })
             })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-
+            .collect::<std::result::Result<Vec<_>, _>>()?
+        } else {
+            stmt.query_map(params![query, limit as i64], |row| {
+                Ok(MemoryHit {
+                    session_id: row.get(0)?,
+                    message_id: row.get(1)?,
+                    role: row.get(2)?,
+                    content: row.get(3)?,
+                    timestamp: row.get(4)?,
+                    topic: row.get(5)?,
+                    score: row.get(6)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+        };
         Ok(hits)
     }
 
@@ -240,6 +443,18 @@ impl CrossSessionMemory {
     /// with `hit_count` descending as a tiebreaker. A session with one very
     /// strong match outranks a session with many weak ones.
     pub fn recall(&self, query: &str, limit: usize) -> Result<Vec<SessionRecall>> {
+        self.recall_with_tags(query, limit, None)
+    }
+
+    /// Recall with an optional tag filter. Same semantics as `recall`,
+    /// but only considers sessions whose tag set intersects the filter.
+    /// `Some(&[])` returns an empty Vec (filter that matches nothing).
+    pub fn recall_with_tags(
+        &self,
+        query: &str,
+        limit: usize,
+        tag_filter: Option<&[String]>,
+    ) -> Result<Vec<SessionRecall>> {
         if limit == 0 {
             return Ok(Vec::new());
         }
@@ -248,7 +463,7 @@ impl CrossSessionMemory {
         const RECALL_FANOUT_MAX: usize = 500;
         let fanout = (limit.saturating_mul(RECALL_FANOUT)).min(RECALL_FANOUT_MAX);
 
-        let hits = self.search(query, fanout)?;
+        let hits = self.search_with_tags(query, fanout, tag_filter)?;
         if hits.is_empty() {
             return Ok(Vec::new());
         }
@@ -331,6 +546,25 @@ impl CrossSessionMemory {
             })?;
         Ok(count)
     }
+}
+
+/// Normalize a tag input slice: trim whitespace, drop empties, dedupe
+/// (preserving first-occurrence ordering). Used by `set_session_tags`
+/// and `index_session_with_tags` to canonicalize the tag set before
+/// storage. Mirrors the helper in the store crate.
+fn normalize_tag_input(tags: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(tags.len());
+    for t in tags {
+        let trimmed = t.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if seen.insert(trimmed.to_string()) {
+            out.push(trimmed.to_string());
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -667,5 +901,196 @@ mod tests {
         // Role is stored via `format!("{:?}", role)` — debug form ("User"),
         // not lowercased.
         assert_eq!(recalled[0].top_match_role, "User");
+    }
+
+    // ---- Tag operations ----
+
+    #[test]
+    fn test_set_session_tags_replaces() {
+        let dir = tempdir().unwrap();
+        let memory = CrossSessionMemory::new(dir.path().to_str().unwrap()).unwrap();
+        memory
+            .set_session_tags("s1", &["alpha".into(), "beta".into()])
+            .unwrap();
+        assert_eq!(
+            memory.session_tags("s1").unwrap(),
+            vec!["alpha".to_string(), "beta".to_string()]
+        );
+        // Replace with a new set — old tags must be gone.
+        memory
+            .set_session_tags("s1", &["gamma".into()])
+            .unwrap();
+        assert_eq!(memory.session_tags("s1").unwrap(), vec!["gamma".to_string()]);
+    }
+
+    #[test]
+    fn test_set_session_tags_normalizes() {
+        let dir = tempdir().unwrap();
+        let memory = CrossSessionMemory::new(dir.path().to_str().unwrap()).unwrap();
+        memory
+            .set_session_tags(
+                "s1",
+                &[
+                    "  alpha  ".into(),
+                    "alpha".into(), // dup, case-sensitive
+                    "".into(),
+                    "beta".into(),
+                ],
+            )
+            .unwrap();
+        let tags = memory.session_tags("s1").unwrap();
+        // Trimmed, deduped, order preserved; empty dropped.
+        assert_eq!(tags, vec!["alpha".to_string(), "beta".to_string()]);
+    }
+
+    #[test]
+    fn test_add_remove_session_tag() {
+        let dir = tempdir().unwrap();
+        let memory = CrossSessionMemory::new(dir.path().to_str().unwrap()).unwrap();
+        // First add: returns true.
+        assert!(memory.add_session_tag("s1", "foo").unwrap());
+        // Second add of same tag: returns false (already present).
+        assert!(!memory.add_session_tag("s1", "foo").unwrap());
+        // Add a second tag, remove the first.
+        memory.add_session_tag("s1", "bar").unwrap();
+        assert!(memory.remove_session_tag("s1", "foo").unwrap());
+        // Removing a non-existent tag returns false but is not an error.
+        assert!(!memory.remove_session_tag("s1", "foo").unwrap());
+        assert_eq!(memory.session_tags("s1").unwrap(), vec!["bar".to_string()]);
+        // Empty/whitespace tags are silently dropped by add.
+        assert!(!memory.add_session_tag("s1", "   ").unwrap());
+        assert_eq!(memory.session_tags("s1").unwrap(), vec!["bar".to_string()]);
+    }
+
+    #[test]
+    fn test_remove_session_drops_tags() {
+        let dir = tempdir().unwrap();
+        let memory = CrossSessionMemory::new(dir.path().to_str().unwrap()).unwrap();
+        memory
+            .index_session_with_tags(
+                "s1",
+                &[make_message("m1", MessageRole::User, "hello world")],
+                "topic",
+                &["alpha".into(), "beta".into()],
+            )
+            .unwrap();
+        assert_eq!(memory.session_tags("s1").unwrap().len(), 2);
+        memory.remove_session("s1").unwrap();
+        assert!(memory.session_tags("s1").unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_search_with_tag_filter() {
+        let dir = tempdir().unwrap();
+        let memory = CrossSessionMemory::new(dir.path().to_str().unwrap()).unwrap();
+        memory
+            .index_session_with_tags(
+                "rust-sess",
+                &[make_message("m1", MessageRole::User, "borrowing rules")],
+                "rust",
+                &["language:rust".into()],
+            )
+            .unwrap();
+        memory
+            .index_session_with_tags(
+                "go-sess",
+                &[make_message("m2", MessageRole::User, "goroutine scheduling")],
+                "go",
+                &["language:go".into()],
+            )
+            .unwrap();
+        memory
+            .index_session_with_tags(
+                "untagged",
+                &[make_message("m3", MessageRole::User, "borrowing patterns")],
+                "misc",
+                &[],
+            )
+            .unwrap();
+        // Search across all sessions: 2 hits.
+        let all = memory.search("borrowing", 10).unwrap();
+        assert_eq!(all.len(), 2);
+        // Filter to language:rust: only the rust session matches.
+        let rust = memory
+            .search_with_tags("borrowing", 10, Some(&["language:rust".into()]))
+            .unwrap();
+        assert_eq!(rust.len(), 1);
+        assert_eq!(rust[0].session_id, "rust-sess");
+        // Filter to language:go: 0 hits (go session has no "borrowing" text).
+        let go = memory
+            .search_with_tags("borrowing", 10, Some(&["language:go".into()]))
+            .unwrap();
+        assert!(go.is_empty());
+        // Empty filter (Some(&[])) = match nothing.
+        let none = memory
+            .search_with_tags("borrowing", 10, Some(&[]))
+            .unwrap();
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn test_recall_with_tag_filter() {
+        let dir = tempdir().unwrap();
+        let memory = CrossSessionMemory::new(dir.path().to_str().unwrap()).unwrap();
+        memory
+            .index_session_with_tags(
+                "rust-sess",
+                &[make_message(
+                    "m1",
+                    MessageRole::User,
+                    "rust ownership and borrowing rules",
+                )],
+                "rust",
+                &["language:rust".into(), "topic:memory".into()],
+            )
+            .unwrap();
+        memory
+            .index_session_with_tags(
+                "go-sess",
+                &[make_message(
+                    "m2",
+                    MessageRole::User,
+                    "ownership semantics in go",
+                )],
+                "go",
+                &["language:go".into()],
+            )
+            .unwrap();
+        // No filter: both sessions recall.
+        let all = memory.recall("ownership", 10).unwrap();
+        assert_eq!(all.len(), 2);
+        // Filter to language:rust: only the rust session.
+        let rust = memory
+            .recall_with_tags("ownership", 10, Some(&["language:rust".into()]))
+            .unwrap();
+        assert_eq!(rust.len(), 1);
+        assert_eq!(rust[0].session_id, "rust-sess");
+        // Multi-tag filter (union semantics — session with ANY of these tags).
+        let either = memory
+            .recall_with_tags(
+                "ownership",
+                10,
+                Some(&["language:rust".into(), "language:go".into()]),
+            )
+            .unwrap();
+        assert_eq!(either.len(), 2);
+    }
+
+    #[test]
+    fn test_tag_facets() {
+        let dir = tempdir().unwrap();
+        let memory = CrossSessionMemory::new(dir.path().to_str().unwrap()).unwrap();
+        memory
+            .set_session_tags("s1", &["a".into(), "b".into()])
+            .unwrap();
+        memory
+            .set_session_tags("s2", &["a".into(), "c".into()])
+            .unwrap();
+        memory.set_session_tags("s3", &["a".into()]).unwrap();
+        let facets = memory.tag_facets().unwrap();
+        // "a" should be first (3 sessions, DESC).
+        assert_eq!(facets[0], ("a".to_string(), 3));
+        // Total of 3 distinct tags.
+        assert_eq!(facets.len(), 3);
     }
 }

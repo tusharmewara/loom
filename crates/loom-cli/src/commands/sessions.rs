@@ -32,15 +32,34 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
     let store = manager.store();
 
     match action {
-        SessionsAction::List { json } => {
+        SessionsAction::List { json, tag } => {
             let manifests = store.list();
+            // Apply tag filter to the manifest list. We keep the
+            // memory's index as the source of truth for which sessions
+            // match — the manifest's `tags` field may be stale relative
+            // to the memory store if the user only edited tags via the
+            // `tag` command without re-running `sessions index`.
+            let filtered: Vec<loom_core::SessionManifest> = if tag.is_empty() {
+                manifests
+            } else {
+                let memory = CrossSessionMemory::new(loom_dir.to_str().unwrap())?;
+                let allowed = memory.session_ids_with_tags(Some(&tag))?;
+                let allowed = allowed.unwrap_or_default();
+                let allowed_set: std::collections::HashSet<String> =
+                    allowed.into_iter().collect();
+                manifests
+                    .into_iter()
+                    .filter(|m| allowed_set.contains(&m.session_id))
+                    .collect()
+            };
             if *json {
-                let sessions: Vec<_> = manifests.iter().map(|m| {
+                let sessions: Vec<_> = filtered.iter().map(|m| {
                     serde_json::json!({
                         "session_id": m.session_id,
                         "source_tool": m.source_tool,
                         "message_count": m.message_count,
                         "topic": m.topic,
+                        "tags": m.tags,
                         "exported_at": m.exported_at,
                         "source_version": m.source_version,
                         "working_directory": m.working_directory,
@@ -53,14 +72,23 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                     "sessions": sessions
                 }))?);
             } else {
-                for manifest in &manifests {
+                for manifest in &filtered {
+                    let tag_str = if manifest.tags.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  tags=[{}]", manifest.tags.join(","))
+                    };
                     println!(
-                        "{}  tool={}  messages={}  topic={}",
-                        manifest.session_id, manifest.source_tool, manifest.message_count, manifest.topic
+                        "{}  tool={}  messages={}  topic={}{}",
+                        manifest.session_id, manifest.source_tool, manifest.message_count, manifest.topic, tag_str
                     );
                 }
-                if manifests.is_empty() {
-                    println!("No sessions found.");
+                if filtered.is_empty() {
+                    if tag.is_empty() {
+                        println!("No sessions found.");
+                    } else {
+                        println!("No sessions match tag filter: {}", tag.join(","));
+                    }
                 }
             }
         }
@@ -98,7 +126,12 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                 if let Ok(messages) = store.load_messages(id) {
                     if !messages.is_empty() {
                         let topic = export.manifest.topic.clone();
-                        if let Err(e) = memory.index_session(id, &messages, &topic) {
+                        if let Err(e) = memory.index_session_with_tags(
+                            id,
+                            &messages,
+                            &topic,
+                            &export.manifest.tags,
+                        ) {
                             eprintln!("  Warning: failed to index session in memory: {e}");
                         } else {
                             println!("  Indexed {} messages into cross-session memory", messages.len());
@@ -132,23 +165,38 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
             )
             .await?;
         }
-        SessionsAction::Search { query, limit, json } => {
+        SessionsAction::Search { query, limit, json, tag } => {
             let memory = CrossSessionMemory::new(loom_dir.to_str().unwrap())?;
-            let results = memory.search(query, *limit)?;
+            let filter_slice: Option<Vec<String>> = if tag.is_empty() {
+                None
+            } else {
+                Some(tag.clone())
+            };
+            let results = memory.search_with_tags(query, *limit, filter_slice.as_deref())?;
 
             if *json {
                 println!("{}", serde_json::to_string_pretty(&serde_json::json!({
                     "schema_version": 1,
                     "command": "sessions.search",
                     "query": query,
+                    "tag_filter": tag,
                     "count": results.len(),
                     "results": results,
                 }))?);
             } else {
                 if results.is_empty() {
-                    println!("No results found for query: {query}");
+                    if tag.is_empty() {
+                        println!("No results found for query: {query}");
+                    } else {
+                        println!("No results found for query '{query}' with tag filter: {}", tag.join(","));
+                    }
                 } else {
-                    println!("Cross-session search results for '{}':", query);
+                    let header = if tag.is_empty() {
+                        format!("Cross-session search results for '{}':", query)
+                    } else {
+                        format!("Cross-session search results for '{}' (tags: {}):", query, tag.join(","))
+                    };
+                    println!("{header}");
                     for (i, hit) in results.iter().enumerate() {
                         println!(
                             "  {}. [{}] {} — {:.120}",
@@ -161,23 +209,38 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                 }
             }
         }
-        SessionsAction::Recall { query, limit, json } => {
+        SessionsAction::Recall { query, limit, json, tag } => {
             let memory = CrossSessionMemory::new(loom_dir.to_str().unwrap())?;
-            let results = memory.recall(query, *limit)?;
+            let filter_slice: Option<Vec<String>> = if tag.is_empty() {
+                None
+            } else {
+                Some(tag.clone())
+            };
+            let results = memory.recall_with_tags(query, *limit, filter_slice.as_deref())?;
 
             if *json {
                 println!("{}", serde_json::to_string_pretty(&serde_json::json!({
                     "schema_version": 1,
                     "command": "sessions.recall",
                     "query": query,
+                    "tag_filter": tag,
                     "count": results.len(),
                     "results": results,
                 }))?);
             } else {
                 if results.is_empty() {
-                    println!("No sessions recalled for query: {query}");
+                    if tag.is_empty() {
+                        println!("No sessions recalled for query: {query}");
+                    } else {
+                        println!("No sessions recalled for query '{query}' with tag filter: {}", tag.join(","));
+                    }
                 } else {
-                    println!("Recalled sessions for '{}':", query);
+                    let header = if tag.is_empty() {
+                        format!("Recalled sessions for '{}':", query)
+                    } else {
+                        format!("Recalled sessions for '{}' (tags: {}):", query, tag.join(","))
+                    };
+                    println!("{header}");
                     for (i, r) in results.iter().enumerate() {
                         let preview = r.top_match.replace('\n', " ");
                         let topic = if r.topic.is_empty() {
@@ -205,10 +268,14 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
             for manifest in &manifests {
                 if let Ok(messages) = store.load_messages(&manifest.session_id) {
                     if !messages.is_empty() {
-                        if let Err(e) = memory.index_session(
+                        // Pass manifest tags into the memory index so
+                        // `list --tag`, `search --tag`, `recall --tag`
+                        // work without requiring a separate `tag` step.
+                        if let Err(e) = memory.index_session_with_tags(
                             &manifest.session_id,
                             &messages,
                             &manifest.topic,
+                            &manifest.tags,
                         ) {
                             eprintln!("  Warning: failed to index '{}': {e}", manifest.session_id);
                         } else {
@@ -223,6 +290,92 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
         }
         SessionsAction::Branch { id, from, checkpoint } => {
             cmd_branch(loom_dir, store, id, from, *checkpoint)?;
+        }
+        SessionsAction::Tag { id, add, remove } => {
+            // Validate the session exists before mutating.
+            let mut manifest = store
+                .get(id)
+                .ok_or_else(|| anyhow::anyhow!("Session '{id}' not found"))?
+                .clone();
+
+            // Re-derive the new manifest tags by applying the requested
+            // adds/removes through the same normalization the store
+            // helper uses. This keeps the in-memory tag set in sync
+            // with what the user typed.
+            let current: Vec<String> = manifest.tags.clone();
+            let mut next: Vec<String> = current
+                .into_iter()
+                .filter(|t| !remove.iter().any(|r| r.trim() == t))
+                .collect();
+            for t in add {
+                let trimmed = t.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if !next.iter().any(|x| x == trimmed) {
+                    next.push(trimmed.to_string());
+                }
+            }
+            let added: Vec<String> = next
+                .iter()
+                .filter(|t| !manifest.tags.contains(t))
+                .cloned()
+                .collect();
+            let removed: Vec<String> = remove
+                .iter()
+                .filter(|t| manifest.tags.contains(t))
+                .cloned()
+                .collect();
+
+            manifest.tags = next.clone();
+            store.save_manifest(&manifest)?;
+
+            // Mirror the new tag set into the cross-session memory
+            // store so `--tag` filters on search/recall/list see it
+            // immediately. We do a full replace (not a diff) so this
+            // command is idempotent and self-healing.
+            if let Ok(memory) = CrossSessionMemory::new(loom_dir.to_str().unwrap()) {
+                if let Err(e) = memory.set_session_tags(id, &next) {
+                    eprintln!("  Warning: failed to update tags in memory index: {e}");
+                }
+            }
+
+            // Report what actually changed.
+            if added.is_empty() && removed.is_empty() {
+                println!("No changes. Current tags for '{id}': [{}]", next.join(","));
+            } else {
+                if !added.is_empty() {
+                    println!("Added: [{}]", added.join(","));
+                }
+                if !removed.is_empty() {
+                    println!("Removed: [{}]", removed.join(","));
+                }
+                println!("Current tags for '{id}': [{}]", next.join(","));
+            }
+        }
+        SessionsAction::Tags { json } => {
+            let memory = CrossSessionMemory::new(loom_dir.to_str().unwrap())?;
+            let facets = memory.tag_facets()?;
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                    "schema_version": 1,
+                    "command": "sessions.tags",
+                    "count": facets.len(),
+                    "tags": facets.into_iter().map(|(t, n)| serde_json::json!({
+                        "tag": t,
+                        "session_count": n,
+                    })).collect::<Vec<_>>()
+                }))?);
+            } else {
+                if facets.is_empty() {
+                    println!("No tags indexed yet. Use `loom sessions tag <id> --add <t>` to add tags.");
+                } else {
+                    println!("Tags in cross-session memory:");
+                    for (tag, n) in &facets {
+                        println!("  {:<32}  {} session{}", tag, n, if *n == 1 { "" } else { "s" });
+                    }
+                }
+            }
         }
     }
     Ok(())
@@ -273,6 +426,11 @@ fn cmd_branch(
         cp,
     );
     branch_manifest.exported_at = chrono::Utc::now().to_rfc3339();
+    // Inherit tags from the source session so a branch stays filterable
+    // under the same tags. If you branch with the intent of starting a
+    // new topic, `loom sessions tag` can remove or change them later.
+    let branch_tags = source_manifest.tags.clone();
+    branch_manifest.tags = branch_tags.clone();
 
     // Save the new session
     store.save_manifest(&branch_manifest)?;
@@ -285,7 +443,12 @@ fn cmd_branch(
 
     // Auto-index into cross-session memory
     if let Ok(memory) = loom_sessions::memory::CrossSessionMemory::new(loom_dir.to_str().unwrap()) {
-        if let Err(e) = memory.index_session(&branch_id, &branch_messages, &branch_manifest.topic) {
+        if let Err(e) = memory.index_session_with_tags(
+            &branch_id,
+            &branch_messages,
+            &branch_manifest.topic,
+            &branch_tags,
+        ) {
             eprintln!("  Warning: failed to index branch in memory: {e}");
         }
     }

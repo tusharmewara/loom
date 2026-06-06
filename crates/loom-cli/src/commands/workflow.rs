@@ -1143,6 +1143,24 @@ fn capture_dispatch_session(
         },
     });
 
+    // Derive a small set of tags from the dispatch context. These are
+    // conservative defaults that make the captured session findable via
+    // `loom sessions list --tag workflow` and `--tag agent:<name>`
+    // without requiring the user to manually tag every dispatch.
+    let dispatch_tags: Vec<String> = {
+        let mut t = vec![
+            "workflow".to_string(),
+            format!("agent:{}", agent),
+            format!("phase:{}", phase_name),
+            format!("task:{}", task.task_id),
+        ];
+        if let Some(rd) = &task.routing_decision {
+            t.push(format!("provider:{}", rd.recommended_provider));
+            t.push(format!("model:{}", rd.recommended_model));
+        }
+        t
+    };
+
     let manifest = loom_core::SessionManifest {
         session_id: session_id.clone(),
         source_tool: format!("loom-workflow/{}", agent),
@@ -1162,6 +1180,7 @@ fn capture_dispatch_session(
             "Captured from workflow phase '{}' (agent={}, exit={})",
             phase_name, agent, exit_code,
         )),
+        tags: dispatch_tags,
     };
 
     // Persist via the existing SessionStore. This makes the session show

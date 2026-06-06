@@ -255,6 +255,12 @@ pub struct SessionManifest {
     #[serde(default)]
     pub files_modified: Vec<String>,
     pub compatibility_note: Option<String>,
+    /// Free-form, user-supplied tags for grouping/filtering sessions.
+    /// `#[serde(default)]` keeps v0.3.5–v0.3.7 manifests loadable — old
+    /// manifests surface with `tags = []`. Tags are stored verbatim (no
+    /// case folding, no validation) but the CLI normalizes whitespace.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

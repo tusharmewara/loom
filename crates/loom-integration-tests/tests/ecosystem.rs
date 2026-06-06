@@ -67,6 +67,7 @@ fn session_export_import_roundtrip() {
         model_provider: "openai".into(),
         files_modified: vec![],
         compatibility_note: None,
+        tags: vec![],
     };
     store.save_manifest(&manifest).unwrap();
     store

@@ -313,6 +313,12 @@ pub enum SessionsAction {
         /// Output machine-readable JSON
         #[arg(long)]
         json: bool,
+        /// Filter to sessions whose tag set intersects any of the given tags.
+        /// Repeat the flag to OR multiple tags: `--tag rust --tag go` matches
+        /// sessions tagged with either. Sessions with no tags are never
+        /// included when this filter is set.
+        #[arg(long, value_name = "TAG")]
+        tag: Vec<String>,
     },
     /// Show a session manifest
     Show {
@@ -361,6 +367,9 @@ pub enum SessionsAction {
         /// Maximum results
         #[arg(long, default_value = "10")]
         limit: usize,
+        /// Filter to sessions whose tag set intersects any of the given tags
+        #[arg(long, value_name = "TAG")]
+        tag: Vec<String>,
         /// Output machine-readable JSON
         #[arg(long)]
         json: bool,
@@ -375,6 +384,9 @@ pub enum SessionsAction {
         /// Maximum number of sessions to return
         #[arg(long, default_value = "10")]
         limit: usize,
+        /// Filter to sessions whose tag set intersects any of the given tags
+        #[arg(long, value_name = "TAG")]
+        tag: Vec<String>,
         /// Output machine-readable JSON
         #[arg(long)]
         json: bool,
@@ -391,6 +403,27 @@ pub enum SessionsAction {
         /// Message line number to branch at (0-based). If omitted, branches at end.
         #[arg(long, short)]
         checkpoint: Option<usize>,
+    },
+    /// Add or remove tags on a session. Tags are stored in the session
+    /// manifest and indexed into the cross-session memory store for
+    /// filtering `search`/`recall`/`list` results.
+    Tag {
+        /// Session ID to mutate
+        id: String,
+        /// Tags to add (repeat the flag to add multiple)
+        #[arg(long, value_name = "TAG")]
+        add: Vec<String>,
+        /// Tags to remove (repeat the flag to remove multiple)
+        #[arg(long, value_name = "TAG")]
+        remove: Vec<String>,
+    },
+    /// List all distinct tags in the cross-session memory store along
+    /// with the number of sessions that have each tag. Useful for
+    /// discovering what tags exist before applying filters.
+    Tags {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
     },
 }
 

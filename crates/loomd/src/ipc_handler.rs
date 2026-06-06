@@ -99,12 +99,111 @@ impl IpcHandler for LoomdIpcHandler {
             "sessions.search" => {
                 let query = req.params.get("query").and_then(|v| v.as_str()).unwrap_or("");
                 let limit = req.params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+                let tag_filter = parse_tag_filter(req.params.get("tag"));
                 if query.is_empty() {
                     return IpcResponse::error(req.request_id, "query parameter required");
                 }
                 match loom_sessions::memory::CrossSessionMemory::new(&self.loom_dir) {
-                    Ok(memory) => match memory.search(query, limit) {
-                        Ok(results) => IpcResponse::ok(req.request_id, json!({ "results": results, "count": results.len(), "query": query })),
+                    Ok(memory) => match memory.search_with_tags(query, limit, tag_filter.as_deref()) {
+                        Ok(results) => IpcResponse::ok(
+                            req.request_id,
+                            json!({
+                                "results": results,
+                                "count": results.len(),
+                                "query": query,
+                                "tag_filter": req.params.get("tag").cloned().unwrap_or(json!([])),
+                            }),
+                        ),
+                        Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                    },
+                    Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                }
+            }
+            "sessions.recall" => {
+                let query = req.params.get("query").and_then(|v| v.as_str()).unwrap_or("");
+                let limit = req.params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+                let tag_filter = parse_tag_filter(req.params.get("tag"));
+                if query.is_empty() {
+                    return IpcResponse::error(req.request_id, "query parameter required");
+                }
+                match loom_sessions::memory::CrossSessionMemory::new(&self.loom_dir) {
+                    Ok(memory) => match memory.recall_with_tags(query, limit, tag_filter.as_deref()) {
+                        Ok(results) => IpcResponse::ok(
+                            req.request_id,
+                            json!({
+                                "results": results,
+                                "count": results.len(),
+                                "query": query,
+                                "tag_filter": req.params.get("tag").cloned().unwrap_or(json!([])),
+                            }),
+                        ),
+                        Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                    },
+                    Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                }
+            }
+            "sessions.tag" => {
+                // Mutate a session's tag set: add and/or remove tags.
+                // The manifest is the source of truth, the memory index
+                // is updated to mirror.
+                let id = req.params.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                if id.is_empty() {
+                    return IpcResponse::error(req.request_id, "id parameter required");
+                }
+                let add: Vec<String> = parse_tag_filter(req.params.get("add"))
+                    .unwrap_or_default();
+                let remove: Vec<String> = parse_tag_filter(req.params.get("remove"))
+                    .unwrap_or_default();
+                let store = self.sessions.store();
+                let mut manifest = match store.get(id) {
+                    Some(m) => m.clone(),
+                    None => {
+                        return IpcResponse::error(
+                            req.request_id,
+                            format!("Session '{id}' not found"),
+                        );
+                    }
+                };
+                // Apply removes first, then adds, preserving existing
+                // ordering for the items that survive.
+                manifest.tags = manifest
+                    .tags
+                    .into_iter()
+                    .filter(|t| !remove.iter().any(|r| r == t))
+                    .collect();
+                for t in &add {
+                    let trimmed = t.trim();
+                    if trimmed.is_empty() || manifest.tags.iter().any(|x| x == trimmed) {
+                        continue;
+                    }
+                    manifest.tags.push(trimmed.to_string());
+                }
+                if let Err(e) = store.save_manifest(&manifest) {
+                    return IpcResponse::error(req.request_id, e.to_string());
+                }
+                if let Ok(memory) = loom_sessions::memory::CrossSessionMemory::new(&self.loom_dir) {
+                    if let Err(e) = memory.set_session_tags(id, &manifest.tags) {
+                        return IpcResponse::error(req.request_id, e.to_string());
+                    }
+                }
+                IpcResponse::ok(
+                    req.request_id,
+                    json!({
+                        "session_id": id,
+                        "tags": manifest.tags,
+                    }),
+                )
+            }
+            "sessions.tags" => {
+                match loom_sessions::memory::CrossSessionMemory::new(&self.loom_dir) {
+                    Ok(memory) => match memory.tag_facets() {
+                        Ok(facets) => IpcResponse::ok(
+                            req.request_id,
+                            json!({
+                                "tags": facets,
+                                "count": facets.len(),
+                            }),
+                        ),
                         Err(e) => IpcResponse::error(req.request_id, e.to_string()),
                     },
                     Err(e) => IpcResponse::error(req.request_id, e.to_string()),
@@ -118,10 +217,11 @@ impl IpcHandler for LoomdIpcHandler {
                         for manifest in &sessions {
                             if let Ok(messages) = self.sessions.store().load_messages(&manifest.session_id) {
                                 if !messages.is_empty() {
-                                    if let Err(e) = memory.index_session(
+                                    if let Err(e) = memory.index_session_with_tags(
                                         &manifest.session_id,
                                         &messages,
                                         &manifest.topic,
+                                        &manifest.tags,
                                     ) {
                                         tracing::warn!("Failed to index session '{}': {e}", manifest.session_id);
                                     } else {
@@ -500,4 +600,33 @@ fn parse_session_content(content: &str) -> Vec<loom_core::Message> {
     }
 
     Vec::new()
+}
+
+/// Parse a tag filter from a JSON value. The IPC layer accepts tags as
+/// either a JSON array of strings (`["rust", "go"]`), a single string
+/// (`"rust"`), or a comma-separated string (`"rust,go"`). Returns
+/// `None` if the input is missing or null (caller should treat as
+/// "no filter"). Returns `Some(Vec::new())` for an explicit empty
+/// array (caller should treat as "filter that matches nothing").
+fn parse_tag_filter(v: Option<&serde_json::Value>) -> Option<Vec<String>> {
+    let v = v?;
+    match v {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(s) => {
+            // Comma-separated is the only string form; empty string
+            // means "no filter" (so users can pass an env var that
+            // resolves to "" without breaking the call).
+            if s.is_empty() {
+                None
+            } else {
+                Some(s.split(',').map(|p| p.trim().to_string()).collect())
+            }
+        }
+        serde_json::Value::Array(arr) => Some(
+            arr.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect(),
+        ),
+        _ => None,
+    }
 }

@@ -403,6 +403,7 @@ fn create_session_manifest(
         model_provider: std::env::var("LOOM_ROUTING_PROVIDER").unwrap_or_default(),
         files_modified: vec![],
         compatibility_note: None,
+        tags: vec![],
     };
     let _ = session_store.save_manifest(&manifest);
     env_vars.insert("LOOM_SESSION_ID".to_string(), session_id.clone());

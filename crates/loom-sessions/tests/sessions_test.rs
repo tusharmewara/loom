@@ -18,6 +18,7 @@ fn sample_manifest(id: &str) -> SessionManifest {
         model_provider: "openai".into(),
         files_modified: vec![],
         compatibility_note: None,
+        tags: vec![],
     }
 }
 
