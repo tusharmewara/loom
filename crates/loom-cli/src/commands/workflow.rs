@@ -1181,6 +1181,8 @@ fn capture_dispatch_session(
             phase_name, agent, exit_code,
         )),
         tags: dispatch_tags,
+        summarized_at: None,
+        summarized_message_count: None,
     };
 
     // Persist via the existing SessionStore. This makes the session show

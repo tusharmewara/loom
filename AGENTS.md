@@ -104,7 +104,7 @@ Everything lives in `~/.loom/` (AGENTS_DIR constant in `loom-core`):
 
 ### Session Compression
 
-After `SESSION_COMPRESSION_THRESHOLD` (20) messages, session data uses compression. First `SESSION_FULL_FIDELITY_COUNT` (10) messages are stored uncompressed.
+After `SESSION_COMPRESSION_THRESHOLD` (20) messages, session data uses compression. First `SESSION_FULL_FIDELITY_COUNT` (10) messages are stored uncompressed. Compression is **automatic** on `append_message` and `replace_message` once a session crosses the threshold, and can also be triggered manually via `loom sessions summarize <id> [--force]`. The compression step folds the older messages into a single `System`-role summary at the head of the message list (id = `loom-summary-v1`), extracts role-prefixed excerpts (200 chars per dropped message) merged on role boundaries, and updates the manifest's `summarized_at` / `summarized_message_count` fields. The summary message is also re-indexed into the cross-session memory store so `sessions search` / `recall` reflect the compressed view.
 
 ## Key Patterns
 
@@ -221,7 +221,7 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 1. **Auth vault `export_credential()` returns plaintext** — comment notes "this is the plaintext; proper export would re-encrypt".
 2. **`mcp_registry.db` is SQLite** — created automatically in `~/.loom/` by `McpRegistry`.
 3. **ConfigReader overlays layer-specific TOML files** — if `routing.toml` exists in `config/`, it completely replaces (not deep-merges) the `routing` field from `config.toml`.
-4. **Session compression**: After `SESSION_COMPRESSION_THRESHOLD` (20) messages, session data uses compression. First `SESSION_FULL_FIDELITY_COUNT` (10) messages are stored uncompressed.
+4. **Session compression** (v0.3.9): When a session's message count exceeds `SESSION_COMPRESSION_THRESHOLD` (20), older messages are folded into a single `System`-role summary (id `loom-summary-v1`) at the head of the message list, and the last `SESSION_FULL_FIDELITY_COUNT` (10) messages are kept verbatim. Auto-runs on `append_message`/`replace_message` once a session crosses the threshold; can be triggered manually via `loom sessions summarize <id> [--force]`. The manifest's `summarized_at` / `summarized_message_count` fields record the pass.
 5. **Vault lockout**: max `VAULT_MAX_UNLOCK_ATTEMPTS` (5) within `VAULT_MAX_UNLOCK_WINDOW_MS` (60s).
 6. **Daemon auto-shutdown**: after `DAEMON_DEFAULT_IDLE_TIMEOUT_MS` (300s = 5min) of no IPC activity.
 7. **TUI keybindings**: `D` opens action palette (daemon controls), `a` opens dispatch menu only on task tabs (5=Skills, 6=Sessions), `?` for help. Tab indices: 0=Dashboard, 1=Daemon, 2=Discovery, 3=MCP, 4=Skills, 5=Sessions, 6=Logs.

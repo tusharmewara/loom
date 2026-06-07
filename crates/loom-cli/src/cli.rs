@@ -425,6 +425,28 @@ pub enum SessionsAction {
         #[arg(long)]
         json: bool,
     },
+    /// Run (or re-run) auto-summarization on a session. When the
+    /// session's message count exceeds the compression threshold
+    /// (see `SESSION_COMPRESSION_THRESHOLD` in the source), the older
+    /// messages are folded into a single `System`-role summary at
+    /// the head of the message list, and the last
+    /// `SESSION_FULL_FIDELITY_COUNT` messages are kept verbatim. The
+    /// manifest's `summarized_at` / `summarized_message_count` fields
+    /// record the pass. Auto-runs on `append_message` once a session
+    /// crosses the threshold — this command is the manual escape
+    /// hatch and is also useful for back-filling older sessions.
+    Summarize {
+        /// Session ID to compress
+        id: String,
+        /// Re-compress even if the session is already below the
+        /// threshold. No-op without this flag when there's nothing
+        /// to fold.
+        #[arg(long)]
+        force: bool,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]

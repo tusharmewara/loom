@@ -77,13 +77,20 @@ Manage skills (\fBlist\fR, \fBshow\fR, \fBinstall\fR, \fBremove\fR).
 .B sessions
 Manage session exports (\fBlist\fR, \fBshow\fR, \fBexport\fR,
 \fBimport\fR, \fBresume\fR, \fBsearch\fR, \fBrecall\fR, \fBindex\fR,
-\fBbranch\fR, \fBtag\fR, \fBtags\fR).  Resumption can inject memory and
-knowledge entities.  \fBrecall\fR groups matching messages by session,
-returning the top sessions (hit count + best match) for a query.
-\fBtag\fR mutates a session's tag set (\fB--add\fR/\fB--remove\fR);
-\fBtags\fR lists every distinct tag in the index.  \fBlist\fR,
-\fBsearch\fR, and \fBrecall\fR all accept \fB--tag\fR to filter to
-sessions whose tag set intersects the given set.
+\fBbranch\fR, \fBtag\fR, \fBtags\fR, \fBsummarize\fR).  Resumption
+can inject memory and knowledge entities.  \fBrecall\fR groups
+matching messages by session, returning the top sessions (hit
+count + best match) for a query.  \fBtag\fR mutates a session's
+tag set (\fB--add\fR/\fB--remove\fR); \fBtags\fR lists every distinct
+tag in the index.  \fBlist\fR, \fBsearch\fR, and \fBrecall\fR all
+accept \fB--tag\fR to filter to sessions whose tag set intersects
+the given set.  \fBsummarize\fR auto-compresses a session once its
+message count exceeds the compression threshold (default 20):
+older messages are folded into a single System-role summary at the
+head of the message list, and the last 10 messages are kept
+verbatim; auto-runs on \fBappend_message\fR once a session crosses
+the threshold.  \fB--force\fR re-runs even when the session is
+already at or below the threshold.
 .TP
 .B auth
 Manage authentication providers and the encrypted credential vault.

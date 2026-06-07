@@ -404,6 +404,8 @@ fn create_session_manifest(
         files_modified: vec![],
         compatibility_note: None,
         tags: vec![],
+        summarized_at: None,
+        summarized_message_count: None,
     };
     let _ = session_store.save_manifest(&manifest);
     env_vars.insert("LOOM_SESSION_ID".to_string(), session_id.clone());

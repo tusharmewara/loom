@@ -1,5 +1,5 @@
 use anyhow::Result;
-use loom_core::{Message, SessionManifest};
+use loom_core::{Message, SessionManifest, SESSION_COMPRESSION_THRESHOLD, SESSION_FULL_FIDELITY_COUNT};
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -218,10 +218,26 @@ impl SessionStore {
             self.save_manifest(&updated)?;
         }
 
+        // Auto-summarize on replace too. The append path triggers
+        // this on its own, but `replace_messages` is the entry point
+        // for imports and branch operations, which would otherwise
+        // silently leave oversized histories uncompressed.
+        if messages.len() > SESSION_COMPRESSION_THRESHOLD {
+            if let Err(e) = self.compress_session(session_id) {
+                eprintln!("  Warning: auto-summarization failed for '{session_id}': {e}");
+            }
+        }
+
         Ok(())
     }
 
     /// Append one message to JSONL and update the offset index.
+    /// If the session's total message count crosses
+    /// `SESSION_COMPRESSION_THRESHOLD` after the append, automatically
+    /// runs `compress_session` to fold the older history into a
+    /// summary. This makes summarization a transparent side effect of
+    /// writing — callers don't need to remember to call compress
+    /// explicitly.
     pub fn append_message(&self, session_id: &str, message: &Message) -> Result<()> {
         let dir = self.session_dir(session_id);
         std::fs::create_dir_all(&dir)?;
@@ -253,6 +269,21 @@ impl SessionStore {
         if let Some(mut manifest) = self.get(session_id) {
             manifest.message_count = manifest.message_count.saturating_add(1);
             self.save_manifest(&manifest)?;
+        }
+
+        // Auto-summarize when we cross the threshold. The cost of the
+        // check is one length read on a small file plus an O(n) scan
+        // inside build_summary if it fires; on a session below the
+        // threshold it's just a single `load_messages` we already
+        // would do for the offset bookkeeping. We only auto-trigger on
+        // append, not on import (imports go through replace_messages,
+        // which is also a natural compression point — see below).
+        if let Ok(msgs) = self.load_messages(session_id) {
+            if msgs.len() > SESSION_COMPRESSION_THRESHOLD {
+                if let Err(e) = self.compress_session(session_id) {
+                    eprintln!("  Warning: auto-summarization failed for '{session_id}': {e}");
+                }
+            }
         }
 
         Ok(())
@@ -307,6 +338,46 @@ impl SessionStore {
             self.replace_messages(session_id, &messages)?;
         }
         Ok(removed)
+    }
+
+    /// Auto-summarize a session. If the session has more than
+    /// `SESSION_COMPRESSION_THRESHOLD` messages, fold the older
+    /// history into a single `MessageRole::System` summary at the
+    /// head of the message list, keeping the last
+    /// `SESSION_FULL_FIDELITY_COUNT` messages verbatim. Updates the
+    /// manifest's `summarized_at` / `summarized_message_count` fields
+    /// in place.
+    ///
+    /// Returns `Some(folded_count)` when compression actually ran, and
+    /// `None` when the session was below the threshold (a no-op
+    /// observable to callers — e.g. the CLI uses it to print
+    /// "no compression needed" vs "compressed N messages").
+    ///
+    /// The original full message list is **not** preserved on disk
+    /// after this call — that's the point. Callers that need an
+    /// audit trail should export the session first (via
+    /// `export_session`).
+    pub fn compress_session(&self, session_id: &str) -> Result<Option<usize>> {
+        let mut manifest = self
+            .read_manifest(session_id)
+            .map_err(|_| anyhow::anyhow!("session '{session_id}' not found"))?;
+        let messages = self.load_messages(session_id)?;
+        if let Some(new_messages) = crate::compression::plan_compression(
+            &mut manifest,
+            &messages,
+            SESSION_COMPRESSION_THRESHOLD,
+            SESSION_FULL_FIDELITY_COUNT,
+        ) {
+            let folded = manifest
+                .summarized_message_count
+                .ok_or_else(|| anyhow::anyhow!("plan_compression did not record folded count"))?
+                as usize;
+            self.replace_messages(session_id, &new_messages)?;
+            self.save_manifest(&manifest)?;
+            Ok(Some(folded))
+        } else {
+            Ok(None)
+        }
     }
 }
 

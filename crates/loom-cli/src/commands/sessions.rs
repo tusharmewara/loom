@@ -78,9 +78,25 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                     } else {
                         format!("  tags=[{}]", manifest.tags.join(","))
                     };
+                    let summary_str = match manifest.summarized_message_count {
+                        Some(n) if n > 0 => format!(
+                            "  summary=[{} folded, last_summary={}]",
+                            n,
+                            manifest
+                                .summarized_at
+                                .as_deref()
+                                .unwrap_or("?")
+                        ),
+                        _ => String::new(),
+                    };
                     println!(
-                        "{}  tool={}  messages={}  topic={}{}",
-                        manifest.session_id, manifest.source_tool, manifest.message_count, manifest.topic, tag_str
+                        "{}  tool={}  messages={}  topic={}{}{}",
+                        manifest.session_id,
+                        manifest.source_tool,
+                        manifest.message_count,
+                        manifest.topic,
+                        tag_str,
+                        summary_str
                     );
                 }
                 if filtered.is_empty() {
@@ -373,6 +389,95 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                     println!("Tags in cross-session memory:");
                     for (tag, n) in &facets {
                         println!("  {:<32}  {} session{}", tag, n, if *n == 1 { "" } else { "s" });
+                    }
+                }
+            }
+        }
+        SessionsAction::Summarize { id, force, json } => {
+            // The store's compress_session is the public entry point;
+            // it handles the threshold check, manifest update, and
+            // message rewrite atomically. We just translate its
+            // `Option<usize>` (Some(folded) / None for no-op) into a
+            // useful user-facing message.
+            let pre_count = store
+                .get(id)
+                .ok_or_else(|| anyhow::anyhow!("Session '{id}' not found"))?
+                .message_count;
+            if pre_count == 0 {
+                anyhow::bail!("Session '{id}' has no messages to summarize");
+            }
+            if !force && pre_count as usize <= loom_core::SESSION_COMPRESSION_THRESHOLD {
+                if *json {
+                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "command": "sessions.summarize",
+                        "session_id": id,
+                        "status": "skipped",
+                        "reason": format!(
+                            "message_count ({pre_count}) is at or below threshold ({})",
+                            loom_core::SESSION_COMPRESSION_THRESHOLD
+                        ),
+                        "message_count": pre_count,
+                    }))?);
+                } else {
+                    println!(
+                        "Session '{id}' has {pre_count} messages (threshold: {}). No compression needed. Use --force to override.",
+                        loom_core::SESSION_COMPRESSION_THRESHOLD
+                    );
+                }
+                return Ok(());
+            }
+            let outcome = store.compress_session(id)?;
+            let post = store
+                .get(id)
+                .ok_or_else(|| anyhow::anyhow!("Session '{id}' disappeared after compress"))?;
+            // Re-index the session into the cross-session memory so
+            // the FTS view reflects the compressed state. Without
+            // this, search would still return hits from the
+            // (now-folded) original messages.
+            if let Ok(memory) = CrossSessionMemory::new(loom_dir.to_str().unwrap()) {
+                if let Ok(msgs) = store.load_messages(id) {
+                    if let Err(e) =
+                        memory.index_session_with_tags(id, &msgs, &post.topic, &post.tags)
+                    {
+                        eprintln!("  Warning: failed to re-index compressed session in memory: {e}");
+                    }
+                }
+            }
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                    "schema_version": 1,
+                    "command": "sessions.summarize",
+                    "session_id": id,
+                    "status": if outcome.is_some() { "compressed" } else { "no_op" },
+                    "folded_count": outcome,
+                    "pre_compress_count": pre_count,
+                    "post_compress_count": post.message_count,
+                    "summarized_at": post.summarized_at,
+                    "summarized_message_count": post.summarized_message_count,
+                }))?);
+            } else {
+                match outcome {
+                    Some(folded) => {
+                        // The new message_count includes the summary
+                        // message itself, so `kept` is one less. The
+                        // number of full-fidelity messages equals the
+                        // `SESSION_FULL_FIDELITY_COUNT` constant for
+                        // sessions that triggered the auto-summarizer
+                        // (i.e. crossed the threshold by at least one
+                        // message); a `--force` run on a session
+                        // that's still under the threshold will not
+                        // happen because we early-return above, so
+                        // `kept` here is reliably
+                        // `SESSION_FULL_FIDELITY_COUNT`.
+                        let kept = loom_core::SESSION_FULL_FIDELITY_COUNT;
+                        println!("Compressed session '{id}': folded {folded} earlier message{} into a single summary, kept {kept} message{} verbatim.",
+                            if folded == 1 { "" } else { "s" },
+                            if kept == 1 { "" } else { "s" });
+                        println!("  summarized_at: {}", post.summarized_at.as_deref().unwrap_or("?"));
+                    }
+                    None => {
+                        println!("No compression needed for '{id}' (message_count={}).", pre_count);
                     }
                 }
             }

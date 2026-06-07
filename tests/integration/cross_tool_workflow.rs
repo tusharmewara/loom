@@ -32,6 +32,9 @@ async fn test_session_sharing_between_tools() -> anyhow::Result<()> {
         model_provider: "jcode".to_string(),
         files_modified: "".to_string(),
         compatibility_note: "".to_string(),
+        tags: vec![],
+        summarized_at: None,
+        summarized_message_count: None,
     };
 
     // Save manifest

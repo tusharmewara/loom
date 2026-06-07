@@ -261,7 +261,29 @@ pub struct SessionManifest {
     /// case folding, no validation) but the CLI normalizes whitespace.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Timestamp of the most recent auto-summarization pass, RFC 3339.
+    /// `None` for sessions that have never been summarized (and for
+    /// pre-v0.3.9 manifests — `#[serde(default)]` keeps them loadable).
+    /// The summary itself lives inline as the first message of the
+    /// session (with `MessageRole::System` and id `summary-v1`); this
+    /// field is a fast-lookup hint for `sessions show`/`list` so we
+    /// don't have to scan `messages.jsonl`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summarized_at: Option<String>,
+    /// Number of messages that were folded into the inline summary at
+    /// `summarized_at` time. `None` when never summarized. Together with
+    /// `summarized_at`, this lets a consumer know how much of the
+    /// session is "compressed view" vs "full fidelity" (the last
+    /// `SESSION_FULL_FIDELITY_COUNT` messages are always full).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summarized_message_count: Option<u32>,
 }
+
+/// Marker `Message.id` value used for inline summary messages that
+/// `compress_session` inserts at the head of the message list. The
+/// trailing `v1` lets us evolve the format without confusing older
+/// manifests — on read we recognize summaries by id, not by content.
+pub const SUMMARY_MESSAGE_ID: &str = "loom-summary-v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
@@ -274,7 +296,7 @@ pub struct Message {
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MessageRole {
     User,
     Assistant,

@@ -19,6 +19,8 @@ fn sample_manifest(id: &str) -> SessionManifest {
         files_modified: vec![],
         compatibility_note: None,
         tags: vec![],
+        summarized_at: None,
+        summarized_message_count: None,
     }
 }
 

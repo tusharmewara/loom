@@ -173,6 +173,14 @@ pub async fn resume_session(
     println!("  Provider: {}", provider);
     println!("  Model:    {}", model);
     println!("  Messages: {}", messages.len());
+    if let (Some(ts), Some(folded)) = (manifest.summarized_at.as_deref(), manifest.summarized_message_count) {
+        println!(
+            "  Summary:  {} earlier message{} compressed (at {})",
+            folded,
+            if folded == 1 { "" } else { "s" },
+            ts
+        );
+    }
     println!();
 
     let api_key = resolve_api_key(&provider)?;

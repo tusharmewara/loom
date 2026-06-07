@@ -115,6 +115,8 @@ fn build_session(
         files_modified: vec![],
         compatibility_note: Some(format!("Captured from {} phase", phase.name())),
         tags: vec![],
+        summarized_at: None,
+        summarized_message_count: None,
     };
     (session_id, manifest, messages)
 }
@@ -460,6 +462,8 @@ fn test_five_captures_index_into_memory() -> Result<()> {
             files_modified: vec![],
             compatibility_note: None,
             tags: vec![],
+            summarized_at: None,
+            summarized_message_count: None,
         })?;
         store.replace_messages(&sid, &m)?;
         memory.index_session(&sid, &m, "test")?;

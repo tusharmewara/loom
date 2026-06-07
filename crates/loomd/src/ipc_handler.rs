@@ -209,6 +209,97 @@ impl IpcHandler for LoomdIpcHandler {
                     Err(e) => IpcResponse::error(req.request_id, e.to_string()),
                 }
             }
+            "sessions.summarize" => {
+                // Run auto-summarization on a session. The store does
+                // the threshold check, message rewrite, and manifest
+                // update; we just translate the `Option<usize>` outcome
+                // (Some(folded) / None for no-op) into a structured
+                // response.
+                let id = req.params.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                if id.is_empty() {
+                    return IpcResponse::error(req.request_id, "id parameter required");
+                }
+                let force = req
+                    .params
+                    .get("force")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let store = self.sessions.store();
+                let pre = match store.get(id) {
+                    Some(m) => m,
+                    None => {
+                        return IpcResponse::error(
+                            req.request_id,
+                            format!("Session '{id}' not found"),
+                        );
+                    }
+                };
+                if pre.message_count == 0 {
+                    return IpcResponse::error(
+                        req.request_id,
+                        format!("Session '{id}' has no messages to summarize"),
+                    );
+                }
+                if !force
+                    && (pre.message_count as usize)
+                        <= loom_core::SESSION_COMPRESSION_THRESHOLD
+                {
+                    return IpcResponse::ok(
+                        req.request_id,
+                        json!({
+                            "session_id": id,
+                            "status": "skipped",
+                            "reason": format!(
+                                "message_count ({}) is at or below threshold ({})",
+                                pre.message_count,
+                                loom_core::SESSION_COMPRESSION_THRESHOLD
+                            ),
+                            "message_count": pre.message_count,
+                        }),
+                    );
+                }
+                match store.compress_session(id) {
+                    Ok(folded) => {
+                        let post = store.get(id);
+                        // Re-index the session into the cross-session
+                        // memory so FTS view reflects the compressed
+                        // state. Without this, search would still
+                        // return hits from the (now-folded) original
+                        // messages.
+                        if let Ok(memory) =
+                            loom_sessions::memory::CrossSessionMemory::new(&self.loom_dir)
+                        {
+                            if let Some(m) = post.as_ref() {
+                                if let Ok(msgs) = store.load_messages(id) {
+                                    if let Err(e) = memory.index_session_with_tags(
+                                        id,
+                                        &msgs,
+                                        &m.topic,
+                                        &m.tags,
+                                    ) {
+                                        eprintln!(
+                                            "  Warning: failed to re-index compressed session in memory: {e}"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        IpcResponse::ok(
+                            req.request_id,
+                            json!({
+                                "session_id": id,
+                                "status": if folded.is_some() { "compressed" } else { "no_op" },
+                                "folded_count": folded,
+                                "pre_compress_count": pre.message_count,
+                                "post_compress_count": post.as_ref().map(|m| m.message_count),
+                                "summarized_at": post.as_ref().and_then(|m| m.summarized_at.clone()),
+                                "summarized_message_count": post.as_ref().and_then(|m| m.summarized_message_count),
+                            }),
+                        )
+                    }
+                    Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                }
+            }
             "sessions.index" => {
                 match loom_sessions::memory::CrossSessionMemory::new(&self.loom_dir) {
                     Ok(memory) => {

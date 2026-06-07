@@ -50,6 +50,8 @@ fn save_session(loom_dir: &str, sid: &str, topic: &str, messages: Vec<Message>) 
         files_modified: vec![],
         compatibility_note: None,
         tags: vec![],
+        summarized_at: None,
+        summarized_message_count: None,
     };
     store.save_manifest(&manifest)?;
     store.replace_messages(sid, &messages)?;
@@ -231,6 +233,8 @@ fn test_recall_picks_up_sessions_indexed_via_session_index() -> Result<()> {
             files_modified: vec![],
             compatibility_note: None,
             tags: vec![],
+            summarized_at: None,
+            summarized_message_count: None,
         };
         let msgs = vec![make_msg("m1", MessageRole::User, body)];
         store.save_manifest(&manifest)?;
