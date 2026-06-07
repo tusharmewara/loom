@@ -258,7 +258,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let loom_dir = dir.path().to_str().unwrap();
 
-        run(false, false, loom_dir).await.unwrap();
+        run(false, false, None, loom_dir).await.unwrap();
 
         // Verify key directories exist
         assert!(dir.path().join("config").exists());
@@ -290,8 +290,8 @@ mod tests {
         let loom_dir = dir.path().to_str().unwrap();
 
         // Run twice
-        run(false, false, loom_dir).await.unwrap();
-        run(false, false, loom_dir).await.unwrap();
+        run(false, false, None, loom_dir).await.unwrap();
+        run(false, false, None, loom_dir).await.unwrap();
     }
 
     #[tokio::test]
@@ -310,7 +310,7 @@ mod tests {
         ).unwrap();
 
         // Run with --import
-        run(true, false, loom_dir).await.unwrap();
+        run(true, false, None, loom_dir).await.unwrap();
 
         // Snapshot should have entries
         let db = SnapshotDb::new(loom_dir);
@@ -324,7 +324,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let loom_dir = dir.path().to_str().unwrap();
 
-        run(false, true, loom_dir).await.unwrap();
+        run(false, true, None, loom_dir).await.unwrap();
 
         // Registry should contain the recommended MCP servers
         let registry = loom_mcp::McpRegistry::new(loom_dir).unwrap();

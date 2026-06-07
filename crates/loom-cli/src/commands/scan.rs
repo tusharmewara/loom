@@ -776,7 +776,7 @@ mod tests {
         .unwrap();
 
         // Init with import
-        init::run(true, false, loom_dir).await.unwrap();
+        init::run(true, false, None, loom_dir).await.unwrap();
 
         // Scan should find resources
         run(loom_dir, false).await.unwrap();
