@@ -216,11 +216,44 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 - `loom daemon install-service` — Install as user service
 - `loom daemon uninstall-service` — Uninstall user service
 
+## Config Precedence (v0.3.10)
+
+`ConfigReader::load()` builds the effective `LoomConfig` by deep-merging 5
+layers, lowest → highest precedence (later wins on conflicts):
+
+1. **Built-in defaults** — `LoomConfig::default()`. Always present.
+2. **Extends chain** — paths in `config.toml`'s `extends = [...]`. Each
+   path is `shellexpand::tilde`-expanded and resolved relative to the loom
+   dir. Cycle detection uses a `HashSet<PathBuf>` with `MAX_EXTENDS_DEPTH = 10`.
+3. **Local `config.toml`** — deep-merged on top of the extends chain.
+4. **Layer overlays** — `config/routing.toml`, `config/mcp.toml`,
+   `config/hooks.toml`, `config/acp.toml`. Each is wrapped under its
+   section key (e.g. `config/routing.toml` deep-merges into `[routing]`).
+5. **Cached remote config** — when `remote_config_url` is set in the
+   merged tree and `~/.loom/.cache/remote_config/index.json` has an
+   entry for the URL, the cached file is deep-merged on top. Non-HTTPS
+   URLs and missing cache entries are silently skipped.
+
+After all merging, `${LOOM_X}` env-var patterns in string values are
+interpolated (`ConfigOptions::from_env()` does not control this — it's
+unconditional and uses `std::env` lookups, no defaults).
+
+Skip flags:
+- `LOOM_NO_EXTEND=1` → skip layer 2 only.
+- `LOOM_NO_REMOTE=1` → skip layer 5 only.
+- `loom config show --extends [--no-extend] [--no-remote]` and
+  `loom config validate [--no-extend] [--no-remote]` pass these through
+  per-command.
+
+Inspect the chain: `loom config show --extends` prints each layer with
+its label, path, and contributed keys. `loom config show --extends --json`
+emits `{ config, extends_chain: [...] }` for tooling.
+
 ## Known Gotchas
 
 1. **Auth vault `export_credential()` returns plaintext** — comment notes "this is the plaintext; proper export would re-encrypt".
 2. **`mcp_registry.db` is SQLite** — created automatically in `~/.loom/` by `McpRegistry`.
-3. **ConfigReader overlays layer-specific TOML files** — if `routing.toml` exists in `config/`, it completely replaces (not deep-merges) the `routing` field from `config.toml`.
+3. **ConfigReader deep-merges (not replaces) overlay files** — if `config/routing.toml` exists, it is deep-merged under `[routing]` on top of `config.toml` (see "Config Precedence" above). Set `LOOM_NO_EXTEND=1` or use `loom config show --extends` to inspect which keys each layer contributed.
 4. **Session compression** (v0.3.9): When a session's message count exceeds `SESSION_COMPRESSION_THRESHOLD` (20), older messages are folded into a single `System`-role summary (id `loom-summary-v1`) at the head of the message list, and the last `SESSION_FULL_FIDELITY_COUNT` (10) messages are kept verbatim. Auto-runs on `append_message`/`replace_message` once a session crosses the threshold; can be triggered manually via `loom sessions summarize <id> [--force]`. The manifest's `summarized_at` / `summarized_message_count` fields record the pass.
 5. **Vault lockout**: max `VAULT_MAX_UNLOCK_ATTEMPTS` (5) within `VAULT_MAX_UNLOCK_WINDOW_MS` (60s).
 6. **Daemon auto-shutdown**: after `DAEMON_DEFAULT_IDLE_TIMEOUT_MS` (300s = 5min) of no IPC activity.

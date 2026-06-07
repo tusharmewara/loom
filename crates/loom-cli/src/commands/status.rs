@@ -103,7 +103,7 @@ mod tests {
     async fn test_status_without_daemon() {
         let dir = tempfile::tempdir().unwrap();
         let loom_dir = dir.path().to_str().unwrap();
-        init::run(false, false, loom_dir).await.unwrap();
+        init::run(false, false, None, loom_dir).await.unwrap();
         run(loom_dir, false).await.unwrap();
     }
 

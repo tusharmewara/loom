@@ -1,69 +1,134 @@
 //! `loom config` subcommands — inspect, validate, and fetch remote config.
 
 use crate::cli::ConfigAction;
-use loom_core::config::ConfigReader;
+use loom_core::config::{ConfigOptions, ConfigReader};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
 pub async fn run(loom_dir: &str, action: &ConfigAction) -> anyhow::Result<()> {
     match action {
-        ConfigAction::Show { json } => cmd_show(loom_dir, *json).await,
-        ConfigAction::Validate => cmd_validate(loom_dir).await,
+        ConfigAction::Show { json, extends, no_extend, no_remote } => {
+            cmd_show(loom_dir, *json, *extends, *no_extend, *no_remote).await
+        }
+        ConfigAction::Validate { no_extend, no_remote } => {
+            cmd_validate(loom_dir, *no_extend, *no_remote).await
+        }
         ConfigAction::Fetch { url } => cmd_fetch(loom_dir, url.as_deref()).await,
     }
 }
 
-async fn cmd_show(loom_dir: &str, json: bool) -> anyhow::Result<()> {
+fn build_options(no_extend: bool, no_remote: bool) -> ConfigOptions {
+    ConfigOptions { skip_extends: no_extend, skip_remote: no_remote }.from_env()
+}
+
+async fn cmd_show(
+    loom_dir: &str,
+    json: bool,
+    extends: bool,
+    no_extend: bool,
+    no_remote: bool,
+) -> anyhow::Result<()> {
     let reader = ConfigReader::new(loom_dir);
-    let config = reader.load()?;
+    let options = build_options(no_extend, no_remote);
 
-    if json {
-        println!("{}", serde_json::to_string_pretty(&config)?);
-    } else {
-        println!("=== Merged Loom Config ===");
-        println!("Ecosystem:");
-        println!("  Version:         {}", config.ecosystem.version);
-        println!("  Enabled:         {}", config.ecosystem.enabled);
-        println!(
-            "  Conflict:        {}",
-            config.ecosystem.conflict_resolution
-        );
-        println!("  Layers:");
-        println!("    Skills:  {}", config.ecosystem.layers.skills);
-        println!("    MCP:     {}", config.ecosystem.layers.mcp);
-        println!("    Sessions: {}", config.ecosystem.layers.sessions);
-        println!("    Auth:    {}", config.ecosystem.layers.auth);
-        println!("    Hooks:   {}", config.ecosystem.layers.hooks);
-        println!("    Workflow: {}", config.ecosystem.layers.workflow);
-
-        if let Some(acp) = &config.acp_registry_url {
-            println!("ACP Registry URL: {}", acp);
+    if extends {
+        // Diagnostics mode: print the resolved source chain
+        let diag = reader.load_with_diagnostics(options)?;
+        if json {
+            // Serialize the diagnostics as JSON: steps + config
+            let out = serde_json::json!({
+                "config": diag.config,
+                "extends_chain": diag.steps,
+            });
+            println!("{}", serde_json::to_string_pretty(&out)?);
+            return Ok(());
         }
-
-        if let Some(routing) = &config.routing {
-            println!("Routing:");
-            println!("  Strategy:    {:?}", routing.strategy);
-            println!("  Low max:     {}", routing.complexity_thresholds.low_max);
-            println!("  High min:    {}", routing.complexity_thresholds.high_min);
-            if let Some(tier) = &routing.default_tier {
-                println!("  Default tier: {:?}", tier);
+        println!("=== Resolved Config Source Chain ===");
+        println!("(lowest → highest precedence; later values override earlier ones)\n");
+        for (i, step) in diag.steps.iter().enumerate() {
+            let path = step
+                .path
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "—".to_string());
+            println!("{:>2}. {}  [{}]", i + 1, step.label, path);
+            if !step.contributed_keys.is_empty() {
+                let preview = if step.contributed_keys.len() > 5 {
+                    format!(
+                        "{} …(+{} more)",
+                        step.contributed_keys[..5].join(", "),
+                        step.contributed_keys.len() - 5
+                    )
+                } else {
+                    step.contributed_keys.join(", ")
+                };
+                println!("      contributes: {preview}");
             }
-            if let Some(provider) = &routing.default_provider {
-                println!("  Default provider: {provider}");
-            }
-            if let Some(model) = &routing.default_model {
-                println!("  Default model: {model}");
-            }
-        } else {
-            println!("Routing: (defaults)");
         }
+        // Then the merged config, same format as the default
+        println!();
+        cmd_show_merged(&diag.config, false);
+        return Ok(());
     }
+
+    let config = reader.load_with_options(options)?;
+    cmd_show_merged(&config, json);
     Ok(())
 }
 
-async fn cmd_validate(loom_dir: &str) -> anyhow::Result<()> {
+fn cmd_show_merged(config: &loom_core::LoomConfig, json: bool) {
+    if json {
+        // Defer to the caller to print as JSON (handled above)
+        // This branch is only used when --extends is not set.
+        println!("{}", serde_json::to_string_pretty(config).unwrap());
+        return;
+    }
+    println!("=== Merged Loom Config ===");
+    println!("Ecosystem:");
+    println!("  Version:         {}", config.ecosystem.version);
+    println!("  Enabled:         {}", config.ecosystem.enabled);
+    println!(
+        "  Conflict:        {}",
+        config.ecosystem.conflict_resolution
+    );
+    println!("  Layers:");
+    println!("    Skills:  {}", config.ecosystem.layers.skills);
+    println!("    MCP:     {}", config.ecosystem.layers.mcp);
+    println!("    Sessions: {}", config.ecosystem.layers.sessions);
+    println!("    Auth:    {}", config.ecosystem.layers.auth);
+    println!("    Hooks:   {}", config.ecosystem.layers.hooks);
+    println!("    Workflow: {}", config.ecosystem.layers.workflow);
+
+    if let Some(acp) = &config.acp_registry_url {
+        println!("ACP Registry URL: {}", acp);
+    }
+    if let Some(url) = &config.remote_config_url {
+        println!("Remote Config URL: {url}");
+    }
+
+    if let Some(routing) = &config.routing {
+        println!("Routing:");
+        println!("  Strategy:    {:?}", routing.strategy);
+        println!("  Low max:     {}", routing.complexity_thresholds.low_max);
+        println!("  High min:    {}", routing.complexity_thresholds.high_min);
+        if let Some(tier) = &routing.default_tier {
+            println!("  Default tier: {:?}", tier);
+        }
+        if let Some(provider) = &routing.default_provider {
+            println!("  Default provider: {provider}");
+        }
+        if let Some(model) = &routing.default_model {
+            println!("  Default model: {model}");
+        }
+    } else {
+        println!("Routing: (defaults)");
+    }
+}
+
+async fn cmd_validate(loom_dir: &str, no_extend: bool, no_remote: bool) -> anyhow::Result<()> {
     let reader = ConfigReader::new(loom_dir);
-    match reader.load() {
+    let options = build_options(no_extend, no_remote);
+    match reader.load_with_options(options) {
         Ok(config) => {
             println!("✓ Config is valid");
 
@@ -93,7 +158,11 @@ async fn cmd_validate(loom_dir: &str) -> anyhow::Result<()> {
 
             // Check for remote_config_url
             if config.remote_config_url.is_some() {
-                println!("  ℹ Remote config URL is configured. Run `loom config fetch` to update.");
+                if no_remote {
+                    println!("  ℹ Remote config URL is configured but was skipped (--no-remote).");
+                } else {
+                    println!("  ℹ Remote config URL is configured. Run `loom config fetch` to update.");
+                }
             }
 
             println!();

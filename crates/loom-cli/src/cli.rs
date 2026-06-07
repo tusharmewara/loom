@@ -19,6 +19,13 @@ pub enum Command {
         /// Install recommended MCP servers (filesystem, github, playwright, agentmemory)
         #[arg(long, short)]
         recommended: bool,
+        /// Bootstrap from a remote config URL (HTTPS). The URL is written
+        /// to `config.toml` as `remote_config_url`, and the content is
+        /// fetched and cached immediately. Subsequent runs of any `loom`
+        /// command will deep-merge the cached remote config on top of
+        /// the local tree.
+        #[arg(long, value_name = "URL")]
+        source: Option<String>,
     },
     /// Scan the ecosystem and display discovered resources
     Scan {
@@ -799,9 +806,27 @@ pub enum ConfigAction {
         /// Output machine-readable JSON
         #[arg(long)]
         json: bool,
+        /// Show the resolved config source chain (which file contributed
+        /// each value, in precedence order).
+        #[arg(long)]
+        extends: bool,
+        /// Skip the `extends = [...]` chain (load only `config.toml`
+        /// and overlays). Useful for debugging base configs in isolation.
+        #[arg(long)]
+        no_extend: bool,
+        /// Skip applying the cached `remote_config_url` content.
+        #[arg(long)]
+        no_remote: bool,
     },
     /// Validate the merged config for errors
-    Validate,
+    Validate {
+        /// Skip the `extends = [...]` chain during validation
+        #[arg(long)]
+        no_extend: bool,
+        /// Skip the cached `remote_config_url` content during validation
+        #[arg(long)]
+        no_remote: bool,
+    },
     /// Fetch remote config from URL (HTTPS) with SHA-256 caching
     Fetch {
         /// Remote config URL (overrides config.toml setting)
@@ -885,8 +910,8 @@ impl Cli {
         let loom_dir = crate::loom_dir();
         let agents_path = PathBuf::from(&loom_dir);
         match self.command {
-            Command::Init { import, recommended } => {
-                crate::commands::init::run(import, recommended, &loom_dir).await
+            Command::Init { import, recommended, source } => {
+                crate::commands::init::run(import, recommended, source.as_deref(), &loom_dir).await
             }
             Command::Scan { json } => crate::commands::scan::run(&loom_dir, json).await,
             Command::Status { json } => crate::commands::status::run(&loom_dir, json).await,

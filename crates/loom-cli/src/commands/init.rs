@@ -15,7 +15,7 @@ use std::path::Path;
 ///
 /// When `--recommended` is passed, also installs recommended MCP servers
 /// (filesystem, github, playwright, agentmemory) into the registry.
-pub async fn run(_import: bool, recommended: bool, loom_dir: &str) -> Result<()> {
+pub async fn run(_import: bool, recommended: bool, source: Option<&str>, loom_dir: &str) -> Result<()> {
     // 1. Create the full directory tree
     let builder = SnapshotBuilder::new(loom_dir);
     builder
@@ -36,14 +36,30 @@ pub async fn run(_import: bool, recommended: bool, loom_dir: &str) -> Result<()>
     // 3. Write a default config.toml if one doesn't exist
     let config_path = Path::new(loom_dir).join("config.toml");
     if !config_path.exists() {
-        let config = loom_core::LoomConfig::default();
+        let mut config = loom_core::LoomConfig::default();
+        if let Some(url) = source {
+            if !url.starts_with("https://") {
+                anyhow::bail!(
+                    "--source URL must use https:// scheme (got {}); refusing to write insecure remote_config_url",
+                    url
+                );
+            }
+            config.remote_config_url = Some(url.to_string());
+        }
         let toml_str = toml::to_string_pretty(&config)
             .context("Failed to serialize default config")?;
         std::fs::write(&config_path, toml_str)
             .with_context(|| format!("Failed to write {config_path:?}"))?;
-        println!("✓ Created default config.toml");
+        if source.is_some() {
+            println!("✓ Created config.toml with remote_config_url = {source:?}");
+        } else {
+            println!("✓ Created default config.toml");
+        }
     } else {
         println!("  config.toml already exists (not overwritten)");
+        if let Some(url) = source {
+            merge_remote_config_url(&config_path, url)?;
+        }
     }
 
     // 3b. Write example overlay files in config/ if they don't exist
@@ -82,6 +98,59 @@ pub async fn run(_import: bool, recommended: bool, loom_dir: &str) -> Result<()>
         println!("✓ Installed {n_recommended} recommended MCP server(s)");
     }
 
+    // 7. If --source was given, fetch the remote config now so the
+    //    cache is populated before the user runs any other command.
+    if let Some(url) = source {
+        println!();
+        println!("Fetching remote config from {url}...");
+        match crate::commands::config::run(
+            loom_dir,
+            &crate::cli::ConfigAction::Fetch {
+                url: Some(url.to_string()),
+            },
+        )
+        .await
+        {
+            Ok(()) => {
+                println!("✓ Remote config cached. Run `loom config show --extends` to verify.");
+            }
+            Err(e) => {
+                eprintln!(
+                    "  ⚠ Failed to fetch remote config: {e}\n  (The URL is saved; retry with `loom config fetch`.)"
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Merge a `remote_config_url` line into an existing config.toml,
+/// preserving all other content.
+fn merge_remote_config_url(config_path: &Path, url: &str) -> Result<()> {
+    let raw = std::fs::read_to_string(config_path)
+        .with_context(|| format!("Failed to read {config_path:?}"))?;
+    if raw.lines().any(|l| l.trim_start().starts_with("remote_config_url")) {
+        let updated: String = raw
+            .lines()
+            .map(|l| {
+                if l.trim_start().starts_with("remote_config_url") {
+                    format!("remote_config_url = \"{url}\"")
+                } else {
+                    l.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(config_path, format!("{updated}\n"))
+            .with_context(|| format!("Failed to write {config_path:?}"))?;
+        println!("  ↻ Updated remote_config_url in existing config.toml");
+    } else {
+        let updated = format!("remote_config_url = \"{url}\"\n\n{raw}");
+        std::fs::write(config_path, updated)
+            .with_context(|| format!("Failed to write {config_path:?}"))?;
+        println!("  ↻ Inserted remote_config_url into existing config.toml");
+    }
     Ok(())
 }
 

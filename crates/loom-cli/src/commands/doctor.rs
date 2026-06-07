@@ -46,7 +46,7 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool) -> Result<()> {
 
     if !agents_path.exists() && fix {
         // Auto-initialize missing agents directory
-        crate::commands::init::run(false, false, loom_dir).await?;
+        crate::commands::init::run(false, false, None, loom_dir).await?;
         rows.push(CheckRow::new(
             "Agents root",
             CheckStatus::Pass,
@@ -111,7 +111,7 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool) -> Result<()> {
                 p.display().to_string(),
             ));
         } else if fix {
-            crate::commands::init::run(false, false, loom_dir).await?;
+            crate::commands::init::run(false, false, None, loom_dir).await?;
             rows.push(CheckRow::new(
                 format!("File: {file_name}"),
                 CheckStatus::Pass,
@@ -456,7 +456,7 @@ mod tests {
     async fn test_doctor_initialized_dir_has_no_failures() {
         let dir = tempfile::tempdir().unwrap();
         let loom_dir = dir.path().to_str().unwrap();
-        init::run(false, false, loom_dir).await.unwrap();
+        init::run(false, false, None, loom_dir).await.unwrap();
         let result = run(loom_dir, false, false).await;
         assert!(result.is_ok(), "doctor should pass, got: {result:?}");
     }

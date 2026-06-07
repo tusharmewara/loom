@@ -748,7 +748,7 @@ mod tests {
         let loom_dir = dir.path().to_str().unwrap();
 
         // Initialize first
-        init::run(false, false, loom_dir).await.unwrap();
+        init::run(false, false, None, loom_dir).await.unwrap();
 
         // Scan should succeed with empty counts
         run(loom_dir, false).await.unwrap();

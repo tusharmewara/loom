@@ -31,7 +31,15 @@ ecosystem directory.  Accepts
 .B \-\-import
 to scan the local filesystem and
 .B \-\-recommended
-to install the recommended set of MCP servers.
+to install the recommended set of MCP servers.  Use
+.B \-\-source \fIURL\fR
+to bootstrap from a remote config (HTTPS only); the URL is written to
+.B config.toml
+as
+.B remote_config_url
+and the content is fetched and cached locally so subsequent
+.B loom
+commands deep\-merge the cached remote config on top of the local tree.
 .TP
 .B scan
 Print a summary of the resources currently registered with the
@@ -46,6 +54,50 @@ persistence layer.
 .TP
 .B tui
 Launch the terminal UI dashboard (seven tabs, 1s auto refresh).
+.SS Config inspection
+.TP
+.B config show
+Print the merged
+.B LoomConfig
+after applying all five precedence layers
+.RI ( defaults
+<\fIextends\fR
+<\fIlocal config.toml\fR
+<\fIlayer overlays\fR
+<\fIremote cache\fR).
+Accepts
+.B \-\-json
+for machine\-readable output and
+.B \-\-extends
+to print the resolved source chain (label, path, contributed keys for
+each layer).
+.B \-\-no\-extend
+and
+.B \-\-no\-remote
+skip the corresponding layer for a single command (env var
+equivalents:
+.BR LOOM_NO_EXTEND=1 ,
+.BR LOOM_NO_REMOTE=1 ).
+.TP
+.B config validate
+Validate the merged
+.B LoomConfig
+without writing anything.  Same
+.B \-\-no\-extend
+and
+.B \-\-no\-remote
+flags as
+.BR config show .
+.TP
+.B config fetch \fI[\-\-url \fIURL\fR]\fR
+Download the remote config (HTTPS only) to
+.BR ~/.loom/.cache/remote_config/ .
+If
+.B \-\-url
+is omitted, uses
+.B remote_config_url
+from the current
+.B config.toml.
 .SS Tool and integration management
 .TP
 .B thread \fItool\fR
