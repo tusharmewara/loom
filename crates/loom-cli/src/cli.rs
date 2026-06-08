@@ -7,6 +7,10 @@ use std::path::PathBuf;
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
+
+    /// Skip automatic update check on startup
+    #[arg(long, global = true)]
+    pub no_update: bool,
 }
 
 #[derive(Subcommand)]
@@ -47,6 +51,9 @@ pub enum Command {
         /// Auto-fix detected issues (creates missing dirs, inits missing files)
         #[arg(long, short)]
         fix: bool,
+        /// Verbose output with explanations for each check
+        #[arg(long, short)]
+        verbose: bool,
     },
     /// Register or update a tool in the ecosystem
     Thread {
@@ -147,6 +154,9 @@ pub enum Command {
         /// Verify installed skills match the lock file
         #[arg(long, short)]
         verify: bool,
+        /// Show diff-style output for violations (used with --verify)
+        #[arg(long)]
+        diff: bool,
     },
     /// Manage AgentMemory persistent memory server
     Memory {
@@ -168,10 +178,26 @@ pub enum Command {
         #[command(subcommand)]
         action: PluginAction,
     },
+    /// Manage remote SSH connections
+    Remote {
+        #[command(subcommand)]
+        action: RemoteAction,
+    },
     /// Manage the knowledge graph (extract, query, add entities, stats)
     Knowledge {
         #[command(subcommand)]
         action: KnowledgeAction,
+    },
+    /// Generate shell completions
+    Completions {
+        /// Shell type (bash, zsh, fish, powershell, elvish)
+        shell: clap_complete::Shell,
+    },
+    /// Self-update: check for new version and install
+    SelfUpdate {
+        /// Force re-download even if same version
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -194,6 +220,9 @@ pub enum PluginAction {
         /// Optional version string
         #[arg(long)]
         version: Option<String>,
+        /// Verify Ed25519 signature (requires public_key + signature fields)
+        #[arg(long)]
+        verify: bool,
     },
     /// Register a plugin from a local tool TOML file
     Register {
@@ -224,6 +253,64 @@ pub enum PluginAction {
         /// Output machine-readable JSON
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum RemoteAction {
+    /// List all configured remote connections
+    List {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Add a new remote connection
+    Add {
+        /// Connection name
+        name: String,
+        /// Remote hostname or IP
+        host: String,
+        /// SSH port (default 22)
+        #[arg(long, default_value = "22")]
+        port: u16,
+        /// Remote username
+        #[arg(long, default_value = "root")]
+        user: String,
+        /// Path to SSH identity file
+        #[arg(long)]
+        key: Option<String>,
+        /// Use ssh-agent (default)
+        #[arg(long)]
+        agent: bool,
+        /// Jump host
+        #[arg(long)]
+        jump: Option<String>,
+    },
+    /// Remove a remote connection
+    Remove {
+        name: String,
+    },
+    /// Execute a command on a remote host
+    Exec {
+        /// Connection name
+        conn: String,
+        /// Command to run
+        command: Vec<String>,
+    },
+    /// Sync files to/from a remote host
+    Sync {
+        /// Connection name
+        conn: String,
+        /// Push local → remote (default), or pull remote → local
+        #[arg(long)]
+        pull: bool,
+        /// Use scp instead of rsync
+        #[arg(long)]
+        scp: bool,
+        /// Local path or remote path
+        source: String,
+        /// Remote path or local path
+        dest: String,
     },
 }
 
@@ -454,6 +541,16 @@ pub enum SessionsAction {
         #[arg(long)]
         json: bool,
     },
+    /// Merge messages from one session into another (appends to destination)
+    Merge {
+        /// Destination session ID (receives merged messages)
+        dest: String,
+        /// Source session ID (messages taken from here)
+        source: String,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -628,6 +725,12 @@ pub enum WorkflowAction {
         /// Agent for the Finish phase (e.g. "crush")
         #[arg(long)]
         finish: Option<String>,
+        /// Max retries per phase before using fallback
+        #[arg(long, default_value = "3")]
+        max_retries: u8,
+        /// Fallback agent when retries exhausted
+        #[arg(long)]
+        fallback_agent: Option<String>,
     },
     /// Manage workflow templates
     Template {
@@ -762,9 +865,12 @@ pub enum IssuesAction {
         /// GitHub token (defaults to GITHUB_TOKEN env) or Linear API key (--provider linear)
         #[arg(long)]
         token: Option<String>,
-        /// Provider: github or linear
+        /// Provider: github, linear, jira, or gitlab
         #[arg(long, default_value = "github")]
         provider: String,
+        /// Jira host URL (e.g. https://mycompany.atlassian.net) or GitLab host (default https://gitlab.com)
+        #[arg(long)]
+        host: Option<String>,
     },
     /// Show a single issue
     Show {
@@ -779,9 +885,12 @@ pub enum IssuesAction {
         /// GitHub token (defaults to GITHUB_TOKEN env) or Linear API key
         #[arg(long)]
         token: Option<String>,
-        /// Provider: github or linear
+        /// Provider: github, linear, jira, or gitlab
         #[arg(long, default_value = "github")]
         provider: String,
+        /// Jira host URL or GitLab host (default https://gitlab.com)
+        #[arg(long)]
+        host: Option<String>,
     },
     /// Create a git branch from an issue
     CreateBranch {
@@ -793,9 +902,31 @@ pub enum IssuesAction {
         /// GitHub token (defaults to GITHUB_TOKEN env) or Linear API key
         #[arg(long)]
         token: Option<String>,
-        /// Provider: github or linear
+        /// Provider: github, linear, jira, or gitlab
         #[arg(long, default_value = "github")]
         provider: String,
+        /// Jira host URL or GitLab host (default https://gitlab.com)
+        #[arg(long)]
+        host: Option<String>,
+    },
+    /// Link a PR URL to an issue (adds a comment)
+    LinkPr {
+        /// Issue ID (number, UUID, or tracker identifier)
+        id: String,
+        /// PR URL to link
+        pr_url: String,
+        /// Repository (owner/repo) — needed if id is just a number for GitHub
+        #[arg(long, default_value = "")]
+        repo: String,
+        /// GitHub token (defaults to GITHUB_TOKEN env) or Linear API key
+        #[arg(long)]
+        token: Option<String>,
+        /// Provider: github, linear, jira, or gitlab
+        #[arg(long, default_value = "github")]
+        provider: String,
+        /// Jira host URL or GitLab host (default https://gitlab.com)
+        #[arg(long)]
+        host: Option<String>,
     },
 }
 
@@ -915,7 +1046,7 @@ impl Cli {
             }
             Command::Scan { json } => crate::commands::scan::run(&loom_dir, json).await,
             Command::Status { json } => crate::commands::status::run(&loom_dir, json).await,
-            Command::Doctor { json, fix } => crate::commands::doctor::run(&loom_dir, json, fix).await,
+            Command::Doctor { json, fix, verbose } => crate::commands::doctor::run(&loom_dir, json, fix, verbose).await,
             Command::Thread {
                 tool,
                 apply_routing,
@@ -961,8 +1092,8 @@ impl Cli {
             }
             #[cfg(feature = "tui")]
             Command::Tui => loom_tui::run().await,
-            Command::Lock { generate, verify } => {
-                crate::commands::lock::run(&loom_dir, generate, verify)
+            Command::Lock { generate, verify, diff } => {
+                crate::commands::lock::run(&loom_dir, generate, verify, diff)
             }
             Command::Memory { action } => {
                 crate::commands::memory::run(&agents_path, &action).await
@@ -976,8 +1107,20 @@ impl Cli {
             Command::Plugin { action } => {
                 crate::commands::plugin::run(&agents_path, &action).await
             }
+            Command::Remote { action } => {
+                crate::commands::remote::run(&agents_path, &action).await
+            }
             Command::Knowledge { action } => {
                 crate::commands::knowledge::run(&loom_dir, &action).await
+            }
+            Command::Completions { shell } => {
+                use clap::CommandFactory;
+                let mut cmd = Cli::command();
+                clap_complete::generate(shell, &mut cmd, "loom", &mut std::io::stdout());
+                Ok(())
+            }
+            Command::SelfUpdate { force } => {
+                crate::commands::self_update::run(force).await
             }
         }
     }

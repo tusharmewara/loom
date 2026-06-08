@@ -28,6 +28,7 @@ struct CheckRow {
     name: String,
     status: CheckStatus,
     detail: String,
+    explanation: String,
 }
 
 impl CheckRow {
@@ -36,11 +37,17 @@ impl CheckRow {
             name: name.into(),
             status,
             detail: detail.into(),
+            explanation: String::new(),
         }
+    }
+
+    fn with_explanation(mut self, explanation: impl Into<String>) -> Self {
+        self.explanation = explanation.into();
+        self
     }
 }
 
-pub async fn run(loom_dir: &str, json: bool, fix: bool) -> Result<()> {
+pub async fn run(loom_dir: &str, json: bool, fix: bool, verbose: bool) -> Result<()> {
     let mut rows: Vec<CheckRow> = Vec::new();
     let agents_path = Path::new(loom_dir);
 
@@ -62,9 +69,9 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool) -> Result<()> {
             ),
         ));
         if json {
-            print_json_report(loom_dir, &rows);
+            print_json_report(loom_dir, &rows, verbose);
         } else {
-            print_report(&rows);
+            print_report(&rows, verbose);
         }
         anyhow::bail!("doctor found 1 failing check");
     }
@@ -73,6 +80,8 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool) -> Result<()> {
         "Agents root",
         CheckStatus::Pass,
         format!("Found {}", agents_path.display()),
+    ).with_explanation(
+        "The ~/.loom directory is the root of the Loom ecosystem. It stores configs, skills, sessions, auth credentials, hooks, MCP server configs, and more."
     ));
 
     // Core structure checks
@@ -85,6 +94,18 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool) -> Result<()> {
                 format!("Directory: {dir_name}"),
                 CheckStatus::Pass,
                 p.display().to_string(),
+            ).with_explanation(
+                match dir_name {
+                    "config" => "Stores routing.toml, mcp.toml, hooks.toml, acp.toml overlay files.",
+                    "skills" => "Contains shared skill files (.md) and the skills.db SQLite registry.",
+                    "mcp" => "Holds MCP server TOML config files registered by loom mcp add or loom mcp install.",
+                    "sessions" => "Session exports and message JSONL files for session persistence.",
+                    "auth" => "Encrypted credential vault (Chacha20Poly1305) and audit log.",
+                    "hooks" => "Hook TOML configs and executable scripts for pre/post tool events.",
+                    "tools" => "Tool TOML registration files (jcode, crush, etc.) for the generic adapter.",
+                    ".cache" => "Cache directory for remote config fetch and snapshot data.",
+                    _ => "",
+                }
             ));
         } else if fix {
             std::fs::create_dir_all(&p)?;
@@ -208,9 +229,9 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool) -> Result<()> {
     ));
 
     if json {
-        print_json_report(loom_dir, &rows);
+        print_json_report(loom_dir, &rows, verbose);
     } else {
-        print_report(&rows);
+        print_report(&rows, verbose);
     }
 
     let failures = rows
@@ -223,11 +244,19 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool) -> Result<()> {
     Ok(())
 }
 
-fn print_report(rows: &[CheckRow]) {
+fn print_report(rows: &[CheckRow], verbose: bool) {
     let mut table = Table::new();
-    table.set_header(vec!["Check", "Status", "Details"]);
+    if verbose {
+        table.set_header(vec!["Check", "Status", "Details", "Explanation"]);
+    } else {
+        table.set_header(vec!["Check", "Status", "Details"]);
+    }
     for row in rows {
-        table.add_row(vec![row.name.as_str(), row.status.as_str(), row.detail.as_str()]);
+        if verbose && !row.explanation.is_empty() {
+            table.add_row(vec![row.name.as_str(), row.status.as_str(), row.detail.as_str(), row.explanation.as_str()]);
+        } else {
+            table.add_row(vec![row.name.as_str(), row.status.as_str(), row.detail.as_str()]);
+        }
     }
 
     let passes = rows
@@ -248,7 +277,7 @@ fn print_report(rows: &[CheckRow]) {
     println!("Doctor summary: {passes} pass | {warns} warn | {fails} fail");
 }
 
-fn print_json_report(loom_dir: &str, rows: &[CheckRow]) {
+fn print_json_report(loom_dir: &str, rows: &[CheckRow], verbose: bool) {
     let passes = rows
         .iter()
         .filter(|r| matches!(r.status, CheckStatus::Pass))
@@ -264,11 +293,22 @@ fn print_json_report(loom_dir: &str, rows: &[CheckRow]) {
     let checks: Vec<serde_json::Value> = rows
         .iter()
         .map(|r| {
-            serde_json::json!({
-                "check": r.name,
-                "status": r.status.as_str(),
-                "details": r.detail
-            })
+            let mut check = serde_json::json!({});
+            if verbose && !r.explanation.is_empty() {
+                check = serde_json::json!({
+                    "check": r.name,
+                    "status": r.status.as_str(),
+                    "details": r.detail,
+                    "explanation": r.explanation
+                });
+            } else {
+                check = serde_json::json!({
+                    "check": r.name,
+                    "status": r.status.as_str(),
+                    "details": r.detail
+                });
+            }
+            check
         })
         .collect();
     println!(

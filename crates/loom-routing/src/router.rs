@@ -61,7 +61,21 @@ impl ModelRouter {
                     .models
                     .into_iter()
                     .next()
-                    .expect("default catalog has entries")
+                    .unwrap_or_else(|| {
+                        // Absolute fallback: hardcoded default
+                        tracing::warn!("default catalog empty, using hardcoded model");
+                        loom_core::ModelEntry {
+                            model_id: "claude-sonnet-4".into(),
+                            provider_id: "anthropic".into(),
+                            tier: loom_core::ModelTier::Mid,
+                            context_window: 200_000,
+                            input_cost_per_1k: 0.003,
+                            output_cost_per_1k: 0.015,
+                            speed_tier: loom_core::SpeedTier::Medium,
+                            capabilities: vec![],
+                            available: true,
+                        }
+                    })
             });
 
         let input_tokens = 1000u32;

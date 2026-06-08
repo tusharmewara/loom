@@ -3,7 +3,8 @@ use loom_skills::lockfile::{self, SkillsLock};
 
 /// `loom lock --generate` — regenerate lock file from current state.
 /// `loom lock --verify` — verify installed skills match lock file.
-pub fn run(loom_dir: &str, generate: bool, verify: bool) -> Result<()> {
+/// `loom lock --verify --diff` — show detailed diff of violations.
+pub fn run(loom_dir: &str, generate: bool, verify: bool, diff: bool) -> Result<()> {
     let lock_path = lockfile::default_lock_path(loom_dir);
 
     if generate {
@@ -36,21 +37,43 @@ pub fn run(loom_dir: &str, generate: bool, verify: bool) -> Result<()> {
             Ok(())
         } else {
             for v in &violations {
-                match v.kind {
-                    lockfile::LockViolationKind::Missing => {
-                        println!("  ✗ {}: in lock but removed from registry", v.name);
+                if diff {
+                    match v.kind {
+                        lockfile::LockViolationKind::Missing => {
+                            println!("  -{}.toml  # in lock but removed from registry", v.name);
+                        }
+                        lockfile::LockViolationKind::VersionMismatch => {
+                            println!("  ~{}.toml  # version {} → {} (expected → actual)", v.name, v.expected, v.actual);
+                        }
+                        lockfile::LockViolationKind::ContentChanged => {
+                            println!(
+                                "  ~{}.toml  # content hash changed ({} → {})",
+                                v.name,
+                                &v.expected[..8],
+                                &v.actual[..8]
+                            );
+                        }
+                        lockfile::LockViolationKind::Unlocked => {
+                            println!("  +{}.toml  # not in lock file", v.name);
+                        }
                     }
-                    lockfile::LockViolationKind::VersionMismatch => {
-                        println!(
-                            "  ✗ {}: version mismatch (expected {}, actual {})",
-                            v.name, v.expected, v.actual
-                        );
-                    }
-                    lockfile::LockViolationKind::ContentChanged => {
-                        println!("  ✗ {}: content hash changed", v.name);
-                    }
-                    lockfile::LockViolationKind::Unlocked => {
-                        println!("  ✗ {}: not in lock file", v.name);
+                } else {
+                    match v.kind {
+                        lockfile::LockViolationKind::Missing => {
+                            println!("  ✗ {}: in lock but removed from registry", v.name);
+                        }
+                        lockfile::LockViolationKind::VersionMismatch => {
+                            println!(
+                                "  ✗ {}: version mismatch (expected {}, actual {})",
+                                v.name, v.expected, v.actual
+                            );
+                        }
+                        lockfile::LockViolationKind::ContentChanged => {
+                            println!("  ✗ {}: content hash changed", v.name);
+                        }
+                        lockfile::LockViolationKind::Unlocked => {
+                            println!("  ✗ {}: not in lock file", v.name);
+                        }
                     }
                 }
             }

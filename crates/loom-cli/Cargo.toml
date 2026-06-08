@@ -28,8 +28,10 @@ loom-mcp-server = { path = "../loom-mcp-server" }
 loom-trackers = { path = "../loom-trackers" }
 loom-parallel = { path = "../loom-parallel" }
 loom-knowledge = { path = "../loom-knowledge" }
+loom-remote = { path = "../loom-remote" }
 loom-tui = { path = "../loom-tui", optional = true }
 clap.workspace = true
+clap_complete.workspace = true
 comfy-table.workspace = true
 anyhow.workspace = true
 serde.workspace = true
@@ -42,6 +44,7 @@ uuid.workspace = true
 chrono.workspace = true
 reqwest.workspace = true
 sha2.workspace = true
+ureq.workspace = true
 
 [features]
 default = ["tui"]

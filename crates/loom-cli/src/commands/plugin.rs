@@ -1,5 +1,5 @@
 use crate::cli::PluginAction;
-use loom_core::plugin_registry::PluginRegistry;
+use loom_core::plugin_registry::{self, PluginRegistry};
 use std::path::Path;
 
 pub async fn run(loom_dir: &Path, action: &PluginAction) -> anyhow::Result<()> {
@@ -101,9 +101,22 @@ pub async fn run(loom_dir: &Path, action: &PluginAction) -> anyhow::Result<()> {
             name,
             url,
             version,
+            verify,
         } => {
             println!("Installing plugin '{}' from {}...", name, url);
             let manifest = registry.install_from_url(name, url, version.as_deref())?;
+            if *verify {
+                // Re-read the downloaded tool TOML to verify signature
+                let tools_dir = loom_dir.join("tools");
+                let tool_path = tools_dir.join(format!("{name}.toml"));
+                if tool_path.exists() {
+                    let content = std::fs::read(&tool_path)?;
+                    plugin_registry::verify_plugin_signature(&manifest, &content)?;
+                    println!("  ✓ Signature verified");
+                } else {
+                    println!("  ⚠ Tool TOML not found, skipping signature verification");
+                }
+            }
             println!("✓ Plugin '{}' v{} installed", manifest.name, manifest.version);
         }
         PluginAction::Register { name, path } => {

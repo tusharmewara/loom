@@ -3,6 +3,42 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use sha2::{Sha256, Digest};
 
+/// Verify a plugin tool TOML's Ed25519 signature.
+///
+/// Returns `Ok(())` if `public_key` and `signature` are present on the
+/// manifest and the signature authenticates the content. Returns `Ok(())`
+/// also when both fields are absent (unsigned — allowed for local plugins).
+/// Returns an error if one field is present without the other, or if the
+/// signature is invalid.
+pub fn verify_plugin_signature(manifest: &PluginManifest, content: &[u8]) -> Result<()> {
+    match (&manifest.public_key, &manifest.signature) {
+        (Some(pk_b64), Some(sig_hex)) => {
+            use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
+            use base64::Engine;
+            let pk_bytes = base64::engine::general_purpose::STANDARD
+                .decode(pk_b64)
+                .context("invalid base64 public_key")?;
+            let pk = VerifyingKey::from_bytes(
+                &pk_bytes.try_into().map_err(|_| anyhow::anyhow!("invalid public key length (expected 32 bytes)"))?,
+            )?;
+
+            let sig_bytes = hex::decode(sig_hex)
+                .context("invalid hex signature")?;
+            let sig = Signature::from_slice(&sig_bytes)
+                .map_err(|e| anyhow::anyhow!("invalid signature: {e}"))?;
+
+            pk.verify(content, &sig)
+                .map_err(|e| anyhow::anyhow!("plugin signature verification failed: {e}"))?;
+
+            Ok(())
+        }
+        (None, None) => Ok(()), // unsigned — allowed
+        (Some(_), None) => anyhow::bail!("plugin has public_key but no signature"),
+        (None, Some(_)) => anyhow::bail!("plugin has signature but no public_key"),
+    }
+}
+
 /// Manages the plugin registry stored in `~/.loom/plugins/`.
 pub struct PluginRegistry {
     plugins_dir: PathBuf,
@@ -33,8 +69,8 @@ impl PluginRegistry {
                     match toml::from_str::<PluginManifest>(&raw) {
                         Ok(p) => plugins.push(p),
                         Err(e) => {
-                            eprintln!(
-                                "  Warning: invalid plugin manifest '{}': {e}",
+                            tracing::warn!(
+                                "invalid plugin manifest '{}': {e}",
                                 path.display()
                             );
                         }
@@ -117,6 +153,8 @@ impl PluginRegistry {
             tool_toml_url: Some(url.to_string()),
             installed_at: Some(chrono::Utc::now().to_rfc3339()),
             checksum: Some(checksum),
+            public_key: None,
+            signature: None,
         };
 
         self.save(&manifest)?;
@@ -151,6 +189,8 @@ impl PluginRegistry {
             tool_toml_url: None,
             installed_at: Some(chrono::Utc::now().to_rfc3339()),
             checksum: Some(checksum),
+            public_key: None,
+            signature: None,
         };
 
         self.save(&manifest)?;

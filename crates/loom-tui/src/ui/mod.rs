@@ -79,6 +79,7 @@ fn draw_content_body(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, 
         5 => tabs::draw_sessions(frame, area, app, theme),
         6 => tabs::draw_logs(frame, area, app, theme),
         7 => tabs::draw_knowledge(frame, area, app, theme),
+        8 => tabs::draw_pulls(frame, area, app, theme),
         _ => {}
     }
 }

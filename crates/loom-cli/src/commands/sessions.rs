@@ -43,7 +43,7 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                 manifests
             } else {
                 let memory = CrossSessionMemory::new(loom_dir.to_str().unwrap())?;
-                let allowed = memory.session_ids_with_tags(Some(&tag))?;
+                let allowed = memory.session_ids_with_tags(Some(tag))?;
                 let allowed = allowed.unwrap_or_default();
                 let allowed_set: std::collections::HashSet<String> =
                     allowed.into_iter().collect();
@@ -482,6 +482,58 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                 }
             }
         }
+        SessionsAction::Merge { dest, source, json } => {
+            cmd_merge(&loom_dir, &store, dest, source, *json)?
+        }
+    }
+    Ok(())
+}
+
+fn cmd_merge(
+    _loom_dir: &Path,
+    store: &loom_sessions::store::SessionStore,
+    dest: &str,
+    source: &str,
+    json: bool,
+) -> anyhow::Result<()> {
+    // Validate both sessions exist
+    let _dest_manifest = store
+        .get(dest)
+        .ok_or_else(|| anyhow::anyhow!("Destination session '{dest}' not found"))?;
+    let _source_manifest = store
+        .get(source)
+        .ok_or_else(|| anyhow::anyhow!("Source session '{source}' not found"))?;
+
+    // Load source messages
+    let source_msgs = store.load_messages(source)?;
+    if source_msgs.is_empty() {
+        anyhow::bail!("Source session '{source}' has no messages to merge");
+    }
+
+    let source_count = source_msgs.len();
+
+    // Append each source message to the destination session
+    for msg in &source_msgs {
+        store.append_message(dest, msg)?;
+    }
+
+    let dest_after = store
+        .get(dest)
+        .map(|m| m.message_count)
+        .unwrap_or(0);
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+            "schema_version": 1,
+            "command": "sessions.merge",
+            "dest": dest,
+            "source": source,
+            "source_messages_merged": source_count,
+            "dest_message_count_after": dest_after,
+        }))?);
+    } else {
+        println!("✓ Merged {source_count} message(s) from '{source}' into '{dest}'");
+        println!("  '{dest}' now has {dest_after} message(s)");
     }
     Ok(())
 }

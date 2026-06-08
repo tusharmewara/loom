@@ -645,7 +645,15 @@ pub struct SubAgentConfig {
     /// Agent tool for the Finish phase (e.g. "crush").
     #[serde(default)]
     pub finish: Option<String>,
+    /// Max retries per phase before falling back to `fallback_agent`.
+    #[serde(default = "default_max_retries")]
+    pub max_retries: u8,
+    /// Optional fallback agent when all retries are exhausted.
+    #[serde(default)]
+    pub fallback_agent: Option<String>,
 }
+
+fn default_max_retries() -> u8 { 3 }
 
 /// Dispatch mode for workflow tasks.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -805,6 +813,12 @@ pub struct PluginManifest {
     /// SHA-256 checksum of the downloaded tool TOML (hex).
     #[serde(default)]
     pub checksum: Option<String>,
+    /// Ed25519 public key (base64) of the plugin publisher.
+    #[serde(default)]
+    pub public_key: Option<String>,
+    /// Ed25519 signature (base64, hex) over the tool TOML content.
+    #[serde(default)]
+    pub signature: Option<String>,
 }
 
 // ─── Knowledge Graph ──────────────────────────────────────────────

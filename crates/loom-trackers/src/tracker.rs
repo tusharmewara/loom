@@ -22,6 +22,12 @@ pub trait IssueTracker: Send + Sync {
 
     /// Add a comment to an issue.
     async fn add_comment(&self, id: &str, body: &str) -> Result<(), TrackerError>;
+
+    /// Link a PR URL to an issue by adding a comment.
+    async fn link_pr(&self, issue_id: &str, pr_url: &str) -> Result<(), TrackerError> {
+        let body = format!("🚀 Linked PR: {pr_url}");
+        self.add_comment(issue_id, &body).await
+    }
 }
 
 /// Turn a title into a branch-safe slug.

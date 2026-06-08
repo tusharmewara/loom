@@ -166,11 +166,7 @@ impl IpcHandler for LoomdIpcHandler {
                 };
                 // Apply removes first, then adds, preserving existing
                 // ordering for the items that survive.
-                manifest.tags = manifest
-                    .tags
-                    .into_iter()
-                    .filter(|t| !remove.iter().any(|r| r == t))
-                    .collect();
+                manifest.tags.retain(|t| !remove.iter().any(|r| r == t));
                 for t in &add {
                     let trimmed = t.trim();
                     if trimmed.is_empty() || manifest.tags.iter().any(|x| x == trimmed) {

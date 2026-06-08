@@ -2,6 +2,8 @@
 
 use crate::cli::IssuesAction;
 use loom_trackers::github::GitHubTracker;
+use loom_trackers::gitlab::GitLabTracker;
+use loom_trackers::jira::JiraTracker;
 use loom_trackers::linear::LinearTracker;
 use loom_trackers::models::IssueQuery;
 use loom_trackers::IssueTracker;
@@ -17,8 +19,9 @@ pub async fn run(_loom_dir: &Path, action: &IssuesAction) -> anyhow::Result<()> 
             json,
             token,
             provider,
+            host,
         } => {
-            cmd_list(provider, repo, state.as_deref(), labels.as_deref(), *json, token.as_deref()).await
+            cmd_list(provider, repo, state.as_deref(), labels.as_deref(), *json, token.as_deref(), host.as_deref()).await
         }
         IssuesAction::Show {
             id,
@@ -26,22 +29,38 @@ pub async fn run(_loom_dir: &Path, action: &IssuesAction) -> anyhow::Result<()> 
             json,
             token,
             provider,
-        } => cmd_show(provider, id, repo, *json, token.as_deref()).await,
+            host,
+        } => cmd_show(provider, id, repo, *json, token.as_deref(), host.as_deref()).await,
         IssuesAction::CreateBranch {
             id,
             repo,
             token,
             provider,
-        } => cmd_create_branch(provider, id, repo, token.as_deref()).await,
+            host,
+        } => cmd_create_branch(provider, id, repo, token.as_deref(), host.as_deref()).await,
+        IssuesAction::LinkPr {
+            id,
+            pr_url,
+            repo,
+            token,
+            provider,
+            host,
+        } => cmd_link_pr(provider, id, pr_url, repo, token.as_deref(), host.as_deref()).await,
     }
 }
 
 /// Create a tracker instance from the provider name.
-fn create_tracker(provider: &str, token: Option<&str>) -> anyhow::Result<Box<dyn IssueTracker>> {
+fn create_tracker(provider: &str, token: Option<&str>, host: Option<&str>) -> anyhow::Result<Box<dyn IssueTracker>> {
     match provider {
         "github" => Ok(Box::new(GitHubTracker::new(token.map(|s| s.to_string()))?)),
+        "gitlab" => Ok(Box::new(GitLabTracker::new(host.map(|s| s.to_string()), token.map(|s| s.to_string()))?)),
         "linear" => Ok(Box::new(LinearTracker::new(token.map(|s| s.to_string()))?)),
-        other => anyhow::bail!("Unknown provider '{other}'. Use 'github' or 'linear'."),
+        "jira" => Ok(Box::new(JiraTracker::new(
+            host.map(|s| s.to_string()),
+            None,
+            token.map(|s| s.to_string()),
+        )?)),
+        other => anyhow::bail!("Unknown provider '{other}'. Use 'github', 'gitlab', 'linear', or 'jira'."),
     }
 }
 
@@ -52,8 +71,9 @@ async fn cmd_list(
     labels: Option<&str>,
     json: bool,
     token: Option<&str>,
+    host: Option<&str>,
 ) -> anyhow::Result<()> {
-    let tracker = create_tracker(provider, token)?;
+    let tracker = create_tracker(provider, token, host)?;
 
     let query = IssueQuery {
         repo: repo.to_string(),
@@ -106,8 +126,9 @@ async fn cmd_show(
     repo: &str,
     json: bool,
     token: Option<&str>,
+    host: Option<&str>,
 ) -> anyhow::Result<()> {
-    let tracker = create_tracker(provider, token)?;
+    let tracker = create_tracker(provider, token, host)?;
 
     // For GitHub, if id is just a number, prepend the repo
     let issue_id = if provider == "github" && id.chars().all(|c| c.is_ascii_digit()) && !repo.is_empty() {
@@ -158,8 +179,9 @@ async fn cmd_create_branch(
     id: &str,
     repo: &str,
     token: Option<&str>,
+    host: Option<&str>,
 ) -> anyhow::Result<()> {
-    let tracker = create_tracker(provider, token)?;
+    let tracker = create_tracker(provider, token, host)?;
 
     let issue_id = if provider == "github" && id.chars().all(|c| c.is_ascii_digit()) && !repo.is_empty() {
         format!("{}#{}", repo, id)
@@ -185,5 +207,26 @@ async fn cmd_create_branch(
         anyhow::bail!("Failed to create branch: {}", stderr.trim());
     }
 
+    Ok(())
+}
+
+async fn cmd_link_pr(
+    provider: &str,
+    id: &str,
+    pr_url: &str,
+    repo: &str,
+    token: Option<&str>,
+    host: Option<&str>,
+) -> anyhow::Result<()> {
+    let tracker = create_tracker(provider, token, host)?;
+
+    let issue_id = if provider == "github" && id.chars().all(|c| c.is_ascii_digit()) && !repo.is_empty() {
+        format!("{}#{}", repo, id)
+    } else {
+        id.to_string()
+    };
+
+    tracker.link_pr(&issue_id, pr_url).await?;
+    println!("✓ Linked PR to {provider} issue {issue_id}: {pr_url}");
     Ok(())
 }

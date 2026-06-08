@@ -1,6 +1,6 @@
 use crate::app::App;
 use crate::theme::Theme;
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
@@ -15,9 +15,38 @@ pub fn draw_embedded_pane(frame: &mut Frame, area: Rect, app: &App, theme: &Them
         None => return,
     };
 
-    let popup_area = centered_rect(75, 70, area);
+    let popup_area = centered_rect(80, 75, area);
     frame.render_widget(Clear, popup_area);
 
+    let inner = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_focused))
+        .title(format!(
+            " Embedded Pane: {} ",
+            task.pointer("/task_id").and_then(Value::as_str).unwrap_or("?")
+        ))
+        .title_style(
+            Style::default()
+                .fg(theme.primary)
+                .add_modifier(Modifier::BOLD),
+        );
+    let area = inner.inner(popup_area);
+    frame.render_widget(inner, popup_area);
+
+    // Split: left (task context 45%) | right (live output 55%)
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+        .split(area);
+
+    // ── Left: Task context ──────────────────────────────────────
+    draw_task_context(frame, chunks[0], task, theme);
+
+    // ── Right: Live output log ───────────────────────────────────
+    draw_output_log(frame, chunks[1], app, theme);
+}
+
+fn draw_task_context(frame: &mut Frame, area: Rect, task: &Value, theme: &Theme) {
     let task_id = task.pointer("/task_id").and_then(Value::as_str).unwrap_or("?");
     let title = task.pointer("/title").and_then(Value::as_str).unwrap_or("Untitled");
     let description = task.pointer("/description").and_then(Value::as_str).unwrap_or("");
@@ -26,11 +55,11 @@ pub fn draw_embedded_pane(frame: &mut Frame, area: Rect, app: &App, theme: &Them
     let provider = task.pointer("/provider").and_then(Value::as_str).unwrap_or("");
     let model = task.pointer("/model").and_then(Value::as_str).unwrap_or("");
 
-    let mut lines = Vec::new();
+    let mut lines: Vec<Line> = Vec::new();
 
-    // Task header
+    // Header
     lines.push(Line::from(Span::styled(
-        format!(" {} ", title),
+        format!(" {}", title),
         Style::default()
             .fg(theme.primary)
             .add_modifier(Modifier::BOLD),
@@ -68,7 +97,6 @@ pub fn draw_embedded_pane(frame: &mut Frame, area: Rect, app: &App, theme: &Them
                 .fg(theme.secondary)
                 .add_modifier(Modifier::UNDERLINED),
         )));
-        // Word-wrap description
         for chunk in description.split('\n') {
             lines.push(Line::from(Span::styled(
                 chunk,
@@ -121,7 +149,7 @@ pub fn draw_embedded_pane(frame: &mut Frame, area: Rect, app: &App, theme: &Them
         }
     }
 
-    // Progress bar if phases are available
+    // Progress bar
     if let Some(progress) = task.pointer("/progress").and_then(Value::as_f64) {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
@@ -131,7 +159,7 @@ pub fn draw_embedded_pane(frame: &mut Frame, area: Rect, app: &App, theme: &Them
                 .add_modifier(Modifier::UNDERLINED),
         )));
         let pct = (progress * 100.0) as u16;
-        let bar_width = 40usize;
+        let bar_width = 30usize;
         let filled = ((pct as f64 / 100.0) * bar_width as f64) as usize;
         let empty = bar_width.saturating_sub(filled);
         let bar = format!(
@@ -143,26 +171,64 @@ pub fn draw_embedded_pane(frame: &mut Frame, area: Rect, app: &App, theme: &Them
         lines.push(Line::from(Span::styled(bar, Style::default().fg(theme.primary))));
     }
 
-    // Footer hint
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        " Esc to close | r to refresh ",
-        Style::default().fg(theme.text_dim),
-    )));
-
     let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme.border_focused))
-        .title(format!(" Embedded Pane: {} ", task_id))
-        .title_style(
-            Style::default()
-                .fg(theme.primary)
-                .add_modifier(Modifier::BOLD),
+        .borders(Borders::RIGHT)
+        .title(" Task Context ")
+        .title_style(Style::default().fg(theme.secondary));
+    let paragraph = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, area);
+}
+
+fn draw_output_log(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    let block = Block::default()
+        .borders(Borders::LEFT)
+        .title(" Output Log ")
+        .title_style(Style::default().fg(theme.secondary));
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    if app.embedded_log.is_empty() {
+        lines.push(Line::from(Span::styled(
+            " No output yet. Dispatch the task to see live output here.\n\n j/k — scroll • Esc — close • r — refresh",
+            theme.text_dim,
+        )));
+    } else {
+        let visible_height = area.height.saturating_sub(2) as usize;
+        let scroll = app.embedded_log_scroll.min(
+            app.embedded_log.len().saturating_sub(visible_height),
         );
+        for line in app.embedded_log.iter().skip(scroll).take(visible_height) {
+            // Color based on content heuristics
+            let style = if line.contains("error") || line.contains("FAIL") {
+                Style::default().fg(theme.error)
+            } else if line.contains("warning") || line.contains("WARN") {
+                Style::default().fg(theme.warning)
+            } else if line.contains("✓") || line.contains("ok") {
+                Style::default().fg(theme.success)
+            } else if line.contains("→") || line.contains("=>") {
+                Style::default().fg(theme.primary)
+            } else {
+                Style::default().fg(theme.text)
+            };
+            lines.push(Line::from(Span::styled(line, style)));
+        }
 
-    let paragraph = Paragraph::new(lines)
-        .block(block)
-        .wrap(Wrap { trim: false });
+        // Footer with scroll indicator
+        if app.embedded_log.len() > visible_height {
+            let total = app.embedded_log.len();
+            let at = scroll + visible_height;
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "\n Lines {}-{}/{}  (j/k to scroll)",
+                    scroll + 1,
+                    at.min(total),
+                    total
+                ),
+                theme.text_dim,
+            )));
+        }
+    }
 
-    frame.render_widget(paragraph, popup_area);
+    let paragraph = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, area);
 }

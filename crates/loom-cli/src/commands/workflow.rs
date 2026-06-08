@@ -299,8 +299,9 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
             }
 
             // Auto-advance loop: dispatch → capture result → advance → re-dispatch
-            // until the task is in Finish phase (or an agent exits non-zero,
+            // until the task is in Finish phase (or retries exhausted,
             // or the user only requested a single dispatch).
+            let mut retry_count: HashMap<String, u8> = HashMap::new();
             loop {
                 // Build the prompt that will actually be passed to the agent,
                 // so the session-capture step can include it in the user
@@ -387,11 +388,34 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                     break;
                 }
 
-                // Auto-advance: stop the chain if the agent failed, unless
-                // the agent still wrote a result (operator may want to keep
-                // going with a partial result). Default to stopping on
-                // non-zero exit.
+                // Auto-advance: retry on failure up to max_retries, then
+                // try fallback agent before giving up.
                 if exit_code != 0 {
+                    let config = task.sub_agents.as_ref();
+                    let retries_used = retry_count.entry(current_agent.clone()).or_insert(0u8);
+                    let max_retries = config.map(|c| c.max_retries).unwrap_or(3);
+
+                    if *retries_used < max_retries {
+                        *retries_used += 1;
+                        eprintln!(
+                            "🔄 Agent '{current_agent}' exited with {exit_code}; retry {}/{}",
+                            *retries_used, max_retries
+                        );
+                        continue;
+                    }
+
+                    // Try fallback agent if configured
+                    if let Some(fallback) = config.and_then(|c| c.fallback_agent.as_ref()) {
+                        if &current_agent != fallback {
+                            eprintln!(
+                                "🔄 Retries exhausted for '{current_agent}'; trying fallback '{fallback}'"
+                            );
+                            current_agent = fallback.clone();
+                            retry_count.insert(current_agent.clone(), 0);
+                            continue;
+                        }
+                    }
+
                     eprintln!(
                         "🛑 Agent '{current_agent}' exited with {exit_code}; stopping auto-advance chain"
                     );
@@ -425,12 +449,16 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
             implement,
             verify,
             finish,
+            max_retries,
+            fallback_agent,
         } => {
             let config = loom_core::SubAgentConfig {
                 plan: plan.clone(),
                 implement: implement.clone(),
                 verify: verify.clone(),
                 finish: finish.clone(),
+                max_retries: *max_retries,
+                fallback_agent: fallback_agent.clone(),
             };
             let task = orchestrator.set_sub_agents(task_id, config)?;
             println!("✓ Sub-agent configuration set for task {task_id}:");
@@ -514,6 +542,8 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                             implement: sub_implement.clone(),
                             verify: sub_verify.clone(),
                             finish: sub_finish.clone(),
+                            max_retries: 3,
+                            fallback_agent: None,
                         })
                     } else {
                         None
@@ -700,7 +730,7 @@ async fn launch_agent_with_task_context(
         const MAX_PROMPT_LEN: usize = 4096;
         if prompt.len() > MAX_PROMPT_LEN {
             prompt.truncate(MAX_PROMPT_LEN);
-            prompt.push_str("…");
+            prompt.push('…');
         }
         vec![prompt]
     } else {

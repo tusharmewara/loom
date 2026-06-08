@@ -60,6 +60,10 @@ impl LoomCliAdapter {
         self.run_json(&["knowledge", "stats"]).await
     }
 
+    pub async fn fetch_pulls_list(&self) -> Result<Value> {
+        self.run_json(&["issues", "list", "--json", "--state", "all", "--repo", ""]).await
+    }
+
     pub async fn daemon_start(&self) -> CommandResult {
         self.run_daemon_action("start", &["daemon", "start"]).await
     }

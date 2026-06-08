@@ -20,6 +20,8 @@ pub struct App {
     pub workflow: Value,
     pub hooks: Value,
     pub knowledge: Value,
+    pub pulls: Value,
+    pub pull_selection_index: usize,
     pub last_error: Option<String>,
     pub action_palette_open: bool,
     pub action_palette_selected: usize,
@@ -37,6 +39,8 @@ pub struct App {
     pub theme: Theme,
     pub sidebar_visible: bool,
     pub embedded_task: Option<Value>,
+    pub embedded_log: Vec<String>,
+    pub embedded_log_scroll: usize,
     theme_manager: crate::theme::ThemeManager,
     adapter: LoomCliAdapter,
 }
@@ -46,7 +50,7 @@ impl App {
         let theme_manager = crate::theme::ThemeManager::new();
         let theme = theme_manager.current();
         Self {
-            tabs: vec!["Dashboard", "Daemon", "Discovery", "MCP", "Skills", "Sessions", "Logs", "Knowledge"],
+            tabs: vec!["Dashboard", "Daemon", "Discovery", "MCP", "Skills", "Sessions", "Logs", "Knowledge", "PRs"],
             tab_index: 0,
             last_refresh: Instant::now(),
             status: Value::Null,
@@ -59,6 +63,8 @@ impl App {
             workflow: Value::Null,
             hooks: Value::Null,
             knowledge: Value::Null,
+            pulls: Value::Null,
+            pull_selection_index: 0,
             last_error: None,
             action_palette_open: false,
             action_palette_selected: 0,
@@ -66,7 +72,7 @@ impl App {
             last_action_result: None,
             action_in_progress: false,
             help_overlay_open: false,
-            scroll_offsets: vec![0; 8],
+            scroll_offsets: vec![0; 9],
             task_selection_index: 0,
             dispatch_menu_open: false,
             dispatch_menu_selected: 0,
@@ -76,6 +82,8 @@ impl App {
             theme,
             sidebar_visible: true,
             embedded_task: None,
+            embedded_log: Vec::new(),
+            embedded_log_scroll: 0,
             theme_manager,
             adapter,
         }
@@ -177,6 +185,11 @@ impl App {
         } else if self.knowledge.is_null() {
             self.knowledge = Value::Object(Default::default());
         }
+        if let Ok(v) = self.adapter.fetch_pulls_list().await {
+            self.pulls = v;
+        } else if self.pulls.is_null() {
+            self.pulls = Value::Object(Default::default());
+        }
         self.last_error = None;
         self.last_refresh = Instant::now();
         Ok(())
@@ -262,6 +275,29 @@ impl App {
         }
     }
 
+    pub fn selected_pull(&self) -> Option<&Value> {
+        let pulls = self.pulls.pointer("/issues").and_then(Value::as_array)?;
+        if self.pull_selection_index < pulls.len() {
+            Some(&pulls[self.pull_selection_index])
+        } else {
+            None
+        }
+    }
+
+    pub fn next_pull(&mut self) {
+        if let Some(pulls) = self.pulls.pointer("/issues").and_then(Value::as_array) {
+            if !pulls.is_empty() && self.pull_selection_index + 1 < pulls.len() {
+                self.pull_selection_index += 1;
+            }
+        }
+    }
+
+    pub fn prev_pull(&mut self) {
+        if self.pull_selection_index > 0 {
+            self.pull_selection_index -= 1;
+        }
+    }
+
     pub fn select_next_task(&mut self) {
         let count = self.task_count();
         if count > 0 {
@@ -293,6 +329,21 @@ impl App {
 
     pub fn close_embedded_pane(&mut self) {
         self.embedded_task = None;
+        self.embedded_log.clear();
+        self.embedded_log_scroll = 0;
+    }
+
+    pub fn embedded_log_scroll_down(&mut self) {
+        let max = self.embedded_log.len().saturating_sub(1);
+        if self.embedded_log_scroll < max {
+            self.embedded_log_scroll += 1;
+        }
+    }
+
+    pub fn embedded_log_scroll_up(&mut self) {
+        if self.embedded_log_scroll > 0 {
+            self.embedded_log_scroll -= 1;
+        }
     }
 
     pub fn dispatch_menu_next(&mut self) {

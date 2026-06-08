@@ -21,7 +21,7 @@ pub fn draw_knowledge(frame: &mut Frame, area: ratatui::layout::Rect, app: &App,
 
     let stats = &app.knowledge;
 
-    if stats.is_null() || stats.as_object().map_or(true, |o| o.is_empty()) {
+    if stats.is_null() || stats.as_object().is_none_or(|o| o.is_empty()) {
         lines.push(Line::from(Span::styled(
             "No data. Run 'loom knowledge build' first.",
             theme.text_dim,

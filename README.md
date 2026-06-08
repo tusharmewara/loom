@@ -88,6 +88,7 @@ JSON‑line messages over a Unix domain socket (`~/.loom/loomd.sock`):
 ### Core Ecosystem
 - **Shared Skills**: Write a skill once, use it across all tools.
 - **Session Portability**: Export a session from one tool, import into another. Compression after 20 messages.
+- **Session Merge**: Combine sessions with `loom sessions merge <dest> <source>` — append messages from one session into another.
 - **MCP Server Sharing**: Register MCP servers once, share across all tools.
 - **Secure Auth Vault**: Store credentials in an encrypted vault (Chacha20Poly1305) with ACL and audit log.
 - **Hook System**: Intercept pre/post tool events with custom scripts and exit‑code verification.
@@ -95,7 +96,7 @@ JSON‑line messages over a Unix domain socket (`~/.loom/loomd.sock`):
 - **Sub‑Agent Orchestration**: Decompose tasks across sub-agents with configurable dispatch modes (sequential, parallel, fan-out).
 - **Config Inheritance**: Compose configs with `extends: ["base", "overrides"]` — deep-merged with cycle detection and depth limit.
 - **Remote Config URL**: Fetch configs from HTTPS URLs with SHA-256 caching (`loom config fetch`).
-- **Plugin Registry**: Install, update, and remove tool plugins via `loom plugin` subcommands — TOML-based manifests with versioning and checksums.
+- **Plugin Registry**: Install, update, and remove tool plugins via `loom plugin` subcommands — TOML-based manifests with versioning, SHA-256 checksums, and optional Ed25519 signature verification (`loom plugin install --verify`).
 - **Session Branching**: Fork sessions at checkpoints for experimental divergences (`loom session branch`).
 - **Cross‑Session Memory**: Full-text search across all session messages via FTS5 SQLite (`loom session search`, `loom session index`).
 - **Embedded Pane**: View task details inside the TUI with progress bars and step tracking (Esc to close).
@@ -128,6 +129,16 @@ JSON‑line messages over a Unix domain socket (`~/.loom/loomd.sock`):
 - **Register local**: Import an existing tool TOML as a plugin (`loom plugin register <name> <path>`).
 - **Update**: Re-download tool TOML and bump minor version (`loom plugin update <name>`).
 - **Search/List/Show**: Query installed plugins by name, description, or author.
+
+### Shell Integration
+- **Shell completions**: `loom completions bash|zsh|fish|powershell|elvish` generates CLI tab-completions.
+- **Shell wrappers**: `loom init-shell` generates environment setup for transparent loom activation (eval `$(loom init-shell)` in `.zshrc`/`.bashrc`).
+
+### Reproducible Skills
+- **Lock file**: `loom lock --generate` creates `~/.loom/skills/skills.lock` capturing skill versions and content hashes.
+- **Verify**: `loom lock --verify` checks installed skills against the lock file.
+- **Diff mode**: `loom lock --verify --diff` shows violations in diff-style (`+`/`-`/`~`).
+- **List with check**: `loom skills list --locked` lists skills and verifies against the lock file.
 
 ### Config Management
 - **Config Inheritance**: `extends` field deep-merges base configs with overrides (cycle detection, depth limit 10).
@@ -182,9 +193,15 @@ Loom is licensed under the MIT License. See the `LICENSE` file for details.
 
 ## 📦 Version History
 
-- **0.2.1**: Plugin registry (search/install/update/remove), session branching, config inheritance (`extends:`), remote config URL, embedded TUI pane, cross-session memory, routing telemetry.
-- **0.2.0**: Sub‑agent orchestration, GitHub Issues & Linear integration, workflow templates, multi‑agent parallel execution.
-- **0.1.3**: CLI modernization, hooks system, routing engine, hot-reload.
-- **0.1.2**: Session compression, auth vault, TUI.
-- **0.1.1**: MCP pool, skill sharing, event bus.
-- **0.1.0**: Initial MVP with basic MCP and skill sharing.
+- **0.3.11**: Shell completions (`loom completions`), plugin signature verification (`--verify`), lock file diff (`--diff`), PR linking (`issues link-pr`), session merge (`sessions merge`), 10 tool adapters (aider, claude-code, codex, crush, cursor, gemini, goose, jcode, opencode).
+- **0.3.10**: Config inheritance (`extends:`), remote config URL, cached remote config deep-merge, `loom config show --extends`, `--no-extend`/`--no-remote` flags, env-var interpolation.
+- **0.3.9**: Session auto-summarization (compression threshold 20, full fidelity 10).
+- **0.3.8**: Session tagging (`loom sessions tag`, `loom sessions tags`, `--tag` filter).
+- **0.3.7**: Session recall (`loom sessions recall`) on top of message-level search.
+- **0.3.6**: Cross-session memory FTS5 fix (prevent clobber on index).
+- **0.3.5**: Session capture on workflow dispatch, cross-session memory indexing.
+- **0.3.4**: Man pages, phase result chain, PostPhase hooks, auto-advance.
+- **0.3.3**: Workflow dispatch passes task title/description as prompt.
+- **0.3.2-0.3.0**: Session branching, plugin registry, KAG, knowledge graph, ACP, TUI, Homebrew.
+- **0.2.x**: Sub‑agent orchestration, GitHub Issues & Linear, workflow templates, parallel execution.
+- **0.1.x**: Initial MVP through CLI modernization, hooks, routing, auth vault, TUI.

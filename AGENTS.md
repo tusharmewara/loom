@@ -122,7 +122,6 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 
 ### Feature Flags
 
-- `integration-acp` — enables ACP agent discovery (in `loom-cli` and `loom-sessions`)
 - `cross-process` — enables ZeroMQ cross-process event bus
 - `tui` — enables TUI commands in CLI
 
@@ -356,4 +355,4 @@ Key constants in `loom-core/src/constants.rs`:
 | Event delivery | <100us | ~15us |
 | Vault decrypt | <10ms | ~3ms |
 | Knowledge query (subgraph, depth 2) | <20ms | ~5ms |
-| Knowledge build (100 sessions) | <5s | TBD |
+| Knowledge build (100 sessions) | <5s | ~10ms (0 sessions with data) |

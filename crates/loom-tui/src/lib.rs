@@ -120,6 +120,44 @@ async fn run_loop(
                             }
                             app.close_dispatch_menu();
                         }
+                        KeyCode::Char('a') => {
+                            app.dispatch_menu_selected = 1;
+                            let task = app.selected_task().cloned();
+                            if let Some(task) = task {
+                                let dispatcher = crate::dispatch::ACPDispatch::new(
+                                    app.status
+                                        .pointer("/daemon/reachable")
+                                        .and_then(Value::as_bool)
+                                        .unwrap_or(false),
+                                    app.daemon
+                                        .pointer("/socket_path")
+                                        .and_then(Value::as_str)
+                                        .map(String::from),
+                                );
+                                let result = dispatcher.dispatch(&task);
+                                app.last_action_result = Some(crate::adapter::CommandResult {
+                                    action: dispatcher.name().to_string(),
+                                    success: result.success,
+                                    message: result.message,
+                                });
+                            }
+                            app.close_dispatch_menu();
+                        }
+                        KeyCode::Char('e') => {
+                            app.dispatch_menu_selected = 2;
+                            let task = app.selected_task().cloned();
+                            if let Some(task) = task {
+                                let dispatcher = crate::dispatch::EmbeddedPane;
+                                let result = dispatcher.dispatch(&task);
+                                app.last_action_result = Some(crate::adapter::CommandResult {
+                                    action: dispatcher.name().to_string(),
+                                    success: result.success,
+                                    message: result.message,
+                                });
+                                app.embedded_task = Some(task);
+                            }
+                            app.close_dispatch_menu();
+                        }
                         _ => {}
                     }
                     continue;
@@ -180,10 +218,23 @@ async fn run_loop(
                     continue;
                 }
 
-                // Embedded pane: Esc to close
-                if app.embedded_task.is_some() && matches!(key.code, KeyCode::Esc) {
-                    app.close_embedded_pane();
-                    continue;
+                // Embedded pane: Esc to close, j/k to scroll log
+                if app.embedded_task.is_some() {
+                    match key.code {
+                        KeyCode::Esc => {
+                            app.close_embedded_pane();
+                            continue;
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            app.embedded_log_scroll_down();
+                            continue;
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            app.embedded_log_scroll_up();
+                            continue;
+                        }
+                        _ => {}
+                    }
                 }
 
                 match key.code {
@@ -195,14 +246,18 @@ async fn run_loop(
                     KeyCode::Tab | KeyCode::Right => app.next_tab(),
                     KeyCode::BackTab | KeyCode::Left => app.prev_tab(),
                     KeyCode::Down => {
-                        if app.is_task_tab() {
+                        if app.tab_index == 8 {
+                            app.next_pull();
+                        } else if app.is_task_tab() {
                             app.select_next_task();
                         } else {
                             app.scroll_down();
                         }
                     }
                     KeyCode::Up => {
-                        if app.is_task_tab() {
+                        if app.tab_index == 8 {
+                            app.prev_pull();
+                        } else if app.is_task_tab() {
                             app.select_prev_task();
                         } else {
                             app.scroll_up();
@@ -215,6 +270,8 @@ async fn run_loop(
                     KeyCode::Char('5') => app.set_tab_from_digit(4),
                     KeyCode::Char('6') => app.set_tab_from_digit(5),
                     KeyCode::Char('7') => app.set_tab_from_digit(6),
+                    KeyCode::Char('8') => app.set_tab_from_digit(7),
+                    KeyCode::Char('9') => app.set_tab_from_digit(8),
                     KeyCode::Char('D') => app.toggle_action_palette(),
                     KeyCode::Char('a') if app.is_task_tab() => app.open_dispatch_menu(),
                     KeyCode::Char(']') => app.next_theme(),

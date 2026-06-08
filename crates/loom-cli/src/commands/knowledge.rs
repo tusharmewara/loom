@@ -48,15 +48,15 @@ pub async fn run(loom_dir: &str, action: &KnowledgeAction) -> anyhow::Result<()>
                                             total_entities += e;
                                             total_rels += r;
                                             session_count += 1;
-                                            eprintln!(
-                                                "  [{}] LLM extracted: {} entities, {} relationships",
+                                            tracing::info!(
+                                                "[{}] LLM extracted: {} entities, {} relationships",
                                                 &session_id[..session_id.len().min(12)],
                                                 e, r
                                             );
                                         }
                                         Err(parse_err) => {
-                                            eprintln!(
-                                                "  [{}] Parse warning: {}. Raw: {}",
+                                            tracing::warn!(
+                                                "[{}] Parse warning: {}. Raw: {}",
                                                 &session_id[..session_id.len().min(12)],
                                                 parse_err,
                                                 &response[..response.len().min(200)]
@@ -65,8 +65,8 @@ pub async fn run(loom_dir: &str, action: &KnowledgeAction) -> anyhow::Result<()>
                                     }
                                 }
                                 Err(llm_err) => {
-                                    eprintln!(
-                                        "  [{}] LLM call failed: {}",
+                                    tracing::warn!(
+                                        "[{}] LLM call failed: {}",
                                         &session_id[..session_id.len().min(12)],
                                         llm_err
                                     );

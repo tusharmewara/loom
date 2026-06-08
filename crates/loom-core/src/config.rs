@@ -214,7 +214,7 @@ impl ConfigReader {
 
         // 4. Apply the cached remote_config_url content (if any)
         if !options.skip_remote {
-            self.apply_remote_config(&mut base_value, steps.as_deref_mut())?;
+            self.apply_remote_config(&mut base_value, steps)?;
         }
 
         // 5. Interpolate environment variables in string values
@@ -244,7 +244,7 @@ impl ConfigReader {
     fn apply_remote_config(
         &self,
         base_value: &mut serde_json::Value,
-        mut steps: Option<&mut Vec<ConfigSourceStep>>,
+        steps: Option<&mut Vec<ConfigSourceStep>>,
     ) -> Result<()> {
         // Read remote URL from the merged tree
         let remote_url = base_value

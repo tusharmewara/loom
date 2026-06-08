@@ -224,7 +224,7 @@ impl SessionStore {
         // silently leave oversized histories uncompressed.
         if messages.len() > SESSION_COMPRESSION_THRESHOLD {
             if let Err(e) = self.compress_session(session_id) {
-                eprintln!("  Warning: auto-summarization failed for '{session_id}': {e}");
+                tracing::warn!("auto-summarization failed for '{session_id}': {e}");
             }
         }
 
@@ -281,7 +281,7 @@ impl SessionStore {
         if let Ok(msgs) = self.load_messages(session_id) {
             if msgs.len() > SESSION_COMPRESSION_THRESHOLD {
                 if let Err(e) = self.compress_session(session_id) {
-                    eprintln!("  Warning: auto-summarization failed for '{session_id}': {e}");
+                    tracing::warn!("auto-summarization failed for '{session_id}': {e}");
                 }
             }
         }

@@ -1,0 +1,12 @@
+[package]
+name = "loom-remote"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+shellexpand.workspace = true

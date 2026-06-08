@@ -22,3 +22,5 @@ pub mod tools_acp;
 pub mod workflow;
 pub mod plugin;
 pub mod knowledge;
+pub mod remote;
+pub mod self_update;

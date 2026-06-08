@@ -24,10 +24,11 @@ members = [
     "crates/loom-mcp-server",
     "crates/loom-trackers",
     "crates/loom-parallel", "crates/loom-knowledge",
+    "crates/loom-remote",
 ]
 
 [workspace.package]
-version = "0.3.10"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 description = "Loom — The Shared Agentic Ecosystem"
@@ -43,6 +44,7 @@ uuid = { version = "1", features = ["v4"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json"] }
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 rusqlite = { version = "0.31", features = ["bundled"] }
 capnp = "0.19"
 capnpc = "0.19"
@@ -50,6 +52,8 @@ chacha20poly1305 = "0.10"
 argon2 = "0.5"
 ed25519-dalek = "2"
 sha2 = "0.10"
+base64 = "0.22"
+hex = "0.4"
 zeroize = { version = "1", features = ["zeroize_derive"] }
 notify = "6"
 comfy-table = "7"
