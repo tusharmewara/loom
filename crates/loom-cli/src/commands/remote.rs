@@ -1,6 +1,7 @@
 //! `loom remote` subcommands — manage SSH remote connections.
 
 use crate::cli::RemoteAction;
+use loom_auth::vault::CredentialVault;
 use loom_remote::connection::{SshConnection, SshAuth, SshConnectionManager};
 use loom_remote::sftp;
 use std::collections::HashMap;
@@ -51,7 +52,7 @@ pub async fn run(loom_dir: &Path, action: &RemoteAction) -> anyhow::Result<()> {
                 }
             }
         }
-        RemoteAction::Add { name, host, port, user, key, agent, jump } => {
+        RemoteAction::Add { name, host, port, user, key, store_in_vault, vault_password, agent, jump } => {
             let auth = if *agent || key.is_none() {
                 SshAuth::Agent
             } else if let Some(k) = key {
@@ -59,6 +60,22 @@ pub async fn run(loom_dir: &Path, action: &RemoteAction) -> anyhow::Result<()> {
             } else {
                 SshAuth::Agent
             };
+
+            // If --store-in-vault, write the key material into the vault
+            if *store_in_vault {
+                if let Some(ref key_path) = key {
+                    let key_material = std::fs::read_to_string(key_path)?;
+                    let vault_id = format!("ssh-key-{}", name);
+                    let mut vault = CredentialVault::new(loom_dir.to_str().unwrap());
+                    let password = vault_password.clone().ok_or_else(|| {
+                        anyhow::anyhow!("--vault-password is required when using --store-in-vault")
+                    })?;
+                    vault.unlock(&password)?;
+                    vault.set_credential(&vault_id, &key_material)?;
+                    println!("  🔑 Stored SSH key in vault as '{vault_id}'");
+                }
+            }
+
             let conn = SshConnection {
                 name: name.clone(),
                 host: host.clone(),
@@ -83,8 +100,10 @@ pub async fn run(loom_dir: &Path, action: &RemoteAction) -> anyhow::Result<()> {
         }
         RemoteAction::Exec { conn, command } => {
             let manager = load_connections(&config_path)?;
-            let connection = manager.get(conn)
-                .ok_or_else(|| anyhow::anyhow!("Remote connection '{}' not found", conn))?;
+            let mut connection = manager.get(conn)
+                .ok_or_else(|| anyhow::anyhow!("Remote connection '{}' not found", conn))?
+                .clone();
+            resolve_vault_key(&mut connection, loom_dir)?;
             let mut cmd = connection.ssh_command(command);
             let status = cmd.status()?;
             if !status.success() {
@@ -93,15 +112,44 @@ pub async fn run(loom_dir: &Path, action: &RemoteAction) -> anyhow::Result<()> {
         }
         RemoteAction::Sync { conn, pull, scp, source, dest } => {
             let manager = load_connections(&config_path)?;
-            let connection = manager.get(conn)
-                .ok_or_else(|| anyhow::anyhow!("Remote connection '{}' not found", conn))?;
+            let mut connection = manager.get(conn)
+                .ok_or_else(|| anyhow::anyhow!("Remote connection '{}' not found", conn))?
+                .clone();
+            resolve_vault_key(&mut connection, loom_dir)?;
             let use_rsync = !scp;
             if *pull {
-                sftp::pull(source, dest, connection, use_rsync)?;
+                sftp::pull(source, dest, &connection, use_rsync)?;
                 println!("✓ Synced {} → {} (pull)", source, dest);
             } else {
-                sftp::push(source, dest, connection, use_rsync)?;
+                sftp::push(source, dest, &connection, use_rsync)?;
                 println!("✓ Synced {} → {} (push)", source, dest);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// If the connection uses KeyPem auth (key stored in vault), resolve
+/// the key material from the vault and write a temp file for ssh/scp.
+fn resolve_vault_key(conn: &mut SshConnection, loom_dir: &Path) -> anyhow::Result<()> {
+    if let SshAuth::KeyPem(ref pem) = conn.auth {
+        let temp_key = std::env::temp_dir().join(format!(".loom-ssh-{}", conn.name));
+        std::fs::write(&temp_key, pem)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&temp_key, std::fs::Permissions::from_mode(0o600))?;
+        }
+        conn.auth = SshAuth::KeyFile(temp_key.to_string_lossy().to_string());
+    } else if let SshAuth::KeyFile(ref path) = conn.auth.clone() {
+        // If the path doesn't exist, try resolving from the vault
+        if !std::path::Path::new(path).exists() {
+            let vault_id = format!("ssh-key-{}", conn.name);
+            let vault = CredentialVault::new(loom_dir.to_str().unwrap());
+            // Vault must be pre-unlocked via `loom auth validate` or we skip silently
+            if let Ok(Some(key_material)) = vault.get_credential(&vault_id) {
+                conn.auth = SshAuth::KeyPem(key_material);
+                return resolve_vault_key(conn, loom_dir);
             }
         }
     }

@@ -14,12 +14,17 @@ const GITHUB_API: &str = "https://api.github.com";
 const USER_AGENT: &str = "loom-self-update/0.1";
 
 /// Run the self-update workflow.
-pub async fn run(force: bool) -> anyhow::Result<()> {
+/// `source` can be "github" (default) or "releases.loom.sh".
+pub async fn run(force: bool, source: &str) -> anyhow::Result<()> {
     let current_ver = env!("CARGO_PKG_VERSION");
     println!("Loom v{current_ver}");
-    println!("Checking for updates...");
+    println!("Checking for updates (source: {source})...");
 
-    let release = fetch_latest_release().await?;
+    let release = match source {
+        "github" => fetch_latest_release_from_github().await?,
+        "releases.loom.sh" | "loom.sh" | "loom" => fetch_latest_release_from_loom_sh().await?,
+        other => anyhow::bail!("Unknown release source '{other}'. Use 'github' or 'releases.loom.sh'."),
+    };
     let latest_ver = release
         .tag_name
         .trim_start_matches('v');
@@ -69,7 +74,7 @@ pub async fn run(force: bool) -> anyhow::Result<()> {
 }
 
 /// Fetch the latest release info from GitHub Releases API.
-async fn fetch_latest_release() -> anyhow::Result<Release> {
+async fn fetch_latest_release_from_github() -> anyhow::Result<Release> {
     let url = format!("{GITHUB_API}/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest");
     let resp = ureq::get(&url)
         .set("User-Agent", USER_AGENT)
@@ -127,6 +132,53 @@ async fn fetch_latest_release() -> anyhow::Result<Release> {
     Ok(Release {
         tag_name,
         assets: parsed_assets,
+        checksum,
+    })
+}
+
+/// Fetch the latest release from releases.loom.sh.
+///
+/// Expects three files at the root:
+///   - loom-{target}.tar.gz         — compressed binary
+///   - loom-{target}.tar.gz.sha256  — SHA-256 checksum
+///   - latest.txt                    — plain text with the version tag
+async fn fetch_latest_release_from_loom_sh() -> anyhow::Result<Release> {
+    let base = "https://releases.loom.sh";
+    let target = detect_target_triple()?;
+
+    // Read the latest version tag
+    let version_url = format!("{base}/latest.txt");
+    let resp = ureq::get(&version_url)
+        .call()
+        .map_err(|e| anyhow::anyhow!("Failed to fetch latest.txt from {version_url}: {e}"))?;
+    let tag_name = resp
+        .into_string()
+        .map_err(|e| anyhow::anyhow!("Failed to read latest.txt: {e}"))?
+        .trim()
+        .to_string();
+
+    let archive_name = format!("loom-{target}.tar.gz");
+    let asset_url = format!("{base}/{archive_name}");
+    let checksum_url = format!("{asset_url}.sha256");
+
+    // Fetch checksum
+    let checksum = match ureq::get(&checksum_url).call() {
+        Ok(resp) => resp
+            .into_string()
+            .unwrap_or_default()
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_string(),
+        Err(_) => String::new(),
+    };
+
+    Ok(Release {
+        tag_name,
+        assets: vec![ReleaseAsset {
+            name: archive_name,
+            browser_download_url: asset_url,
+        }],
         checksum,
     })
 }

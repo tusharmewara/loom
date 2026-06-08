@@ -488,7 +488,7 @@ mod tests {
     async fn test_doctor_fails_when_loom_dir_missing() {
         let dir = tempfile::tempdir().unwrap();
         let loom_dir = dir.path().join("missing");
-        let err = run(loom_dir.to_str().unwrap(), false, false).await.unwrap_err();
+        let err = run(loom_dir.to_str().unwrap(), false, false, false).await.unwrap_err();
         assert!(err.to_string().contains("failing check"));
     }
 
@@ -497,7 +497,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let loom_dir = dir.path().to_str().unwrap();
         init::run(false, false, None, loom_dir).await.unwrap();
-        let result = run(loom_dir, false, false).await;
+        let result = run(loom_dir, false, false, false).await;
         assert!(result.is_ok(), "doctor should pass, got: {result:?}");
     }
 
@@ -506,7 +506,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let loom_dir = dir.path().to_str().unwrap();
         // Run doctor with --fix on a non-initialized path
-        let result = run(loom_dir, false, true).await;
+        let result = run(loom_dir, false, true, false).await;
         assert!(result.is_ok(), "doctor --fix should pass, got: {result:?}");
         // Verify the agents root was created
         assert!(dir.path().join("config.toml").exists());

@@ -183,6 +183,11 @@ pub enum Command {
         #[command(subcommand)]
         action: RemoteAction,
     },
+    /// LSP integration: rename, goto-def, find-refs, code-actions
+    Lsp {
+        #[command(subcommand)]
+        action: LspAction,
+    },
     /// Manage the knowledge graph (extract, query, add entities, stats)
     Knowledge {
         #[command(subcommand)]
@@ -198,6 +203,9 @@ pub enum Command {
         /// Force re-download even if same version
         #[arg(long)]
         force: bool,
+        /// Release source: "github" (default) or "releases.loom.sh"
+        #[arg(long, default_value = "github")]
+        source: String,
     },
 }
 
@@ -279,6 +287,12 @@ pub enum RemoteAction {
         /// Path to SSH identity file
         #[arg(long)]
         key: Option<String>,
+        /// Store the key in the encrypted credential vault
+        #[arg(long)]
+        store_in_vault: bool,
+        /// Vault password (prompts if not provided and vault is locked)
+        #[arg(long)]
+        vault_password: Option<String>,
         /// Use ssh-agent (default)
         #[arg(long)]
         agent: bool,
@@ -311,6 +325,45 @@ pub enum RemoteAction {
         source: String,
         /// Remote path or local path
         dest: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum LspAction {
+    /// List available language servers on PATH
+    Servers {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Rename a symbol across the workspace
+    Rename {
+        /// Path to the file containing the symbol
+        #[arg(long)]
+        path: String,
+        /// Line number (0-based)
+        #[arg(long)]
+        line: u32,
+        /// Column number (0-based)
+        #[arg(long)]
+        column: u32,
+        /// New name for the symbol
+        new_name: String,
+        /// Language server command (default: auto-detect from extension)
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Find all references to a symbol
+    FindReferences {
+        /// Path to the file containing the symbol
+        #[arg(long)]
+        path: String,
+        /// Symbol name or line to search
+        #[arg(long)]
+        symbol: String,
+        /// Language server command (default: auto-detect from extension)
+        #[arg(long)]
+        server: Option<String>,
     },
 }
 
@@ -1110,6 +1163,9 @@ impl Cli {
             Command::Remote { action } => {
                 crate::commands::remote::run(&agents_path, &action).await
             }
+            Command::Lsp { action } => {
+                crate::commands::lsp::run(&action).await
+            }
             Command::Knowledge { action } => {
                 crate::commands::knowledge::run(&loom_dir, &action).await
             }
@@ -1119,8 +1175,8 @@ impl Cli {
                 clap_complete::generate(shell, &mut cmd, "loom", &mut std::io::stdout());
                 Ok(())
             }
-            Command::SelfUpdate { force } => {
-                crate::commands::self_update::run(force).await
+            Command::SelfUpdate { force, source } => {
+                crate::commands::self_update::run(force, &source).await
             }
         }
     }

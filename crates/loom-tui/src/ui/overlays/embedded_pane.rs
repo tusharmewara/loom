@@ -188,10 +188,12 @@ fn draw_output_log(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     let mut lines: Vec<Line> = Vec::new();
 
     if app.embedded_log.is_empty() {
-        lines.push(Line::from(Span::styled(
-            " No output yet. Dispatch the task to see live output here.\n\n j/k — scroll • Esc — close • r — refresh",
-            theme.text_dim,
-        )));
+        let msg = if app.embedded_log_rx.is_some() {
+            " Waiting for agent output... (j/k scroll • Esc • Ctrl-C kill • i input)"
+        } else {
+            " No output yet. Dispatch the task to see live output here.\n\n j/k scroll • Esc close • Ctrl-C kill • i input"
+        };
+        lines.push(Line::from(Span::styled(msg, theme.text_dim)));
     } else {
         let visible_height = area.height.saturating_sub(2) as usize;
         let scroll = app.embedded_log_scroll.min(

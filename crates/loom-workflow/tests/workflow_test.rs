@@ -37,6 +37,8 @@ fn test_sub_agents_resolution() {
         implement: Some("impl-agent".to_string()),
         verify: Some("verify-agent".to_string()),
         finish: Some("finish-agent".to_string()),
+        max_retries: 3,
+        fallback_agent: None,
     };
     orch.set_sub_agents(&task.task_id, config).unwrap();
 

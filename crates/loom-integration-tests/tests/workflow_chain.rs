@@ -52,6 +52,8 @@ fn test_full_phase_chain_with_sub_agents() -> Result<()> {
             implement: Some("impl-agent".into()),
             verify: Some("verify-agent".into()),
             finish: Some("finish-agent".into()),
+            max_retries: 3,
+            fallback_agent: None,
         },
     )?;
     orch.set_last_agent(&task.task_id, "default-agent")?;

@@ -1,0 +1,12 @@
+[package]
+name = "loom-lsp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+lsp-types = "0.97"

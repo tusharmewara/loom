@@ -3,6 +3,7 @@ use crate::theme::Theme;
 use anyhow::Result;
 use serde_json::Value;
 use std::time::Instant;
+use tokio::sync::mpsc;
 
 const DAEMON_ACTIONS: &[&str] = &["start", "stop", "restart", "install-service", "uninstall-service"];
 
@@ -41,8 +42,11 @@ pub struct App {
     pub embedded_task: Option<Value>,
     pub embedded_log: Vec<String>,
     pub embedded_log_scroll: usize,
+    pub embedded_log_rx: Option<mpsc::Receiver<String>>,
+    pub embedded_child: Option<tokio::process::Child>,
+    pub embedded_stdin: Option<tokio::process::ChildStdin>,
     theme_manager: crate::theme::ThemeManager,
-    adapter: LoomCliAdapter,
+    pub adapter: LoomCliAdapter,
 }
 
 impl App {
@@ -84,6 +88,9 @@ impl App {
             embedded_task: None,
             embedded_log: Vec::new(),
             embedded_log_scroll: 0,
+            embedded_log_rx: None,
+            embedded_child: None,
+            embedded_stdin: None,
             theme_manager,
             adapter,
         }
@@ -192,6 +199,7 @@ impl App {
         }
         self.last_error = None;
         self.last_refresh = Instant::now();
+        self.drain_embedded_log();
         Ok(())
     }
 
@@ -331,6 +339,34 @@ impl App {
         self.embedded_task = None;
         self.embedded_log.clear();
         self.embedded_log_scroll = 0;
+        self.embedded_log_rx = None;
+        // Kill the child process if still running
+        if let Some(mut child) = self.embedded_child.take() {
+            let _ = child.start_kill();
+        }
+        self.embedded_stdin = None;
+    }
+
+    /// Drain any pending log lines from the embedded process receiver
+    /// into the `embedded_log` buffer (bounded to 5000 lines).
+    pub fn drain_embedded_log(&mut self) {
+        if let Some(ref mut rx) = self.embedded_log_rx {
+            loop {
+                match rx.try_recv() {
+                    Ok(line) => {
+                        self.embedded_log.push(line);
+                        if self.embedded_log.len() > 5000 {
+                            self.embedded_log.remove(0);
+                        }
+                    }
+                    Err(mpsc::error::TryRecvError::Empty) => break,
+                    Err(mpsc::error::TryRecvError::Disconnected) => {
+                        self.embedded_log_rx = None;
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     pub fn embedded_log_scroll_down(&mut self) {

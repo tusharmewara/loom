@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::process::Command;
+use tokio::io::AsyncBufReadExt;
+use tokio::process::{Child, ChildStdin, Command};
+use tokio::sync::mpsc;
 
 #[derive(Clone)]
 pub struct LoomCliAdapter {
@@ -155,5 +157,57 @@ impl LoomCliAdapter {
         let value: Value = serde_json::from_str(&stdout)
             .with_context(|| format!("invalid JSON from `{}`", self.bin))?;
         Ok(value)
+    }
+
+    /// Run a CLI command and stream its stdout lines through a channel.
+    /// Returns the child process handle and a receiver for stdout lines.
+    /// Callers must await the child process to completion after draining
+    /// the receiver.
+    pub fn stream_command(
+        &self,
+        args: &[&str],
+    ) -> Result<(Child, mpsc::Receiver<String>, Option<ChildStdin>)> {
+        let mut child = Command::new(&self.bin)
+            .args(args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .with_context(|| format!("failed to spawn `{}`", self.bin))?;
+
+        let stdin = child
+            .stdin
+            .take();
+
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("failed to capture stdout"))?;
+
+        let (tx, rx) = mpsc::channel::<String>(256);
+
+        tokio::spawn(async move {
+            let reader = tokio::io::BufReader::new(stdout);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if tx.send(line).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        Ok((child, rx, stdin))
+    }
+
+    /// Spawn an agent tool for a task and return a receiver for stdout lines.
+    pub fn stream_background(&self, agent: &str, task_id: &str) -> (Option<Child>, mpsc::Receiver<String>, Option<ChildStdin>) {
+        match self.stream_command(&["workflow", "dispatch", task_id, "--agent", agent]) {
+            Ok((child, rx, stdin)) => (Some(child), rx, stdin),
+            Err(_) => {
+                let (tx, rx) = mpsc::channel(1);
+                let _ = tx.try_send(format!("Failed to spawn {} for task {}", agent, task_id));
+                (None, rx, None)
+            }
+        }
     }
 }
