@@ -1938,6 +1938,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "loom-rules"
+version = "0.6.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "loom-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
 name = "loom-sessions"
 version = "0.6.0"
 dependencies = [

@@ -29,6 +29,7 @@ members = [
     "crates/loom-debug",
     "crates/loom-hindsight",
     "crates/loom-conflict",
+    "crates/loom-rules",
 ]
 
 [workspace.package]
