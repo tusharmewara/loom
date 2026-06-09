@@ -30,6 +30,7 @@ loom-parallel = { path = "../loom-parallel" }
 loom-knowledge = { path = "../loom-knowledge" }
 loom-remote = { path = "../loom-remote" }
 loom-lsp = { path = "../loom-lsp" }
+loom-hindsight = { path = "../loom-hindsight" }
 loom-tui = { path = "../loom-tui", optional = true }
 clap.workspace = true
 clap_complete.workspace = true

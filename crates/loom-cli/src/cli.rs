@@ -973,6 +973,36 @@ pub enum MemoryAction {
     Start,
     /// Stop the agentmemory memory server
     Stop,
+    /// Retain a durable fact in hindsight memory (cross-session)
+    Retain {
+        /// The fact content to store
+        fact: String,
+        /// Type tag (insight, decision, pattern, error, preference, or custom)
+        #[arg(long, default_value = "insight")]
+        r#type: String,
+        /// Source identifier (e.g. tool name)
+        #[arg(long, default_value = "cli")]
+        source: String,
+        /// Importance score 0.0-1.0
+        #[arg(long, default_value_t = 0.5)]
+        importance: f64,
+    },
+    /// Search hindsight memory for relevant facts
+    Recall {
+        /// Search query
+        query: String,
+        /// Maximum results
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Synthesize an overview from hindsight memory
+    Reflect {
+        /// Question or topic to reflect on
+        question: String,
+    },
 }
 
 #[derive(Subcommand)]

@@ -1,0 +1,16 @@
+[package]
+name = "loom-hindsight"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+rusqlite = { workspace = true, features = ["vtab"] }
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono = { workspace = true, features = ["serde"] }
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

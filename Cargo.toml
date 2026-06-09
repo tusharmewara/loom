@@ -27,6 +27,7 @@ members = [
     "crates/loom-remote",
     "crates/loom-lsp",
     "crates/loom-debug",
+    "crates/loom-hindsight",
 ]
 
 [workspace.package]
