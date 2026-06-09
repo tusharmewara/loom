@@ -15,8 +15,14 @@ pub use importer::{import_session, import_session_json};
 pub use migrate::migrate_if_needed;
 
 pub mod acp_client;
+pub mod acp_discovery;
+pub mod acp_handshake;
 pub use acp_client::AcpClient;
 pub use acp_client::AgentMetadata;
+pub use acp_discovery::{AcpPeer, PeerDiscovery};
+pub use acp_handshake::{
+    AcpHandshake, AcpKeyPair, complete_initiator, initiate_handshake, perform_responder_handshake,
+};
 
 pub struct SessionManager {
     loom_dir: String,
