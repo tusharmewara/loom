@@ -28,6 +28,7 @@ members = [
     "crates/loom-lsp",
     "crates/loom-debug",
     "crates/loom-hindsight",
+    "crates/loom-conflict",
 ]
 
 [workspace.package]

@@ -769,6 +769,7 @@ checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
 dependencies = [
  "curve25519-dalek",
  "ed25519",
+ "rand_core",
  "serde",
  "sha2",
  "subtle",
@@ -1586,7 +1587,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "loom"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1600,6 +1601,7 @@ dependencies = [
  "loom-discovery",
  "loom-event-bus",
  "loom-generic-adapter",
+ "loom-hindsight",
  "loom-hooks",
  "loom-ipc",
  "loom-knowledge",
@@ -1630,7 +1632,7 @@ dependencies = [
 
 [[package]]
 name = "loom-adapters"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "loom-auth",
@@ -1646,7 +1648,7 @@ dependencies = [
 
 [[package]]
 name = "loom-auth"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1663,8 +1665,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "loom-conflict"
+version = "0.6.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
 name = "loom-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -1687,7 +1700,7 @@ dependencies = [
 
 [[package]]
 name = "loom-debug"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -1698,7 +1711,7 @@ dependencies = [
 
 [[package]]
 name = "loom-discovery"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "loom-auth",
@@ -1717,7 +1730,7 @@ dependencies = [
 
 [[package]]
 name = "loom-event-bus"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "criterion",
@@ -1732,7 +1745,7 @@ dependencies = [
 
 [[package]]
 name = "loom-ffi"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "loom-core",
@@ -1744,7 +1757,7 @@ dependencies = [
 
 [[package]]
 name = "loom-generic-adapter"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "loom-core",
@@ -1759,8 +1772,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "loom-hindsight"
+version = "0.6.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "loom-hooks"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1776,7 +1803,7 @@ dependencies = [
 
 [[package]]
 name = "loom-integration-tests"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1799,7 +1826,7 @@ dependencies = [
 
 [[package]]
 name = "loom-ipc"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -1811,7 +1838,7 @@ dependencies = [
 
 [[package]]
 name = "loom-knowledge"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1828,7 +1855,7 @@ dependencies = [
 
 [[package]]
 name = "loom-lsp"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "lsp-types",
@@ -1840,7 +1867,7 @@ dependencies = [
 
 [[package]]
 name = "loom-mcp"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "loom-core",
@@ -1856,7 +1883,7 @@ dependencies = [
 
 [[package]]
 name = "loom-mcp-server"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1873,7 +1900,7 @@ dependencies = [
 
 [[package]]
 name = "loom-parallel"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1887,7 +1914,7 @@ dependencies = [
 
 [[package]]
 name = "loom-remote"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "loom-core",
@@ -1899,7 +1926,7 @@ dependencies = [
 
 [[package]]
 name = "loom-routing"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "loom-core",
@@ -1912,16 +1939,20 @@ dependencies = [
 
 [[package]]
 name = "loom-sessions"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "ed25519-dalek",
+ "hex",
  "loom-core",
+ "rand_core",
  "reqwest",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
  "tracing",
@@ -1930,9 +1961,10 @@ dependencies = [
 
 [[package]]
 name = "loom-skills"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
+ "hex",
  "loom-core",
  "loom-event-bus",
  "loom-generic-adapter",
@@ -1949,7 +1981,7 @@ dependencies = [
 
 [[package]]
 name = "loom-telemetry"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "loom-core",
@@ -1962,7 +1994,7 @@ dependencies = [
 
 [[package]]
 name = "loom-trackers"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1979,7 +2011,7 @@ dependencies = [
 
 [[package]]
 name = "loom-tui"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "crossterm 0.28.1",
@@ -1992,7 +2024,7 @@ dependencies = [
 
 [[package]]
 name = "loom-workflow"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2015,7 +2047,7 @@ dependencies = [
 
 [[package]]
 name = "loomd"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "capnp",
