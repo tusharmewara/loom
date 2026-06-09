@@ -42,6 +42,7 @@ impl LoomToolAdapter for AiderAdapter {
                 auto_export: true,
                 max_shared_sessions: 50,
             }),
+            lsp: None,
         }
     }
 

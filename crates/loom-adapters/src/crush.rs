@@ -42,6 +42,7 @@ impl LoomToolAdapter for CrushAdapter {
                 strategy: "cost_optimize".into(),
             }),
             sessions: None,
+            lsp: None,
         }
     }
 

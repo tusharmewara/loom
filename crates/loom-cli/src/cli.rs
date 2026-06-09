@@ -365,6 +365,25 @@ pub enum LspAction {
         #[arg(long)]
         server: Option<String>,
     },
+    /// Execute an LSP operation through a registered tool adapter
+    Exec {
+        /// Registered tool name (e.g. jcode, goose, claude-code)
+        tool: String,
+        /// LSP operation to execute: rename, find-references, gotodef, code-action, symbols
+        operation: String,
+        /// Path to the target file
+        #[arg(long)]
+        path: String,
+        /// Symbol or new-name argument
+        #[arg(long)]
+        symbol: Option<String>,
+        /// Line number (0-based)
+        #[arg(long)]
+        line: Option<u32>,
+        /// Column number (0-based)
+        #[arg(long)]
+        column: Option<u32>,
+    },
 }
 
 #[derive(Subcommand)]

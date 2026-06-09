@@ -51,6 +51,9 @@ pub struct ToolToml {
     /// `[sessions]` — implements SessionExportable.
     #[serde(default)]
     pub sessions: Option<SessionsSection>,
+    /// `[lsp]` — LSP server configuration for the tool.
+    #[serde(default)]
+    pub lsp: Option<LspSection>,
 }
 
 /// The `[tool]` section — required metadata.
@@ -163,4 +166,35 @@ pub struct SessionsSection {
 
 fn default_max_sessions() -> usize {
     50
+}
+
+/// The `[lsp]` section — LSP server declarations for the adapter.
+///
+/// When present, the adapter can resolve and use LSP operations
+/// for code-aware tasks (rename, find-references, code actions, etc.).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LspSection {
+    /// List of LSP servers this tool uses.
+    #[serde(default)]
+    pub servers: Vec<LspServerConfig>,
+    /// Root URI for LSP operations (default: "file://$PWD").
+    pub root_uri: Option<String>,
+    /// File extensions that trigger LSP server start.
+    #[serde(default)]
+    pub file_extensions: Vec<String>,
+}
+
+/// Configuration for a single LSP server.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LspServerConfig {
+    /// Language ID (e.g. "rust", "python", "typescript").
+    pub language: String,
+    /// Command to start the server (e.g. "rust-analyzer").
+    pub command: String,
+    /// Arguments to pass to the server.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// File extensions this server handles.
+    #[serde(default)]
+    pub file_extensions: Vec<String>,
 }

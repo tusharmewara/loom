@@ -783,6 +783,43 @@ pub trait RoutingTarget: Send + Sync {
     fn current_tier(&self) -> anyhow::Result<ModelTier>;
 }
 
+/// Information about a language server.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LspServerInfo {
+    /// Language ID (e.g. "rust", "python", "typescript").
+    pub language: String,
+    /// Command to start the server (e.g. "rust-analyzer").
+    pub command: String,
+    /// Arguments to pass to the server.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// File extensions this server handles.
+    #[serde(default)]
+    pub file_extensions: Vec<String>,
+}
+
+/// Tool provides LSP (Language Server Protocol) capabilities.
+///
+/// Adapters implement this to enable code-aware operations such as
+/// rename, find-references, code actions, goto-definition, and
+/// document symbols within the tool's workspace.
+pub trait LspProvider: Send + Sync {
+    /// Returns the LSP servers this tool supports.
+    fn lsp_servers(&self) -> Vec<LspServerInfo>;
+    /// Root URI for LSP operations (default: "file://$PWD").
+    fn lsp_root_uri(&self) -> Option<String> {
+        None
+    }
+    /// File extensions that trigger LSP server start.
+    fn lsp_file_extensions(&self) -> Vec<String> {
+        vec![]
+    }
+    /// Resolve the best LSP server for a given file extension.
+    fn resolve_lsp_server(&self, extension: &str) -> Option<LspServerInfo> {
+        self.lsp_servers().into_iter().find(|s| s.file_extensions.iter().any(|e| e == extension))
+    }
+}
+
 // ─── Plugin Registry ───────────────────────────────────────────────
 
 /// Manifest for a registered plugin (extension/tool integration).

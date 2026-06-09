@@ -2,7 +2,8 @@ use crate::{LoomToolAdapter, SyncReport};
 use anyhow::Result;
 use loom_core::RoutingDecision;
 use loom_generic_adapter::config::{
-    McpSection, RoutingSection, SessionsSection, SkillsSection, ToolSection, ToolToml,
+    LspSection, LspServerConfig, McpSection, RoutingSection, SessionsSection, SkillsSection,
+    ToolSection, ToolToml,
 };
 pub struct JcodeAdapter;
 
@@ -40,6 +41,24 @@ impl LoomToolAdapter for JcodeAdapter {
                 store_path: Some(format!("{home}/.jcode/sessions")),
                 auto_export: true,
                 max_shared_sessions: 50,
+            }),
+            lsp: Some(LspSection {
+                servers: vec![
+                    LspServerConfig {
+                        language: "rust".into(),
+                        command: "rust-analyzer".into(),
+                        args: vec![],
+                        file_extensions: vec!["rs".into()],
+                    },
+                    LspServerConfig {
+                        language: "typescript".into(),
+                        command: "typescript-language-server".into(),
+                        args: vec!["--stdio".into()],
+                        file_extensions: vec!["ts".into(), "tsx".into()],
+                    },
+                ],
+                root_uri: None,
+                file_extensions: vec!["rs".into(), "ts".into(), "tsx".into()],
             }),
         }
     }

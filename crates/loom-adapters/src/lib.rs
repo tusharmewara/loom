@@ -23,8 +23,8 @@ pub mod jcode;
 pub mod opencode;
 
 use anyhow::Result;
-use loom_core::RoutingDecision;
-use loom_generic_adapter::config::ToolToml;
+use loom_core::{LspServerInfo, RoutingDecision};
+use loom_generic_adapter::config::{LspSection, ToolToml};
 use std::path::Path;
 
 /// Shared adapter operations for ecosystem-registered tools.
@@ -84,6 +84,35 @@ pub trait LoomToolAdapter: Send + Sync {
         }
 
         Ok(report)
+    }
+
+    /// Returns LSP server configuration for this adapter, if any.
+    fn lsp_config(&self, home: &str) -> Option<LspSection> {
+        self.default_toml(home).lsp
+    }
+
+    /// Returns LSP servers this adapter supports.
+    fn lsp_servers(&self, home: &str) -> Vec<LspServerInfo> {
+        self.lsp_config(home)
+            .map(|cfg| {
+                cfg.servers
+                    .into_iter()
+                    .map(|s| LspServerInfo {
+                        language: s.language,
+                        command: s.command,
+                        args: s.args,
+                        file_extensions: s.file_extensions,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Resolve the best LSP server for a given file extension.
+    fn resolve_lsp_server(&self, extension: &str, home: &str) -> Option<LspServerInfo> {
+        self.lsp_servers(home)
+            .into_iter()
+            .find(|s| s.file_extensions.iter().any(|e| e == extension))
     }
 }
 
