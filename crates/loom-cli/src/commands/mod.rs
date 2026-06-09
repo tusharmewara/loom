@@ -7,6 +7,7 @@ pub mod init;
 pub mod mcp;
 pub mod memory;
 pub mod routing;
+pub mod rules;
 pub mod scan;
 pub mod resume;
 pub mod sessions;

@@ -8,7 +8,7 @@ use std::time::SystemTime;
 
 pub use cli::{
     AuthAction, Cli, Command, DaemonAction, HooksAction, IssuesAction, McpAction, MemoryAction,
-    RoutingAction, SessionsAction, SkillsAction, WorkflowAction,
+    RoutingAction, RulesAction, SessionsAction, SkillsAction, WorkflowAction,
 };
 
 /// Resolve the default ecosystem directory (~/.loom/).

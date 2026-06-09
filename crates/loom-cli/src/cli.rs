@@ -103,6 +103,11 @@ pub enum Command {
         #[command(subcommand)]
         action: RoutingAction,
     },
+    /// Event stream rules management
+    Rules {
+        #[command(subcommand)]
+        action: RulesAction,
+    },
     /// Execute agentic tool(s) with loom ecosystem integration
     Exec {
         /// Tool name(s) to enable ecosystem for (last one is launched, or all in parallel)
@@ -743,6 +748,71 @@ pub enum HooksAction {
 }
 
 #[derive(Subcommand)]
+pub enum RulesAction {
+    /// List all rules
+    List {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show a rule by ID
+    Show {
+        id: String,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Add a new rule
+    Add {
+        /// Rule ID (also used as filename)
+        id: String,
+        /// Human-readable name
+        #[arg(long, default_value = "")]
+        name: String,
+        /// Event type to match (e.g. SkillsAdded)
+        #[arg(long)]
+        event_type: Option<String>,
+        /// Field to compare (e.g. count)
+        #[arg(long)]
+        field: Option<String>,
+        /// Comparison operator: equals, neq, gt, lt, contains, starts-with, ends-with
+        #[arg(long)]
+        operator: Option<String>,
+        /// Value to compare against
+        #[arg(long)]
+        value: Option<String>,
+        /// Log message to emit on match (use this action)
+        #[arg(long)]
+        action_log: Option<String>,
+        /// Suppress the event (use this action)
+        #[arg(long)]
+        action_suppress: bool,
+        /// Rule priority (higher = evaluated first)
+        #[arg(long)]
+        priority: Option<i32>,
+    },
+    /// Remove a rule
+    Remove {
+        id: String,
+    },
+    /// Evaluate a synthetic event against all rules (test)
+    Eval {
+        /// Event type name
+        #[arg(long, default_value = "RoutingUpdated")]
+        event_type: String,
+        /// Field name for the synthetic event
+        #[arg(long)]
+        field: Option<String>,
+        /// Field value
+        #[arg(long)]
+        value: Option<String>,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum WorkflowAction {
     /// List workflow tasks
     List {
@@ -1218,6 +1288,7 @@ impl Cli {
             Command::Hooks { action } => crate::commands::hooks::run(&agents_path, &action).await,
             Command::Workflow { action } => crate::commands::workflow::run(&agents_path, &action).await,
             Command::Routing { action } => crate::commands::routing::run(&agents_path, &action).await,
+            Command::Rules { action } => crate::commands::rules::run(&agents_path, &action).await,
             Command::Exec {
                 tools,
                 args,

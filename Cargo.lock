@@ -1611,6 +1611,7 @@ dependencies = [
  "loom-parallel",
  "loom-remote",
  "loom-routing",
+ "loom-rules",
  "loom-sessions",
  "loom-skills",
  "loom-trackers",
