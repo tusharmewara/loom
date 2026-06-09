@@ -23,8 +23,8 @@ pub mod jcode;
 pub mod opencode;
 
 use anyhow::Result;
-use loom_core::{LspServerInfo, RoutingDecision};
-use loom_generic_adapter::config::{LspSection, ToolToml};
+use loom_core::{DebugAdapterInfo, LspServerInfo, RoutingDecision};
+use loom_generic_adapter::config::{DebugSection, LspSection, ToolToml};
 use std::path::Path;
 
 /// Shared adapter operations for ecosystem-registered tools.
@@ -113,6 +113,35 @@ pub trait LoomToolAdapter: Send + Sync {
         self.lsp_servers(home)
             .into_iter()
             .find(|s| s.file_extensions.iter().any(|e| e == extension))
+    }
+
+    /// Returns debug adapter configuration for this adapter, if any.
+    fn debug_config(&self, home: &str) -> Option<DebugSection> {
+        self.default_toml(home).debug
+    }
+
+    /// Returns debug adapters this adapter supports.
+    fn debug_adapters(&self, home: &str) -> Vec<DebugAdapterInfo> {
+        self.debug_config(home)
+            .map(|cfg| {
+                cfg.adapters
+                    .into_iter()
+                    .map(|a| DebugAdapterInfo {
+                        language: a.language,
+                        command: a.command,
+                        args: a.args,
+                        name: a.name,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Resolve the best debug adapter for a given language.
+    fn resolve_debug_adapter(&self, language: &str, home: &str) -> Option<DebugAdapterInfo> {
+        self.debug_adapters(home)
+            .into_iter()
+            .find(|a| a.language == language)
     }
 }
 

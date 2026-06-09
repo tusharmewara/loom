@@ -798,6 +798,20 @@ pub struct LspServerInfo {
     pub file_extensions: Vec<String>,
 }
 
+/// Information about a debug adapter.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DebugAdapterInfo {
+    /// Language ID (e.g. "rust", "go", "python", "cpp").
+    pub language: String,
+    /// Command to start the debug adapter (e.g. "lldb-dap").
+    pub command: String,
+    /// Arguments to pass to the adapter.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Display name.
+    pub name: Option<String>,
+}
+
 /// Tool provides LSP (Language Server Protocol) capabilities.
 ///
 /// Adapters implement this to enable code-aware operations such as
@@ -817,6 +831,24 @@ pub trait LspProvider: Send + Sync {
     /// Resolve the best LSP server for a given file extension.
     fn resolve_lsp_server(&self, extension: &str) -> Option<LspServerInfo> {
         self.lsp_servers().into_iter().find(|s| s.file_extensions.iter().any(|e| e == extension))
+    }
+}
+
+/// Tool provides DAP (Debug Adapter Protocol) capabilities.
+///
+/// Adapters implement this to enable debugging operations such as
+/// launch, attach, breakpoints, step, and evaluate within the tool's
+/// workspace.
+pub trait DebugProvider: Send + Sync {
+    /// Returns the debug adapters this tool supports.
+    fn debug_adapters(&self) -> Vec<DebugAdapterInfo>;
+    /// Root directory for debug sessions.
+    fn debug_cwd(&self) -> Option<String> {
+        None
+    }
+    /// Resolve the best debug adapter for a given language.
+    fn resolve_debug_adapter(&self, language: &str) -> Option<DebugAdapterInfo> {
+        self.debug_adapters().into_iter().find(|a| a.language == language)
     }
 }
 

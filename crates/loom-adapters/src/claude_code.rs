@@ -40,6 +40,7 @@ impl LoomToolAdapter for ClaudeCodeAdapter {
             routing: None,
             sessions: None,
             lsp: None,
+            debug: None,
         }
     }
 

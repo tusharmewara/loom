@@ -43,6 +43,7 @@ impl LoomToolAdapter for CrushAdapter {
             }),
             sessions: None,
             lsp: None,
+            debug: None,
         }
     }
 

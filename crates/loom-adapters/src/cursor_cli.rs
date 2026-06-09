@@ -43,6 +43,7 @@ impl LoomToolAdapter for CursorCliAdapter {
                 max_shared_sessions: 50,
             }),
             lsp: None,
+            debug: None,
         }
     }
 

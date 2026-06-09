@@ -54,6 +54,9 @@ pub struct ToolToml {
     /// `[lsp]` — LSP server configuration for the tool.
     #[serde(default)]
     pub lsp: Option<LspSection>,
+    /// `[debug]` — Debug adapter configuration for the tool.
+    #[serde(default)]
+    pub debug: Option<DebugSection>,
 }
 
 /// The `[tool]` section — required metadata.
@@ -197,4 +200,31 @@ pub struct LspServerConfig {
     /// File extensions this server handles.
     #[serde(default)]
     pub file_extensions: Vec<String>,
+}
+
+/// The `[debug]` section — debug adapter declarations for the adapter.
+///
+/// When present, the adapter can resolve and use DAP operations
+/// for debugging tasks (launch, attach, breakpoints, step, evaluate).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DebugSection {
+    /// List of debug adapters this tool supports.
+    #[serde(default)]
+    pub adapters: Vec<DebugAdapterConfig>,
+    /// Root directory for debug sessions.
+    pub cwd: Option<String>,
+}
+
+/// Configuration for a single debug adapter.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DebugAdapterConfig {
+    /// Language ID (e.g. "rust", "go", "python", "cpp").
+    pub language: String,
+    /// Command to start the debug adapter (e.g. "lldb-dap").
+    pub command: String,
+    /// Arguments to pass to the adapter.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Display name.
+    pub name: Option<String>,
 }

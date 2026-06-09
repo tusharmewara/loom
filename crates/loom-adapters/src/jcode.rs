@@ -2,8 +2,8 @@ use crate::{LoomToolAdapter, SyncReport};
 use anyhow::Result;
 use loom_core::RoutingDecision;
 use loom_generic_adapter::config::{
-    LspSection, LspServerConfig, McpSection, RoutingSection, SessionsSection, SkillsSection,
-    ToolSection, ToolToml,
+    DebugAdapterConfig, DebugSection, LspSection, LspServerConfig, McpSection, RoutingSection,
+    SessionsSection, SkillsSection, ToolSection, ToolToml,
 };
 pub struct JcodeAdapter;
 
@@ -59,6 +59,17 @@ impl LoomToolAdapter for JcodeAdapter {
                 ],
                 root_uri: None,
                 file_extensions: vec!["rs".into(), "ts".into(), "tsx".into()],
+            }),
+            debug: Some(DebugSection {
+                adapters: vec![
+                    DebugAdapterConfig {
+                        language: "rust".into(),
+                        command: "lldb-dap".into(),
+                        args: vec![],
+                        name: Some("LLDB".into()),
+                    },
+                ],
+                cwd: None,
             }),
         }
     }

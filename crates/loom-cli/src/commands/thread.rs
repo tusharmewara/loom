@@ -48,6 +48,7 @@ pub async fn run(
             routing: None,
             sessions: None,
             lsp: None,
+            debug: None,
         };
         let toml_str = toml::to_string_pretty(&config)?;
         std::fs::write(&toml_path, &toml_str)?;
