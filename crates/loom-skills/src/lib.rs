@@ -1,4 +1,5 @@
 pub mod adapter;
+pub mod edit;
 pub mod hot_reload;
 pub mod loader;
 pub mod lockfile;
@@ -6,6 +7,7 @@ pub mod manager;
 pub mod registry;
 
 pub use adapter::{adapt_skill, ToolAdapterConfig};
+pub use edit::{HashlineAnchor, HashlineEdit, InsertionPoint, make_replace_edit};
 pub use hot_reload::SkillWatcher;
 pub use loader::SkillLoader;
 
