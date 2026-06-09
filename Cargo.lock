@@ -1596,6 +1596,7 @@ dependencies = [
  "loom-adapters",
  "loom-auth",
  "loom-core",
+ "loom-debug",
  "loom-discovery",
  "loom-event-bus",
  "loom-generic-adapter",
@@ -1682,6 +1683,17 @@ dependencies = [
  "tracing",
  "ureq",
  "uuid",
+]
+
+[[package]]
+name = "loom-debug"
+version = "0.5.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

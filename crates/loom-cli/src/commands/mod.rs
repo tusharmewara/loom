@@ -23,5 +23,6 @@ pub mod workflow;
 pub mod plugin;
 pub mod knowledge;
 pub mod lsp;
+pub mod debug;
 pub mod remote;
 pub mod self_update;

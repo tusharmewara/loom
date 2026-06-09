@@ -188,6 +188,11 @@ pub enum Command {
         #[command(subcommand)]
         action: LspAction,
     },
+    /// Debug Adapter Protocol: launch, attach, breakpoints, step, evaluate
+    Debug {
+        #[command(subcommand)]
+        action: DebugAction,
+    },
     /// Manage the knowledge graph (extract, query, add entities, stats)
     Knowledge {
         #[command(subcommand)]
@@ -384,6 +389,58 @@ pub enum LspAction {
         #[arg(long)]
         column: Option<u32>,
     },
+}
+
+#[derive(Subcommand)]
+pub enum DebugAction {
+    /// List available debug adapters on PATH
+    Adapters {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Launch a program for debugging
+    Launch {
+        /// Path to the program to debug
+        #[arg(long)]
+        program: String,
+        /// Language of the program (rust, go, python, cpp)
+        #[arg(long)]
+        language: String,
+        /// Arguments to pass to the program
+        #[arg(long)]
+        args: Vec<String>,
+    },
+    /// Attach to a running process
+    Attach {
+        /// Process ID to attach to
+        #[arg(long)]
+        pid: u32,
+        /// Language of the target process (rust, go, python)
+        #[arg(long)]
+        language: String,
+    },
+    /// Set breakpoints in a source file (requires active session)
+    Breakpoints {
+        /// Source file path
+        #[arg(long)]
+        file: String,
+        /// Line numbers
+        #[arg(long)]
+        line: Vec<u32>,
+    },
+    /// Step through execution (over, in, out)
+    Step {
+        /// Direction: over, in, out
+        direction: String,
+    },
+    /// Evaluate an expression in the current debug context
+    Evaluate {
+        /// Expression to evaluate
+        expression: String,
+    },
+    /// Show current stack trace
+    Stack,
 }
 
 #[derive(Subcommand)]
@@ -1184,6 +1241,9 @@ impl Cli {
             }
             Command::Lsp { action } => {
                 crate::commands::lsp::run(&action).await
+            }
+            Command::Debug { action } => {
+                crate::commands::debug::run(&action).await
             }
             Command::Knowledge { action } => {
                 crate::commands::knowledge::run(&loom_dir, &action).await
