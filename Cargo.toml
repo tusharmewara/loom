@@ -30,6 +30,7 @@ members = [
     "crates/loom-hindsight",
     "crates/loom-conflict",
     "crates/loom-rules",
+    "crates/loom-ast",
 ]
 
 [workspace.package]
