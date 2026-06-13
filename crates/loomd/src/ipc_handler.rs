@@ -2,17 +2,20 @@ use crate::Loomd;
 use loom_core::HealthCheck;
 use loom_ipc::{IpcHandler, IpcRequest, IpcResponse};
 use serde_json::json;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 pub struct LoomdIpcHandler {
     version: &'static str,
     loom_dir: String,
-    discovery: std::sync::Arc<loom_discovery::DiscoveryEngine>,
-    skills: std::sync::Arc<loom_skills::SkillsEngine>,
-    sessions: std::sync::Arc<loom_sessions::SessionManager>,
-    auth: std::sync::Arc<loom_auth::AuthManager>,
-    hooks: std::sync::Arc<loom_hooks::HooksEngine>,
+    discovery: Arc<loom_discovery::DiscoveryEngine>,
+    skills: Arc<loom_skills::SkillsEngine>,
+    sessions: Arc<loom_sessions::SessionManager>,
+    auth: Arc<loom_auth::AuthManager>,
+    hooks: Arc<loom_hooks::HooksEngine>,
     mcp_registry: loom_mcp::McpRegistry,
-    memory_mgr: std::sync::Arc<loom_mcp::AgentMemoryManager>,
+    memory_mgr: Arc<loom_mcp::AgentMemoryManager>,
+    acp_server: Arc<RwLock<Option<Arc<loom_sessions::AcpDispatchServer>>>>,
 }
 
 impl LoomdIpcHandler {
@@ -28,6 +31,7 @@ impl LoomdIpcHandler {
             auth: loomd.auth().clone(),
             hooks: loomd.hooks().clone(),
             memory_mgr: loomd.memory_mgr().clone(),
+            acp_server: loomd.acp_server_inner().clone(),
         }
     }
 }
@@ -394,6 +398,37 @@ impl IpcHandler for LoomdIpcHandler {
                     Ok(true) => IpcResponse::ok(req.request_id, json!({ "stopped": true })),
                     Ok(false) => IpcResponse::ok(req.request_id, json!({ "stopped": false, "reason": "not running" })),
                     Err(e) => IpcResponse::error(req.request_id, format!("failed to stop: {e}")),
+                }
+            }
+            "acp.status" => {
+                let runtime = tokio::runtime::Runtime::new().unwrap();
+                let server = runtime.block_on(self.acp_server.read());
+                match server.as_ref() {
+                    Some(srv) => {
+                        let status = runtime.block_on(srv.status());
+                        IpcResponse::ok(req.request_id, status)
+                    }
+                    None => IpcResponse::ok(req.request_id, json!({
+                        "running": false,
+                        "message": "ACP dispatch server not initialized"
+                    })),
+                }
+            }
+            "acp.start" => {
+                IpcResponse::error(req.request_id, "ACP dispatch server auto-starts with daemon; use `loom daemon restart` to restart".to_string())
+            }
+            "acp.stop" => {
+                let runtime = tokio::runtime::Runtime::new().unwrap();
+                let server = runtime.block_on(self.acp_server.read());
+                match server.as_ref() {
+                    Some(srv) => {
+                        runtime.block_on(srv.stop());
+                        IpcResponse::ok(req.request_id, json!({ "stopped": true }))
+                    }
+                    None => IpcResponse::ok(req.request_id, json!({
+                        "stopped": false,
+                        "message": "ACP dispatch server not running"
+                    })),
                 }
             }
             "acp.dispatch" => {

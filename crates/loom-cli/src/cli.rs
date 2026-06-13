@@ -203,6 +203,11 @@ pub enum Command {
         #[command(subcommand)]
         action: KnowledgeAction,
     },
+    /// Manage the ACP dispatch server
+    Acp {
+        #[command(subcommand)]
+        action: AcpAction,
+    },
     /// Generate shell completions
     Completions {
         /// Shell type (bash, zsh, fish, powershell, elvish)
@@ -1265,6 +1270,26 @@ pub enum KnowledgeAction {
     },
 }
 
+#[derive(Subcommand)]
+pub enum AcpAction {
+    /// Show ACP dispatch server running status
+    Status {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Start the ACP dispatch server
+    Start,
+    /// Stop the ACP dispatch server
+    Stop,
+    /// Show detailed ACP dispatch server information
+    Show {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 impl Cli {
     pub async fn execute(self) -> anyhow::Result<()> {
         let loom_dir = crate::loom_dir();
@@ -1348,6 +1373,9 @@ impl Cli {
             }
             Command::Knowledge { action } => {
                 crate::commands::knowledge::run(&loom_dir, &action).await
+            }
+            Command::Acp { action } => {
+                crate::commands::acp::run(&agents_path, &action).await
             }
             Command::Completions { shell } => {
                 use clap::CommandFactory;

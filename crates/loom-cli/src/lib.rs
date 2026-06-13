@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::SystemTime;
 
 pub use cli::{
-    AuthAction, Cli, Command, DaemonAction, HooksAction, IssuesAction, McpAction, MemoryAction,
+    AcpAction, AuthAction, Cli, Command, DaemonAction, HooksAction, IssuesAction, McpAction, MemoryAction,
     RoutingAction, RulesAction, SessionsAction, SkillsAction, WorkflowAction,
 };
 

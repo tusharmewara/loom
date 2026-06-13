@@ -27,3 +27,4 @@ pub mod lsp;
 pub mod debug;
 pub mod remote;
 pub mod self_update;
+pub mod acp;

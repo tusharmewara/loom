@@ -94,6 +94,11 @@ impl Loomd {
         self.acp_server.read().await.clone()
     }
 
+    /// Access to the inner RwLock for IPC handler construction.
+    pub fn acp_server_inner(&self) -> &Arc<RwLock<Option<Arc<loom_sessions::AcpDispatchServer>>>> {
+        &self.acp_server
+    }
+
     pub async fn run(&self) -> anyhow::Result<()> {
         use loom_ipc::serve;
         use std::path::Path;
