@@ -1,11 +1,12 @@
 mod activity;
 mod ipc_handler;
 use activity::{now_ms, ActivityHandler};
+use crate::ipc_handler::dispatch_acp_agent;
 use loom_core::{constants::DAEMON_DEFAULT_IDLE_TIMEOUT_MS, HealthCheck, LoomEvent};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
-use tokio::sync::broadcast;
+use std::time::{Duration, SystemTime};
+use tokio::sync::{broadcast, RwLock};
 
 pub struct Loomd {
     loom_dir: String,
@@ -20,6 +21,7 @@ pub struct Loomd {
     hooks: Arc<loom_hooks::HooksEngine>,
     telemetry: Arc<loom_telemetry::TelemetryCollector>,
     memory_mgr: Arc<loom_mcp::AgentMemoryManager>,
+    acp_server: Arc<RwLock<Option<Arc<loom_sessions::AcpDispatchServer>>>>,
     shutdown_tx: broadcast::Sender<()>,
 }
 
@@ -51,6 +53,7 @@ impl Loomd {
             hooks: Arc::new(loom_hooks::HooksEngine::new(loom_dir)),
             telemetry: telemetry.clone(),
             memory_mgr,
+            acp_server: Arc::new(RwLock::new(None)),
             shutdown_tx,
         })
     }
@@ -85,6 +88,10 @@ impl Loomd {
 
     pub fn memory_mgr(&self) -> &Arc<loom_mcp::AgentMemoryManager> {
         &self.memory_mgr
+    }
+
+    pub async fn acp_server(&self) -> Option<Arc<loom_sessions::AcpDispatchServer>> {
+        self.acp_server.read().await.clone()
     }
 
     pub async fn run(&self) -> anyhow::Result<()> {
@@ -157,6 +164,71 @@ impl Loomd {
                 Err(e) => tracing::warn!("  ⚠️  Failed to open cross-session memory store: {e}"),
             }
         });
+
+        // ── ACP Dispatch Server ─────────────────────────────────────────
+        // Start the TCP server for agent-to-agent dispatch.
+        let acp_config = loom_sessions::AcpServerConfig {
+            key_path: format!("{}/acp_server_key.txt", self.loom_dir),
+            ..Default::default()
+        };
+        match loom_sessions::AcpDispatchServer::new(acp_config) {
+            Ok(server) => {
+                let server_arc = Arc::new(server);
+
+                // Register a default dispatch handler
+                let loom_dir = self.loom_dir.clone();
+                let default_handler: loom_sessions::DispatchFn = Arc::new(move |req: &loom_sessions::DispatchRequest| {
+                    // Try dispatching to a local agent binary
+                    match dispatch_acp_agent(&loom_dir, &req.agent_id, &req.task_id) {
+                        Ok(msg) => Ok(serde_json::json!({ "dispatched": true, "message": msg })),
+                        Err(e) => Err(anyhow::anyhow!("Dispatch failed: {e}")),
+                    }
+                });
+
+                // Set the default handler on the server before it starts
+                let server_arc_pre = server_arc.clone();
+                server_arc_pre.set_default_handler(Some(default_handler)).await;
+
+                let server_arc_clone = server_arc.clone();
+                let loom_dir_clone = self.loom_dir.clone();
+                let acp_server_lock = self.acp_server.clone();
+
+                tokio::spawn(async move {
+                    match server_arc_clone.start().await {
+                        Ok(addr) => {
+                            tracing::info!("  ✅ ACP dispatch server listening on {addr} (key: {})",
+                                server_arc_clone.public_key_hex().chars().take(16).collect::<String>());
+                            let info = serde_json::json!({
+                                "listen_addr": addr.to_string(),
+                                "public_key": server_arc_clone.public_key_hex(),
+                                "started_at": SystemTime::now()
+                                    .duration_since(SystemTime::UNIX_EPOCH)
+                                    .map(|d| d.as_secs())
+                                    .unwrap_or(0),
+                            });
+                            let _ = std::fs::write(
+                                format!("{loom_dir_clone}/acp_server.json"),
+                                serde_json::to_string_pretty(&info).unwrap_or_default(),
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!("  ⚠️  ACP dispatch server failed to start: {e}");
+                        }
+                    }
+                });
+
+                // Store the server reference
+                let lock = acp_server_lock.clone();
+                let ss = server_arc.clone();
+                tokio::spawn(async move {
+                    let mut guard = lock.write().await;
+                    *guard = Some(ss);
+                });
+            }
+            Err(e) => {
+                tracing::warn!("  ⚠️  ACP dispatch server creation failed: {e}");
+            }
+        }
 
         let socket_path = Path::new(&self.loom_dir).join("loomd.sock");
         let socket_path_str = socket_path.to_str().unwrap().to_string();

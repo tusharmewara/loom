@@ -17,11 +17,15 @@ pub use migrate::migrate_if_needed;
 pub mod acp_client;
 pub mod acp_discovery;
 pub mod acp_handshake;
+pub mod acp_server;
 pub use acp_client::AcpClient;
 pub use acp_client::AgentMetadata;
 pub use acp_discovery::{AcpPeer, PeerDiscovery};
 pub use acp_handshake::{
     AcpHandshake, AcpKeyPair, complete_initiator, initiate_handshake, perform_responder_handshake,
+};
+pub use acp_server::{
+    AcpDispatchServer, AcpServerConfig, DispatchFn, DispatchRequest, DispatchResponse,
 };
 
 pub struct SessionManager {

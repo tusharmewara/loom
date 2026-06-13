@@ -589,7 +589,7 @@ fn terminal_launch_args(command: &str) -> Option<(&'static str, Vec<&'static str
 /// Tries two strategies in order:
 /// 1. Find a native binary on PATH
 /// 2. Use npx for npm packages registered in config/agents.toml
-fn dispatch_acp_agent(loom_dir: &str, agent_id: &str, task_id: &str) -> anyhow::Result<String> {
+pub(crate) fn dispatch_acp_agent(loom_dir: &str, agent_id: &str, task_id: &str) -> anyhow::Result<String> {
     use std::path::Path;
     use std::collections::HashMap;
 
