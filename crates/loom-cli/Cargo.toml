@@ -32,6 +32,7 @@ loom-remote = { path = "../loom-remote" }
 loom-lsp = { path = "../loom-lsp" }
 loom-hindsight = { path = "../loom-hindsight" }
 loom-rules = { path = "../loom-rules" }
+loom-conflict = { path = "../loom-conflict" }
 loom-tui = { path = "../loom-tui", optional = true }
 clap.workspace = true
 clap_complete.workspace = true
@@ -47,6 +48,7 @@ uuid.workspace = true
 chrono.workspace = true
 reqwest.workspace = true
 sha2.workspace = true
+hex.workspace = true
 ureq.workspace = true
 lsp-types = "0.97.0"
 loom-debug = { version = "0.6.0", path = "../loom-debug" }

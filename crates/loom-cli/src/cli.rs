@@ -203,6 +203,16 @@ pub enum Command {
         #[command(subcommand)]
         action: KnowledgeAction,
     },
+    /// Content-hash anchored editing (Hashline)
+    Edit {
+        #[command(subcommand)]
+        action: EditAction,
+    },
+    /// Detect and resolve merge conflicts
+    Conflict {
+        #[command(subcommand)]
+        action: ConflictAction,
+    },
     /// Manage the ACP dispatch server
     Acp {
         #[command(subcommand)]
@@ -1270,6 +1280,99 @@ pub enum KnowledgeAction {
     },
 }
 
+/// Content-hash anchored editing (Hashline).
+#[derive(Subcommand)]
+pub enum EditAction {
+    /// Compute the hashline anchor for a line range
+    Hash {
+        /// File to compute hash for
+        file: String,
+        /// Start line (1-based, inclusive)
+        #[arg(long)]
+        start: usize,
+        /// End line (1-based, inclusive)
+        #[arg(long)]
+        end: usize,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Apply a hashline edit: replace lines with new content
+    Apply {
+        /// File to edit
+        file: String,
+        /// Start line (1-based, inclusive) of the target region
+        #[arg(long)]
+        start: usize,
+        /// End line (1-based, inclusive) of the target region
+        #[arg(long)]
+        end: usize,
+        /// Replacement content
+        #[arg(long)]
+        content: String,
+        /// Write changes back to file (default: dry-run, prints diff-ish output)
+        #[arg(long)]
+        write: bool,
+    },
+    /// Validate that a hashline anchor still matches the current file content
+    Validate {
+        /// File to check
+        file: String,
+        /// SHA-256 hex hash to validate (or just an 8-char prefix for display)
+        #[arg(long)]
+        hash: String,
+        /// Start line (1-based, inclusive)
+        #[arg(long)]
+        start: usize,
+        /// End line (1-based, inclusive)
+        #[arg(long)]
+        end: usize,
+    },
+}
+
+/// Detect and resolve merge conflicts.
+#[derive(Subcommand)]
+pub enum ConflictAction {
+    /// Scan a file or directory for merge conflict markers
+    Scan {
+        /// File or directory path to scan
+        path: String,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Resolve conflicts in a file
+    Resolve {
+        /// File to resolve
+        file: String,
+        /// Resolution strategy: ours, theirs, both-ours-theirs, both-theirs-ours
+        #[arg(long, default_value = "theirs")]
+        strategy: String,
+        /// Write resolved content (default: dry-run, prints to stdout)
+        #[arg(long)]
+        write: bool,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Bulk-resolve conflicts across multiple files
+    ResolveBulk {
+        /// Files to resolve
+        files: Vec<String>,
+        /// Resolution strategy: ours, theirs, both-ours-theirs, both-theirs-ours
+        #[arg(long, default_value = "theirs")]
+        strategy: String,
+    },
+    /// Show detailed info about conflicts in a file
+    Show {
+        /// File path
+        file: String,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 #[derive(Subcommand)]
 pub enum AcpAction {
     /// Show ACP dispatch server running status
@@ -1376,6 +1479,12 @@ impl Cli {
             }
             Command::Acp { action } => {
                 crate::commands::acp::run(&agents_path, &action).await
+            }
+            Command::Edit { action } => {
+                crate::commands::edit::run(&loom_dir, &action).await
+            }
+            Command::Conflict { action } => {
+                crate::commands::conflict::run(&loom_dir, &action).await
             }
             Command::Completions { shell } => {
                 use clap::CommandFactory;

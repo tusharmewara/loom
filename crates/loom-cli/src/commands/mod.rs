@@ -28,3 +28,5 @@ pub mod debug;
 pub mod remote;
 pub mod self_update;
 pub mod acp;
+pub mod edit;
+pub mod conflict;
