@@ -507,7 +507,6 @@ mod tests {
         let addr = server.start().await.unwrap();
         assert!(addr.port() > 0);
         assert!(server.listen_addr().await.is_some());
-        assert!(server.uptime_secs().await >= 0);
         server.stop().await;
         assert!(server.listen_addr().await.is_none());
     }
