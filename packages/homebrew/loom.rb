@@ -2,7 +2,7 @@ class Loom < Formula
   desc "The Shared Agentic Ecosystem — orchestrate tools, MCP servers, skills, and sessions"
   homepage "https://github.com/tusharmewara/loom"
   url "https://github.com/tusharmewara/loom/archive/refs/tags/v0.7.1.tar.gz"
-  sha256 "REPLACE_WITH_ACTUAL_SHA"
+  sha256 "0019dfc4b32d63c1392aa264aed2253c1e0c2fb09216f8e2cc269bbfb8bb49b5"
   license "MIT"
   head "https://github.com/tusharmewara/loom.git", branch: "main"
 
