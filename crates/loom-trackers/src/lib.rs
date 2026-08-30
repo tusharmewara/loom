@@ -10,4 +10,5 @@ pub mod linear;
 pub mod models;
 mod tracker;
 
+pub use github::CiStatus;
 pub use tracker::IssueTracker;

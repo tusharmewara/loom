@@ -4,6 +4,18 @@ use crate::cli::DebugAction;
 use loom_debug::client::DapClient;
 use loom_debug::discover::{discover_adapters, resolve_for_language};
 
+/// These subcommands (`step`, `evaluate`, `stack`, `continue`) operate on a
+/// live debug session launched via `loom debug launch` / `attach`. The CLI is
+/// stateless between invocations, so there is no session to attach to; instead
+/// of fabricating a meaningless throwaway `/bin/true` session, fail with clear
+/// guidance, matching `breakpoints`.
+fn require_active_session(what: &str) -> anyhow::Result<()> {
+    anyhow::bail!(
+        "{what} requires an active debug session. \
+         Use 'loom debug launch' or 'loom debug attach' first."
+    )
+}
+
 pub async fn run(action: &DebugAction) -> anyhow::Result<()> {
     match action {
         DebugAction::Adapters { json } => {
@@ -96,24 +108,16 @@ pub async fn run(action: &DebugAction) -> anyhow::Result<()> {
                 adapter.command, adapter.name
             );
         }
-        DebugAction::Step { direction: _ } => {
-            anyhow::bail!(
-                "Step operations require an active debug session. \
-                 Use 'loom debug launch' or 'loom debug attach' first."
-            );
+        DebugAction::Step { direction } => {
+            match direction.as_str() {
+                "over" | "in" | "out" => {}
+                other => anyhow::bail!("Unknown step direction '{other}'. Use: over, in, out"),
+            }
+            require_active_session("Stepping")?;
         }
-        DebugAction::Evaluate { expression: _ } => {
-            anyhow::bail!(
-                "Evaluate requires an active debug session. \
-                 Use 'loom debug launch' or 'loom debug attach' first."
-            );
-        }
-        DebugAction::Stack => {
-            anyhow::bail!(
-                "Stack trace requires an active debug session. \
-                 Use 'loom debug launch' or 'loom debug attach' first."
-            );
-        }
+        DebugAction::Evaluate { .. } => require_active_session("Evaluating an expression")?,
+        DebugAction::Stack => require_active_session("Showing the stack trace")?,
+        DebugAction::Continue => require_active_session("Continuing execution")?,
     }
     Ok(())
 }

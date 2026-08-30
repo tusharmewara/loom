@@ -66,6 +66,48 @@ impl LoomCliAdapter {
         self.run_json(&["issues", "list", "--json", "--state", "all", "--repo", ""]).await
     }
 
+    pub async fn fetch_pull_requests(&self, repo: &str, state: &str) -> Result<Value> {
+        self.run_json(&["issues", "pull-requests", "--json", "--repo", repo, "--state", state]).await
+    }
+
+    pub async fn fetch_pr_ci_status(&self, repo: &str, pr: u64) -> Result<Value> {
+        self.run_json(&["issues", "ci-status", "--json", "--repo", repo, "--pr", &pr.to_string()]).await
+    }
+
+    pub async fn fetch_pr_diff(&self, repo: &str, pr: u64) -> Result<String> {
+        let output = Command::new(&self.bin)
+            .args(["issues", "diff", "--repo", repo, "--pr", &pr.to_string()])
+            .output()
+            .await
+            .with_context(|| format!("failed to execute `{}`", self.bin))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            anyhow::bail!("diff failed: {}", stderr);
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    /// Detect the current git repository (as `owner/repo`) from the working
+    /// directory's `origin` remote, so the PR/CI/diff view can target a real
+    /// repository. Returns `None` when not inside a git checkout or when no
+    /// `origin` remote is configured.
+    pub async fn fetch_current_repo(&self) -> Result<Option<String>> {
+        let output = Command::new("git")
+            .args(["config", "--get", "remote.origin.url"])
+            .output()
+            .await
+            .with_context(|| "failed to run `git`")?;
+
+        if !output.status.success() {
+            return Ok(None);
+        }
+
+        let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Ok(normalize_repo(&url))
+    }
+
     pub async fn daemon_start(&self) -> CommandResult {
         self.run_daemon_action("start", &["daemon", "start"]).await
     }
@@ -209,5 +251,83 @@ impl LoomCliAdapter {
                 (None, rx, None)
             }
         }
+    }
+}
+
+/// Normalize a git remote URL into `owner/repo` form.
+///
+/// Handles `https://github.com/owner/repo(.git)`, `git@github.com:owner/repo.git`,
+/// `ssh://git@github.com/owner/repo.git`, and `git://github.com/owner/repo.git`.
+/// Anything that does not resolve to an `owner/repo` shape returns `None`.
+fn normalize_repo(url: &str) -> Option<String> {
+    let url = url.trim().trim_end_matches(".git");
+    if url.is_empty() {
+        return None;
+    }
+
+    // URL-style: scheme://host/owner/repo
+    if let Some(rest) = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .or_else(|| url.strip_prefix("ssh://"))
+        .or_else(|| url.strip_prefix("git://"))
+    {
+        let path = rest.split_once('/')?.1;
+        let mut parts = path.split('/');
+        let owner = parts.next()?;
+        let repo = parts.next()?;
+        if owner.is_empty() || repo.is_empty() || parts.next().is_some() {
+            return None;
+        }
+        return Some(format!("{owner}/{repo}"));
+    }
+
+    // SCP-style: git@github.com:owner/repo
+    if let Some(path) = url.split_once(':') {
+        let mut parts = path.1.split('/');
+        let owner = parts.next()?;
+        let repo = parts.next()?;
+        if owner.is_empty() || repo.is_empty() || parts.next().is_some() {
+            return None;
+        }
+        return Some(format!("{owner}/{repo}"));
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_repo_https() {
+        assert_eq!(
+            normalize_repo("https://github.com/owner/repo.git").as_deref(),
+            Some("owner/repo")
+        );
+    }
+
+    #[test]
+    fn test_normalize_repo_scp() {
+        assert_eq!(
+            normalize_repo("git@github.com:owner/repo.git").as_deref(),
+            Some("owner/repo")
+        );
+    }
+
+    #[test]
+    fn test_normalize_repo_ssh() {
+        assert_eq!(
+            normalize_repo("ssh://git@github.com/owner/repo.git").as_deref(),
+            Some("owner/repo")
+        );
+    }
+
+    #[test]
+    fn test_normalize_repo_invalid() {
+        assert_eq!(normalize_repo(""), None);
+        assert_eq!(normalize_repo("https://github.com"), None);
+        assert_eq!(normalize_repo("not a url"), None);
     }
 }

@@ -46,6 +46,15 @@ pub async fn run(_loom_dir: &Path, action: &IssuesAction) -> anyhow::Result<()> 
             provider,
             host,
         } => cmd_link_pr(provider, id, pr_url, repo, token.as_deref(), host.as_deref()).await,
+        IssuesAction::Diff { pr, repo, token } => {
+            cmd_diff(*pr, repo, token.as_deref()).await
+        }
+        IssuesAction::CiStatus { pr, repo, token, json } => {
+            cmd_ci_status(*pr, repo, token.as_deref(), *json).await
+        }
+        IssuesAction::PullRequests { repo, state, json, token } => {
+            cmd_pull_requests(repo, state, *json, token.as_deref()).await
+        }
     }
 }
 
@@ -228,5 +237,89 @@ async fn cmd_link_pr(
 
     tracker.link_pr(&issue_id, pr_url).await?;
     println!("✓ Linked PR to {provider} issue {issue_id}: {pr_url}");
+    Ok(())
+}
+
+async fn cmd_diff(pr: u64, repo: &str, token: Option<&str>) -> anyhow::Result<()> {
+    let tracker = GitHubTracker::new(token.map(|s| s.to_string()))?;
+    let diff = tracker.fetch_pr_diff(repo, pr).await?;
+
+    // Show diff with line numbers
+    for line in diff.lines() {
+        let prefix = if line.starts_with('+') && !line.starts_with("+++") {
+            "\x1b[32m+\x1b[0m"
+        } else if line.starts_with('-') && !line.starts_with("---") {
+            "\x1b[31m-\x1b[0m"
+        } else if line.starts_with("@@") {
+            "\x1b[36m@@\x1b[0m"
+        } else {
+            " "
+        };
+        println!("{} {}", prefix, line);
+    }
+    Ok(())
+}
+
+async fn cmd_ci_status(pr: u64, repo: &str, token: Option<&str>, json: bool) -> anyhow::Result<()> {
+    let tracker = GitHubTracker::new(token.map(|s| s.to_string()))?;
+    let statuses = tracker.fetch_pr_ci_status(repo, pr).await?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+            "schema_version": 1,
+            "command": "issues.ci-status",
+            "repo": repo,
+            "pr": pr,
+            "count": statuses.len(),
+            "checks": statuses,
+        }))?);
+    } else {
+        if statuses.is_empty() {
+            println!("No CI checks found for PR #{pr} in {repo}");
+            return Ok(());
+        }
+        println!("CI Status for {repo}#{pr}:");
+        for c in &statuses {
+            let icon = match c.status.as_str() {
+                "success" => "✅",
+                "failure" => "❌",
+                "cancelled" => "⏹️",
+                "pending" | "queued" | "in_progress" => "⏳",
+                "neutral" => "➖",
+                _ => "❓",
+            };
+            if let Some(ref url) = c.url {
+                println!("  {} {}  ({})", icon, c.name, url);
+            } else {
+                println!("  {} {}", icon, c.name);
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn cmd_pull_requests(repo: &str, state: &str, json: bool, token: Option<&str>) -> anyhow::Result<()> {
+    let tracker = GitHubTracker::new(token.map(|s| s.to_string()))?;
+    let prs = tracker.list_pull_requests(repo, state).await?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+            "schema_version": 1,
+            "command": "issues.pull-requests",
+            "repo": repo,
+            "state": state,
+            "count": prs.len(),
+            "issues": prs,
+        }))?);
+    } else {
+        if prs.is_empty() {
+            println!("No pull requests found for {repo} (state={state})");
+            return Ok(());
+        }
+        println!("Pull requests for {repo} (state={state}):");
+        for pr in &prs {
+            println!("  {}  {}  {}", pr.id, pr.state, pr.title);
+        }
+    }
     Ok(())
 }

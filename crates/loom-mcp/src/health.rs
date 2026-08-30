@@ -45,7 +45,7 @@ struct ServerHealthState {
 /// The `Box<dyn Fn(...)>` is [`Send`] so it can cross tokio task boundaries.
 /// Note: [`Sync`] is not required because the callback is moved into the
 /// spawned task via [`take`] before the loop starts, never shared.
-pub type HealthChangeCallback = Box<dyn Fn(&str, &HealthStatusStr) + Send + 'static>;
+pub type HealthChangeCallback = Box<dyn Fn(&str, &HealthStatusStr) + Send + Sync + 'static>;
 
 /// Event-driven health checker for MCP servers.
 ///

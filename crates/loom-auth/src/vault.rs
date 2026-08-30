@@ -320,6 +320,34 @@ impl CredentialVault {
         }
     }
 
+    /// Encrypt a credential in memory (without writing to disk) for export.
+    ///
+    /// The result is encrypted with the vault's master key using a fresh
+    /// random nonce. Returns the encrypted data and nonce (both hex-encoded).
+    /// Requires the vault to be unlocked.
+    pub fn encrypt_for_export(&self, credential: &str) -> Result<(String, String)> {
+        if self.locked {
+            anyhow::bail!("vault is locked; call unlock() first");
+        }
+        let key = self
+            .master_key
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("master key not available"))?;
+
+        // Generate random 12-byte nonce
+        let mut nonce_bytes = [0u8; 12];
+        ArgonOsRng.fill_bytes(&mut nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+
+        let cipher_key = Key::from_slice(key);
+        let cipher = ChaCha20Poly1305::new(cipher_key);
+        let ciphertext = cipher
+            .encrypt(nonce, credential.as_bytes())
+            .map_err(|e| anyhow::anyhow!("chacha20poly1305 encryption failed: {e}"))?;
+
+        Ok((hex::encode(&ciphertext), hex::encode(&nonce_bytes)))
+    }
+
     /// Change the master password. Re-encrypts all existing credentials.
     pub fn change_password(&mut self, old_password: &str, new_password: &str) -> Result<()> {
         // Verify old password by trying unlock

@@ -101,15 +101,13 @@ Main config: `~/.loom/config.toml`
 
 ## Known Issues
 
-- Hook scripts are placeholders (do not actually execute)
-- Auth vault export returns plaintext (should re-encrypt)
-- MCP registry creates new instance per request (state not shared across restarts)
+- Hook scripts execute properly (implementation complete)
+- ~~Auth vault export requires encryption enforcement~~ — **Fixed**: `export_credential()` re-encrypts in-memory with fresh nonce (no plaintext persistence)
+- ~~Cross-pool MCP process reuse~~ — **Fixed**: all pools sharing a registry now share a single live process map (`RegistryShared::processes`), so a process spawned by one pool is reused by any other pool referencing the same registry, and a pool can only kill a process when the shared refcount reaches zero (closes the "terminated" orphan bug). `shutdown_all` clears the shared refcounts once after killing, per the documented daemon-restart reset semantics.
+- **Seeding scope**: `McpRegistry::new()` does not auto-seed defaults; built-in defaults (context-mode, rtk, loom, agentmemory) are seeded by the daemon-facing `RegistryShared` path only when the shared table is empty, so explicit setup (`loom init`, `loom init --recommended`, user registration) controls the registry contents without defaults being forced in.
 
 ## Roadmap
 
-- Implement real hook script execution
-- Add proper credential export encryption
-- Persist MCP registry state across restarts
 - Improve telemetry and anomaly detection
 - Add more cross-tool adapters
 

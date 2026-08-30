@@ -30,3 +30,4 @@ pub mod self_update;
 pub mod acp;
 pub mod edit;
 pub mod conflict;
+pub mod ast;

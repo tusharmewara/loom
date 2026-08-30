@@ -13,19 +13,21 @@ pub struct LoomdIpcHandler {
     sessions: Arc<loom_sessions::SessionManager>,
     auth: Arc<loom_auth::AuthManager>,
     hooks: Arc<loom_hooks::HooksEngine>,
-    mcp_registry: loom_mcp::McpRegistry,
+    /// Shared MCP manager providing registry and pool state.
+    /// Uses the daemon's existing McpManager instance to avoid creating
+    /// duplicate registries and ensure cross-tool state sharing.
+    mcp: Arc<loom_mcp::McpManager>,
     memory_mgr: Arc<loom_mcp::AgentMemoryManager>,
     acp_server: Arc<RwLock<Option<Arc<loom_sessions::AcpDispatchServer>>>>,
 }
 
 impl LoomdIpcHandler {
     pub fn new(loomd: &Loomd) -> Self {
-        let mcp_registry = loom_mcp::McpRegistry::new(loomd.loom_dir()).unwrap();
         Self {
             version: env!("CARGO_PKG_VERSION"),
             loom_dir: loomd.loom_dir().to_string(),
             discovery: loomd.discovery().clone(),
-            mcp_registry,
+            mcp: loomd.mcp().clone(),
             skills: loomd.skills().clone(),
             sessions: loomd.sessions().clone(),
             auth: loomd.auth().clone(),
@@ -77,13 +79,13 @@ impl IpcHandler for LoomdIpcHandler {
                 }
             }
             "mcp.list" => {
-                match self.mcp_registry.list() {
+                match self.mcp.registry().list() {
                     Ok(servers) => IpcResponse::ok(req.request_id, json!({ "servers": servers })),
                     Err(e) => IpcResponse::error(req.request_id, e.to_string()),
                 }
             }
             "mcp.health" => {
-                match self.mcp_registry.list() {
+                match self.mcp.registry().list() {
                     Ok(servers) => {
                         let all_healthy = servers.iter().all(|s| {
                             matches!(s.health_status, loom_core::HealthStatusStr::Healthy)

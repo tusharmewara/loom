@@ -22,11 +22,14 @@ pub mod gemini_cli;
 pub mod goose;
 pub mod jcode;
 pub mod kiro;
+pub mod juno;
+pub mod github_copilot;
 pub mod opencode;
 
 use anyhow::Result;
 use loom_core::{DebugAdapterInfo, LspServerInfo, RoutingDecision};
 use loom_generic_adapter::config::{DebugSection, LspSection, ToolToml};
+use loom_skills::edit::make_replace_edit;
 use std::path::Path;
 
 /// Shared adapter operations for ecosystem-registered tools.
@@ -144,6 +147,15 @@ pub trait LoomToolAdapter: Send + Sync {
         self.debug_adapters(home)
             .into_iter()
             .find(|a| a.language == language)
+    }
+
+    /// Apply a hashline edit to a file, with stale detection and fallback.
+    /// Returns the edited file content (caller writes to disk).
+    fn apply_hashline_edit(&self, file_path: &str, start: usize, end: usize, new_content: &str, context_lines: &str) -> Result<Option<String>> {
+        let content = std::fs::read_to_string(file_path)
+            .map_err(|e| anyhow::anyhow!("Cannot read {file_path}: {e}"))?;
+        let edit = make_replace_edit(&content, start, end, new_content, context_lines)?;
+        edit.apply(&content).map_err(|e| anyhow::anyhow!("Hashline edit failed: {e}"))
     }
 }
 
@@ -307,13 +319,15 @@ pub fn adapter_for(tool: &str) -> Option<Box<dyn LoomToolAdapter>> {
         "cursor-cli" | "cursor" => Some(Box::new(cursor_cli::CursorCliAdapter)),
         "gemini-cli" | "gemini" => Some(Box::new(gemini_cli::GeminiCliAdapter)),
         "kiro" => Some(Box::new(kiro::KiroAdapter)),
+        "juno" => Some(Box::new(juno::JunoAdapter)),
+        "github-copilot" | "copilot" => Some(Box::new(github_copilot::GitHubCopilotAdapter)),
         "aider" => Some(Box::new(aider::AiderAdapter)),
         _ => None,
     }
 }
 
 pub fn supported_tools() -> &'static [&'static str] {
-    &["jcode", "crush", "claude-code", "opencode", "goose", "codex", "cursor", "gemini-cli", "aider", "kiro"]
+    &["jcode", "crush", "claude-code", "opencode", "goose", "codex", "cursor", "gemini-cli", "aider", "kiro", "juno", "github-copilot"]
 }
 
 pub fn sync_tools_dir(loom_dir: &str) -> Result<SyncReport> {

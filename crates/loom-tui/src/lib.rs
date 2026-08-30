@@ -20,6 +20,11 @@ pub async fn run() -> Result<()> {
     let mut terminal = setup_terminal()?;
     let adapter = LoomCliAdapter::new("loom");
     let mut app = App::new(adapter);
+    // Detect the current git repo so the PR/CI/diff view targets a real
+    // repository instead of remaining dead code.
+    if let Ok(Some(repo)) = app.adapter.fetch_current_repo().await {
+        app.set_configured_repo(repo);
+    }
     app.refresh_safe().await;
 
     let result = run_loop(&mut terminal, &mut app).await;
@@ -279,6 +284,10 @@ async fn run_loop(
                     KeyCode::Char('q') => break,
                     KeyCode::Char('r') => app.refresh_safe().await,
                     KeyCode::Char('s') => app.run_scan_command().await,
+                    KeyCode::Char('d') if app.tab_index == 8 => {
+                        app.toggle_diff_view();
+                        app.force_pr_poll().await;
+                    }
                     KeyCode::Char('d') => app.run_doctor_command().await,
                     KeyCode::Char('?') => app.toggle_help(),
                     KeyCode::Tab | KeyCode::Right => app.next_tab(),
@@ -286,6 +295,7 @@ async fn run_loop(
                     KeyCode::Down => {
                         if app.tab_index == 8 {
                             app.next_pull();
+                            app.force_pr_poll().await;
                         } else if app.is_task_tab() {
                             app.select_next_task();
                         } else {
@@ -295,6 +305,7 @@ async fn run_loop(
                     KeyCode::Up => {
                         if app.tab_index == 8 {
                             app.prev_pull();
+                            app.force_pr_poll().await;
                         } else if app.is_task_tab() {
                             app.select_prev_task();
                         } else {

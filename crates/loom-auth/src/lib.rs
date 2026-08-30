@@ -4,12 +4,11 @@ pub mod audit;
 pub mod providers;
 pub mod import;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use loom_core::{AuthProviderTrait, EncryptedCredential, HealthCheck, HealthStatus, ProviderEntry};
 use std::path::Path;
 use std::sync::Arc;
 use tracing::warn;
-use crate::vault::EncryptedBlob;
 
 /// Orchestrator for authentication, authorization, and audit.
 ///
@@ -216,25 +215,14 @@ impl AuthProviderTrait for AuthManager {
             .get_credential(provider_id)?
             .ok_or_else(|| anyhow::anyhow!("no credential found for provider: {provider_id}"))?;
 
-        // Re-encrypt with a new random nonce for export
-        // Use the vault's internal encryption method by temporarily setting a credential
-        let export_id = format!("{}-export", provider_id);
-        self.vault.set_credential(&export_id, &plaintext)?;
-        let _exported = self.vault.get_credential(&export_id)?;
-        self.vault.delete_credential(&export_id)?;
-
-        // The vault stores credentials as EncryptedBlob JSON, so we need to read the file
-        let auth_dir = Path::new(&self.vault.loom_dir()).join("auth");
-        let cred_path = auth_dir.join(format!("{}.enc", export_id));
-        let json = std::fs::read_to_string(&cred_path)
-            .context(format!("failed to read credential: {:?}", cred_path))?;
-        let blob: EncryptedBlob =
-            serde_json::from_str(&json).context("failed to parse encrypted blob")?;
+        // Re-encrypt in memory with a fresh random nonce for export.
+        // No temporary file is written to disk, so plaintext never touches storage.
+        let (encrypted_data, nonce) = self.vault.encrypt_for_export(&plaintext)?;
 
         Ok(EncryptedCredential {
             provider_id: provider_id.to_string(),
-            encrypted_data: blob.ciphertext,
-            nonce: blob.nonce,
+            encrypted_data,
+            nonce,
             created_at: iso_now(),
         })
     }
@@ -395,5 +383,52 @@ credential = "sk-imported"
         assert_eq!(health.crate_name, "loom-auth");
         assert!(health.performance_counters.contains_key("vault_locked"));
         assert!(health.performance_counters.contains_key("acl_rules"));
+    }
+
+    #[test]
+    fn test_export_credential_roundtrip() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut manager = AuthManager::new(dir.path().to_str().unwrap());
+        manager.unlock_vault("master-pass").unwrap();
+        manager
+            .vault()
+            .set_credential("openai", "sk-secret-key")
+            .unwrap();
+
+        let exported = manager.export_credential("openai").unwrap();
+        assert_eq!(exported.provider_id, "openai");
+        assert!(!exported.encrypted_data.is_empty());
+        assert!(!exported.nonce.is_empty());
+        assert!(!exported.created_at.is_empty());
+
+        // Data must not be plaintext and no temp export file should remain
+        assert!(!exported.encrypted_data.contains("sk-secret-key"));
+        let export_path = dir.path().join("auth").join("openai-export.enc");
+        assert!(!export_path.exists());
+
+        // No leftover temporary credential files in the vault dir
+        let remaining = manager.vault().list_credentials().unwrap();
+        assert_eq!(remaining, vec!["openai"]);
+    }
+
+    #[test]
+    fn test_export_credential_missing_provider() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut manager = AuthManager::new(dir.path().to_str().unwrap());
+        manager.unlock_vault("master-pass").unwrap();
+
+        let result = manager.export_credential("nonexistent");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("no credential found"));
+    }
+
+    #[test]
+    fn test_export_credential_locked_vault() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let manager = AuthManager::new(dir.path().to_str().unwrap());
+        // Vault starts locked
+        let result = manager.export_credential("openai");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("vault is locked"));
     }
 }

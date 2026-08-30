@@ -4,6 +4,82 @@ use crate::models::{Issue, IssueQuery, TrackerError};
 use crate::tracker::IssueTracker;
 use reqwest::Client;
 
+/// Check run status from GitHub API.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CiStatus {
+    /// The CI check name (e.g. "CI / build", "Lint").
+    pub name: String,
+    /// Status: "success", "failure", "pending", "queued", "in_progress", "cancelled", "neutral"
+    pub status: String,
+    /// URL to the check run details.
+    pub url: Option<String>,
+}
+
+impl GitHubTracker {
+    /// List pull requests for a repository.
+    pub async fn list_pull_requests(&self, repo: &str, state: &str) -> Result<Vec<Issue>, TrackerError> {
+        let url = self.api_url(&format!("/repos/{}/pulls?state={}", repo, urlencoding(state)));
+        let prs: Vec<GitHubIssue> = self.get(&url).await?;
+        Ok(prs.into_iter().map(|pr| pr.into_issue(repo)).collect())
+    }
+
+    /// Fetch CI status for a pull request's head commit.
+    pub async fn fetch_pr_ci_status(&self, repo: &str, pr_number: u64) -> Result<Vec<CiStatus>, TrackerError> {
+        // First, get the PR to find the head SHA
+        let pr_url = self.api_url(&format!("/repos/{}/pulls/{}", repo, pr_number));
+        let pr: serde_json::Value = self.get(&pr_url).await?;
+        let head_sha = pr["head"]["sha"].as_str()
+            .ok_or_else(|| TrackerError::Other(anyhow::anyhow!("No head SHA on PR")))?;
+
+        // Get check runs for the head commit
+        let checks_url = self.api_url(&format!("/repos/{}/commits/{}/check-runs", repo, head_sha));
+        let checks: CheckRunsResponse = match self.get(&checks_url).await {
+            Ok(c) => c,
+            Err(TrackerError::NotFound(_)) => {
+                // The repo has no check runs (e.g. no GitHub Actions config).
+                // Fall back to the combined status API only in this case.
+                let status_url = self.api_url(&format!("/repos/{}/commits/{}/status", repo, head_sha));
+                let combined: CombinedStatus = self.get(&status_url).await?;
+                return Ok(combined.statuses.into_iter().map(|s| CiStatus {
+                    name: s.context,
+                    status: match s.state.as_str() {
+                        "success" => "success".into(),
+                        "failure" | "error" => "failure".into(),
+                        _ => "pending".into(),
+                    },
+                    url: s.target_url,
+                }).collect());
+            }
+            Err(e) => return Err(e),
+        };
+
+        Ok(checks.check_runs.into_iter().map(|c| CiStatus {
+            name: c.name,
+            status: c.conclusion.clone().unwrap_or(c.status),
+            url: c.html_url,
+        }).collect())
+    }
+
+    /// Fetch the diff for a pull request.
+    pub async fn fetch_pr_diff(&self, repo: &str, pr_number: u64) -> Result<String, TrackerError> {
+        let url = self.api_url(&format!("/repos/{}/pulls/{}", repo, pr_number));
+        let resp = self.client
+            .get(&url)
+            .header(reqwest::header::ACCEPT, "application/vnd.github.v3.diff")
+            .send()
+            .await
+            .map_err(|e| TrackerError::GitHubApi(e.to_string()))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(TrackerError::Http(status, body));
+        }
+
+        resp.text().await.map_err(|e| TrackerError::GitHubApi(format!("Failed to read diff: {e}")))
+    }
+}
+
 /// The base URL for the GitHub REST API v3.
 const GITHUB_API_BASE: &str = "https://api.github.com";
 
@@ -54,7 +130,7 @@ impl GitHubTracker {
     }
 
     /// Execute a GET request and deserialize the response.
-    async fn get<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, TrackerError> {
+    pub(crate) async fn get<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, TrackerError> {
         let resp = self
             .client
             .get(url)
@@ -168,6 +244,40 @@ impl IssueTracker for GitHubTracker {
     }
 }
 
+/// A GitHub check run (CI status).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct CheckRun {
+    pub name: String,
+    pub status: String,       // "queued", "in_progress", "completed"
+    pub conclusion: Option<String>, // "success", "failure", "neutral", "cancelled", etc.
+    pub html_url: Option<String>,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+}
+
+/// Check runs response from GitHub API.
+#[derive(serde::Deserialize)]
+struct CheckRunsResponse {
+    check_runs: Vec<CheckRun>,
+    total_count: u64,
+}
+
+/// Combined status for a commit.
+#[derive(serde::Deserialize)]
+struct CombinedStatus {
+    state: String,   // "success", "failure", "pending"
+    statuses: Vec<StatusEntry>,
+    total_count: u64,
+}
+
+#[derive(serde::Deserialize)]
+struct StatusEntry {
+    context: String,
+    state: String,
+    description: Option<String>,
+    target_url: Option<String>,
+}
+
 /// Minimal GitHub API issue representation.
 #[derive(serde::Deserialize)]
 struct GitHubIssue {
@@ -180,6 +290,19 @@ struct GitHubIssue {
     assignee: Option<GitHubUser>,
     created_at: Option<String>,
     pull_request: Option<serde_json::Value>,
+    /// Head SHA for PRs (used to query CI status).
+    head: Option<GitHubPRHead>,
+}
+
+#[derive(serde::Deserialize)]
+struct GitHubPRHead {
+    sha: String,
+    repo: Option<GitHubPRRepo>,
+}
+
+#[derive(serde::Deserialize)]
+struct GitHubPRRepo {
+    full_name: Option<String>,
 }
 
 #[derive(serde::Deserialize)]

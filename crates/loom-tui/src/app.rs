@@ -7,6 +7,11 @@ use tokio::sync::mpsc;
 
 const DAEMON_ACTIONS: &[&str] = &["start", "stop", "restart", "install-service", "uninstall-service"];
 
+/// Minimum interval between GitHub API polls (PR list / CI status / diff).
+/// The TUI refresh loop ticks every second, so GitHub-backed data must not be
+/// re-fetched on every tick or it would hammer the GitHub API rate limit.
+const PR_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
 pub struct App {
     pub tabs: Vec<&'static str>,
     pub tab_index: usize,
@@ -23,6 +28,11 @@ pub struct App {
     pub knowledge: Value,
     pub pulls: Value,
     pub pull_selection_index: usize,
+    pub pr_ci_status: Value,
+    pub pr_diff: Option<String>,
+    pub pr_diff_scroll: usize,
+    pub show_diff_view: bool,
+    pub configured_repo: Option<String>,
     pub last_error: Option<String>,
     pub action_palette_open: bool,
     pub action_palette_selected: usize,
@@ -47,6 +57,8 @@ pub struct App {
     pub embedded_stdin: Option<tokio::process::ChildStdin>,
     theme_manager: crate::theme::ThemeManager,
     pub adapter: LoomCliAdapter,
+    /// Time of the last GitHub-backed poll, used to throttle PR/CI/diff fetches.
+    last_pr_poll: Option<Instant>,
 }
 
 impl App {
@@ -69,6 +81,11 @@ impl App {
             knowledge: Value::Null,
             pulls: Value::Null,
             pull_selection_index: 0,
+            pr_ci_status: Value::Null,
+            pr_diff: None,
+            pr_diff_scroll: 0,
+            show_diff_view: false,
+            configured_repo: None,
             last_error: None,
             action_palette_open: false,
             action_palette_selected: 0,
@@ -93,6 +110,7 @@ impl App {
             embedded_stdin: None,
             theme_manager,
             adapter,
+            last_pr_poll: None,
         }
     }
 
@@ -192,15 +210,83 @@ impl App {
         } else if self.knowledge.is_null() {
             self.knowledge = Value::Object(Default::default());
         }
-        if let Ok(v) = self.adapter.fetch_pulls_list().await {
-            self.pulls = v;
-        } else if self.pulls.is_null() {
-            self.pulls = Value::Object(Default::default());
+        // The Pull Requests tab is populated by `poll_github()` (throttled)
+        // when a repo is configured. Only fall back to the generic issues list
+        // when no repo is configured, so the 1s refresh cannot clobber the real
+        // PR data with the issues-listing call.
+        if self.configured_repo.is_none() {
+            if let Ok(v) = self.adapter.fetch_pulls_list().await {
+                self.pulls = v;
+            } else if self.pulls.is_null() {
+                self.pulls = Value::Object(Default::default());
+            }
+        }
+        // Fetch real PR data from the configured repo, throttled so the 1s
+        // refresh loop does not hammer the GitHub API on every tick.
+        let due = self
+            .last_pr_poll
+            .map(|t| t.elapsed() >= PR_POLL_INTERVAL)
+            .unwrap_or(true);
+        if self.configured_repo.is_some() && due {
+            self.poll_github().await;
+            self.last_pr_poll = Some(Instant::now());
         }
         self.last_error = None;
         self.last_refresh = Instant::now();
         self.drain_embedded_log();
         Ok(())
+    }
+
+    /// Fetch PR list, CI status, and (optionally) the selected diff from the
+    /// configured GitHub repo.
+    async fn poll_github(&mut self) {
+        let Some(ref repo) = self.configured_repo else {
+            return;
+        };
+        if let Ok(v) = self.adapter.fetch_pull_requests(repo, "open").await {
+            self.pulls = v;
+        }
+        if let Some((r, pr_number)) = self.selected_repo_and_number() {
+            if let Ok(v) = self.adapter.fetch_pr_ci_status(&r, pr_number).await {
+                self.pr_ci_status = v;
+            }
+            if self.show_diff_view {
+                if let Ok(diff) = self.adapter.fetch_pr_diff(&r, pr_number).await {
+                    self.pr_diff = Some(diff);
+                }
+            }
+        }
+    }
+
+    /// Force an immediate GitHub poll (used on PR selection change and diff
+    /// toggle) instead of waiting for the next throttled tick.
+    pub async fn force_pr_poll(&mut self) {
+        if self.configured_repo.is_some() {
+            self.poll_github().await;
+            self.last_pr_poll = Some(Instant::now());
+        }
+    }
+
+    /// Extract `(repo, pr_number)` for the currently selected pull request.
+    fn selected_repo_and_number(&self) -> Option<(String, u64)> {
+        self.selected_pull().and_then(|pr| {
+            let repo = pr.pointer("/metadata/repo").and_then(Value::as_str)?;
+            let pr_number = pr
+                .pointer("/id")
+                .and_then(Value::as_str)
+                .and_then(|s| s.split('#').last())
+                .and_then(|s| s.parse::<u64>().ok())?;
+            if repo.is_empty() || pr_number == 0 {
+                None
+            } else {
+                Some((repo.to_string(), pr_number))
+            }
+        })
+    }
+
+    /// Set the git repository targeted by the PR/CI/diff view.
+    pub fn set_configured_repo(&mut self, repo: String) {
+        self.configured_repo = Some(repo);
     }
 
     pub async fn refresh_safe(&mut self) {
@@ -303,6 +389,26 @@ impl App {
     pub fn prev_pull(&mut self) {
         if self.pull_selection_index > 0 {
             self.pull_selection_index -= 1;
+        }
+    }
+
+    pub fn toggle_diff_view(&mut self) {
+        self.show_diff_view = !self.show_diff_view;
+        self.pr_diff_scroll = 0;
+    }
+
+    pub fn diff_scroll_down(&mut self) {
+        if let Some(ref diff) = self.pr_diff {
+            let lines = diff.lines().count();
+            if self.pr_diff_scroll + 1 < lines {
+                self.pr_diff_scroll += 1;
+            }
+        }
+    }
+
+    pub fn diff_scroll_up(&mut self) {
+        if self.pr_diff_scroll > 0 {
+            self.pr_diff_scroll -= 1;
         }
     }
 

@@ -208,6 +208,11 @@ pub enum Command {
         #[command(subcommand)]
         action: EditAction,
     },
+    /// AST structural editing with tree-sitter
+    Ast {
+        #[command(subcommand)]
+        action: AstAction,
+    },
     /// Detect and resolve merge conflicts
     Conflict {
         #[command(subcommand)]
@@ -461,6 +466,8 @@ pub enum DebugAction {
     },
     /// Show current stack trace
     Stack,
+    /// Connect to an running debug session (launched via `loom debug launch`) and continue it.
+    Continue,
 }
 
 #[derive(Subcommand)]
@@ -1172,6 +1179,46 @@ pub enum IssuesAction {
         #[arg(long)]
         host: Option<String>,
     },
+    /// List pull requests from a repository (GitHub only)
+    PullRequests {
+        /// Repository (owner/repo)
+        #[arg(long)]
+        repo: String,
+        /// Filter by state: open, closed, all
+        #[arg(long, default_value = "open")]
+        state: String,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+        /// GitHub token (defaults to GITHUB_TOKEN env)
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// Show the diff for a pull request (GitHub only)
+    Diff {
+        /// PR number
+        pr: u64,
+        /// Repository (owner/repo)
+        #[arg(long)]
+        repo: String,
+        /// GitHub token (defaults to GITHUB_TOKEN env)
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// Show CI status for a pull request (GitHub only)
+    CiStatus {
+        /// PR number
+        pr: u64,
+        /// Repository (owner/repo)
+        #[arg(long)]
+        repo: String,
+        /// GitHub token (defaults to GITHUB_TOKEN env)
+        #[arg(long)]
+        token: Option<String>,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1277,6 +1324,277 @@ pub enum KnowledgeAction {
         /// Confirm destruction
         #[arg(long, short)]
         force: bool,
+    },
+}
+
+/// AST structural editing with tree-sitter
+#[derive(Subcommand)]
+pub enum AstAction {
+    /// Parse a file and show its AST tree
+    Parse {
+        /// File to parse
+        file: String,
+        /// Language override (rust, python, javascript, go, json)
+        #[arg(long)]
+        language: Option<String>,
+        /// Maximum depth for tree display (default: 3)
+        #[arg(long, default_value = "3")]
+        max_depth: u32,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Execute a tree-sitter query against the AST
+    Query {
+        /// File to query
+        file: String,
+        /// Language override
+        #[arg(long)]
+        language: Option<String>,
+        /// Tree-sitter query string (e.g. "(function_item name: (identifier) @fn.name)")
+        query: String,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show the node at a given position
+    NodeAt {
+        /// File
+        file: String,
+        /// Language override
+        #[arg(long)]
+        language: Option<String>,
+        /// Line number (0-based)
+        #[arg(long)]
+        line: usize,
+        /// Column number (0-based)
+        #[arg(long)]
+        column: usize,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Move a node up (swap with previous sibling)
+    MoveUp {
+        /// File
+        file: String,
+        /// Language override
+        #[arg(long)]
+        language: Option<String>,
+        /// Line number (0-based)
+        #[arg(long)]
+        line: usize,
+        /// Column number (0-based)
+        #[arg(long)]
+        column: usize,
+        /// Dry-run: show result without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Move a node down (swap with next sibling)
+    MoveDown {
+        /// File
+        file: String,
+        /// Language override
+        #[arg(long)]
+        language: Option<String>,
+        /// Line number (0-based)
+        #[arg(long)]
+        line: usize,
+        /// Column number (0-based)
+        #[arg(long)]
+        column: usize,
+        /// Dry-run: show result without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Swap two sibling nodes
+    Swap {
+        /// File
+        file: String,
+        /// Language override
+        #[arg(long)]
+        language: Option<String>,
+        /// First node line (0-based)
+        #[arg(long)]
+        line_a: usize,
+        /// First node column (0-based)
+        #[arg(long)]
+        column_a: usize,
+        /// Second node line (0-based)
+        #[arg(long)]
+        line_b: usize,
+        /// Second node column (0-based)
+        #[arg(long)]
+        column_b: usize,
+        /// Dry-run: show result without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Extract a node into a named variable/function
+    Extract {
+        /// File
+        file: String,
+        /// Language override
+        #[arg(long)]
+        language: Option<String>,
+        /// Line number (0-based)
+        #[arg(long)]
+        line: usize,
+        /// Column number (0-based)
+        #[arg(long)]
+        column: usize,
+        /// Name for the extracted entity
+        name: String,
+        /// Dry-run: show result without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Wrap a node in a block or construct
+    Wrap {
+        /// File
+        file: String,
+        /// Language override
+        #[arg(long)]
+        language: Option<String>,
+        /// Line number (0-based)
+        #[arg(long)]
+        line: usize,
+        /// Column number (0-based)
+        #[arg(long)]
+        column: usize,
+        /// Wrapper type: if, if_true, if_false, loop, while, block, {}, parens, (), brackets, [], try, try_catch, unsafe, or custom with $BODY placeholder
+        wrapper: String,
+        /// Dry-run: show result without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Unwrap a node (remove outer construct, keep inner content)
+    Unwrap {
+        /// File
+        file: String,
+        /// Language override
+        #[arg(long)]
+        language: Option<String>,
+        /// Line number (0-based)
+        #[arg(long)]
+        line: usize,
+        /// Column number (0-based)
+        #[arg(long)]
+        column: usize,
+        /// Dry-run: show result without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Duplicate a node (insert copy after it)
+    Duplicate {
+        /// File
+        file: String,
+        /// Language override
+        #[arg(long)]
+        language: Option<String>,
+        /// Line number (0-based)
+        #[arg(long)]
+        line: usize,
+        /// Column number (0-based)
+        #[arg(long)]
+        column: usize,
+        /// Dry-run: show result without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Insert text at a specific position
+    Insert {
+        /// File
+        file: String,
+        /// Language override
+        #[arg(long)]
+        language: Option<String>,
+        /// Line number (0-based)
+        #[arg(long)]
+        line: usize,
+        /// Column number (0-based)
+        #[arg(long)]
+        column: usize,
+        /// Text to insert
+        text: String,
+        /// Dry-run: show result without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Replace text at a range
+    Replace {
+        /// File
+        file: String,
+        /// Language override
+        #[arg(long)]
+        language: Option<String>,
+        /// Start line (0-based)
+        #[arg(long)]
+        start_line: usize,
+        /// Start column (0-based)
+        #[arg(long)]
+        start_column: usize,
+        /// End line (0-based)
+        #[arg(long)]
+        end_line: usize,
+        /// End column (0-based)
+        #[arg(long)]
+        end_column: usize,
+        /// Replacement text
+        text: String,
+        /// Dry-run: show result without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Show the node kind (type) at a position
+    KindAt {
+        /// File
+        file: String,
+        /// Language override
+        #[arg(long)]
+        language: Option<String>,
+        /// Line number (0-based)
+        #[arg(long)]
+        line: usize,
+        /// Column number (0-based)
+        #[arg(long)]
+        column: usize,
+    },
+    /// Find all nodes of a specific kind
+    FindKind {
+        /// File
+        file: String,
+        /// Language override
+        #[arg(long)]
+        language: Option<String>,
+        /// Node kind to find (e.g. "function_item", "if_statement")
+        kind: String,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Format source code (simple AST-based formatting)
+    Format {
+        /// File to format
+        file: String,
+        /// Language override
+        #[arg(long)]
+        language: Option<String>,
+        /// Dry-run: show result without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Show AST statistics about a file
+    Stats {
+        /// File to analyze
+        file: String,
+        /// Language override
+        #[arg(long)]
+        language: Option<String>,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -1482,6 +1800,9 @@ impl Cli {
             }
             Command::Edit { action } => {
                 crate::commands::edit::run(&loom_dir, &action).await
+            }
+            Command::Ast { action } => {
+                crate::commands::ast::run(&action).await
             }
             Command::Conflict { action } => {
                 crate::commands::conflict::run(&loom_dir, &action).await

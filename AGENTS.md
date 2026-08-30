@@ -168,6 +168,38 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 - `loom sessions import <path>` — Import session
 - `loom sessions resume <id> [--provider] [--model] [--agent] [--inject-memory] [--inject-knowledge]` — Resume session
 
+### LSP
+- `loom lsp servers [--json]` — List available language servers
+- `loom lsp rename --path <file> --line <n> --column <n> <new_name>` — Rename symbol
+- `loom lsp find-references --path <file> --symbol <name>` — Find references
+- `loom lsp exec <tool> <operation> [--path] [--symbol] [--line] [--column]` — Execute via tool adapter
+
+### Debug
+- `loom debug adapters [--json]` — List debug adapters
+- `loom debug launch --program <path> --language <lang>` — Launch and debug
+- `loom debug attach --pid <n> --language <lang>` — Attach to process
+- `loom debug breakpoints --file <path> --line <n>` — Set breakpoints (active session required)
+- `loom debug step <over|in|out>` — Step through execution
+- `loom debug evaluate <expression>` — Evaluate expression
+- `loom debug stack` — Show stack trace
+
+### AST
+- `loom ast parse <file> [--language] [--max-depth] [--json]` — Parse and show AST tree
+- `loom ast query <file> <query> [--language] [--json]` — Execute tree-sitter query
+- `loom ast node-at <file> --line <n> --column <n> [--json]` — Show node at position
+- `loom ast move-up/move-down <file> --line <n> --column <n> [--dry-run]` — Move node
+- `loom ast swap <file> --line-a <n> --column-a <n> --line-b <n> --column-b <n>` — Swap nodes
+- `loom ast extract <file> --line <n> --column <n> <name> [--dry-run]` — Extract to variable
+- `loom ast wrap <file> --line <n> --column <n> <wrapper> [--dry-run]` — Wrap in construct
+- `loom ast unwrap <file> --line <n> --column <n> [--dry-run]` — Unwrap node
+- `loom ast duplicate <file> --line <n> --column <n> [--dry-run]` — Duplicate node
+- `loom ast insert <file> --line <n> --column <n> <text> [--dry-run]` — Insert text
+- `loom ast replace <file> --start-line/col <n> --end-line/col <n> <text>` — Replace range
+- `loom ast kind-at <file> --line <n> --column <n>` — Show node kind
+- `loom ast find-kind <file> <kind> [--json]` — Find nodes of kind
+- `loom ast format <file> [--dry-run]` — Format source code
+- `loom ast stats <file> [--json]` — AST statistics
+
 ### Auth
 - `loom auth list [--json]` — List auth entries
 - `loom auth providers [--json]` — List registered providers
@@ -293,7 +325,8 @@ crates/
 ├── loom-workflow/    — Task orchestration and phases
 ├── loom-routing/     — Complexity scoring, model routing
 ├── loom-generic-adapter/  — TOML-driven tool adapter
-├── loom-adapters/    — Preset adapters (jcode, crush, claude-code, opencode, goose)
+├── loom-adapters/    — Preset adapters (aider, claude-code, codex, crush, cursor, gemini-cli, goose, jcode, juno, kiro, github-copilot, opencode)
+├── loom-ast/         — AST structural editing with tree-sitter (P1/5.5)
 ├── loom-telemetry/   — Metrics, histograms, anomaly detection
 ├── loom-ffi/         — Foreign function interface
 └── loom-integration-tests/ — Integration tests
@@ -306,7 +339,8 @@ packages/
 ├── claude-code/      — Claude Code package
 ├── hooks/            — Hooks package
 ├── routing-hook/     — Routing hook scripts
-└── opencode/         — OpenCode package
+├── opencode/         — OpenCode package
+├── homebrew/         — Homebrew formula
 ```
 
 ## Integration Tests

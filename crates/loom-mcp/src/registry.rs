@@ -1,18 +1,32 @@
-//! SQLite-backed registry for MCP server entries.
+//! SQLite-backed registry for MCP server entries with shared state tracking.
 //!
 //! Stores [`McpServerEntry`] values with secondary indexes on `id`,
 //! `health_status`, `shared`, and `tags` for fast lookups.
+//! Also tracks process affinity and lifecycle state for cross-tool sharing.
 
 use anyhow::{Context, Result};
-use loom_core::{HealthStatusStr, McpServerEntry};
+use loom_core::{HealthStatusStr, McpServerEntry, McpTransport, McpTransportType};
 use rusqlite::{params, Connection};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-/// SQLite-backed MCP server registry with secondary indexes.
+/// SQLite-backed MCP server registry with shared state tracking.
+///
+/// Maintains secondary indexes on `id`, `health_status`, `shared`, and `tags`
+/// for fast lookups. Also tracks process lifecycle state (`running`, `stopped`,
+/// `terminated`) to enable cross-tool process reuse. The registry serves as the
+/// single source of truth for MCP server configuration and status across all
+/// tools and processes sharing the same `~/.loom/` directory.
+///
+/// This type is `Clone` - clones share the same underlying database connection
+/// and state tracking (reference counts, process states).
+#[derive(Debug, Clone)]
 pub struct McpRegistry {
-    conn: Mutex<Connection>,
-    _db_path: PathBuf,
+    conn: Arc<Mutex<Connection>>,
+    db_path: PathBuf,
+    /// Number of active process references per server ID (for process reuse tracking).
+    ref_counts: Arc<Mutex<HashMap<String, usize>>>,
 }
 
 impl McpRegistry {
@@ -28,20 +42,54 @@ impl McpRegistry {
         // Enable WAL mode for concurrent readers
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
 
+        // Create process state tracking table if not exists
+        conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS mcp_process_state (
+                server_id    TEXT PRIMARY KEY NOT NULL,
+                state        TEXT NOT NULL DEFAULT 'stopped',
+                pid          INTEGER,
+                last_seen_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            ",
+        )?;
+
         let registry = Self {
-            conn: Mutex::new(conn),
-            _db_path: db_path,
+            conn: Arc::new(Mutex::new(conn)),
+            db_path,
+            ref_counts: Arc::new(Mutex::new(HashMap::new())),
         };
         registry.initialize_tables()?;
         Ok(registry)
+    }
+
+    /// Seed the built-in default servers (context-mode, rtk, loom,
+    /// agentmemory) if the table is empty.
+    ///
+    /// This is intentionally NOT called from `new()` so that explicit setup
+    /// paths (e.g. `loom init --recommended`) can populate the registry with
+    /// exactly the servers they request. It is wired into the daemon-facing
+    /// `RegistryShared` path (`McpPool::shared_registry`) which wants the
+    /// defaults present. The whole-table guard (`count == 0`) ensures defaults
+    /// are never duplicated or written over existing entries.
+    pub fn seed_defaults(&self) -> Result<()> {
+        let count = self.count()?;
+        if count == 0 {
+            // Seed context-mode, rtk, loom, and agentmemory servers
+            for entry in default_entries() {
+                self.upsert(&entry)?;
+            }
+        }
+        Ok(())
     }
 
     /// Open an in-memory database (for tests).
     pub fn in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         let registry = Self {
-            conn: Mutex::new(conn),
-            _db_path: PathBuf::from(":memory:"),
+            conn: Arc::new(Mutex::new(conn)),
+            db_path: PathBuf::from(":memory:"),
+            ref_counts: Arc::new(Mutex::new(HashMap::new())),
         };
         registry.initialize_tables()?;
         Ok(registry)
@@ -55,26 +103,35 @@ impl McpRegistry {
             CREATE TABLE IF NOT EXISTS mcp_servers (
                 id            TEXT PRIMARY KEY NOT NULL,
                 name          TEXT NOT NULL,
-                data          TEXT NOT NULL,       -- JSON-serialised McpServerEntry
+                data          TEXT NOT NULL,
                 health_status TEXT NOT NULL DEFAULT 'Unknown',
                 shared        INTEGER NOT NULL DEFAULT 0,
-                tags          TEXT NOT NULL DEFAULT '',  -- comma-separated
+                tags          TEXT NOT NULL DEFAULT '',
                 created_at    TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
-            -- Secondary indexes
             CREATE INDEX IF NOT EXISTS idx_mcp_servers_health
                 ON mcp_servers(health_status);
             CREATE INDEX IF NOT EXISTS idx_mcp_servers_shared
                 ON mcp_servers(shared);
+            CREATE INDEX IF NOT EXISTS idx_mcp_servers_name
+                ON mcp_servers(name);
+
+            CREATE TABLE IF NOT EXISTS mcp_process_state (
+                server_id TEXT PRIMARY KEY NOT NULL,
+                state     TEXT NOT NULL DEFAULT 'stopped',
+                pid       INTEGER,
+                last_seen_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
             ",
         )?;
         Ok(())
     }
 
-    // ── CRUD ──────────────────────────────────────────────────────────
-
     /// Insert or replace a server entry.
+    ///
+    /// Does not affect the process reference count — refcounts track only
+    /// live process acquisitions (see `acquire`/`release` in [`McpPool`]).
     pub fn upsert(&self, entry: &McpServerEntry) -> Result<()> {
         let data = serde_json::to_string(entry).context("Failed to serialise McpServerEntry")?;
         let health = serde_json::to_string(&entry.health_status)?;
@@ -87,6 +144,7 @@ impl McpRegistry {
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![entry.id, entry.name, data, health, shared, tags],
         )?;
+
         Ok(())
     }
 
@@ -106,10 +164,23 @@ impl McpRegistry {
         }
     }
 
-    /// Delete a server by id.
+    /// Delete a server by id and clear any residual tracking state.
     pub fn delete(&self, id: &str) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
         let affected = conn.execute("DELETE FROM mcp_servers WHERE id = ?1", params![id])?;
+
+        // Clear any residual reference count (server no longer exists)
+        {
+            let mut ref_counts = self.ref_counts.lock().unwrap();
+            ref_counts.remove(id);
+        }
+
+        // Reset process state when entry deleted
+        let _ = conn.execute(
+            "DELETE FROM mcp_process_state WHERE server_id = ?1",
+            params![id],
+        )?;
+
         Ok(affected > 0)
     }
 
@@ -140,8 +211,6 @@ impl McpRegistry {
         })?;
         Ok(count)
     }
-
-    // ── Indexed lookups ───────────────────────────────────────────────
 
     /// Lookup by health status (uses secondary index).
     pub fn filter_by_health(&self, status: &HealthStatusStr) -> Result<Vec<McpServerEntry>> {
@@ -187,9 +256,8 @@ impl McpRegistry {
                 "UPDATE mcp_servers SET health_status = ?1 WHERE id = ?2",
                 params![health, id],
             )?;
+
         if affected > 0 {
-            // Also update the JSON data field so the full entry stays consistent
-            // Get the current data directly using the existing connection
             let mut stmt = conn.prepare("SELECT data FROM mcp_servers WHERE id = ?1")?;
             let mut rows = stmt.query(params![id])?;
             if let Some(row) = rows.next()? {
@@ -208,128 +276,65 @@ impl McpRegistry {
         Ok(affected > 0)
     }
 
-    // ── Internals ─────────────────────────────────────────────────────
+    /// Increment reference count for a server (tracks process reuse).
+    pub fn increment_refcount(&self, id: &str) -> Result<()> {
+        let mut ref_counts = self.ref_counts.lock().unwrap();
+        *ref_counts.entry(id.to_string()).or_insert(0) += 1;
+        Ok(())
+    }
 
-    /// Seed well-known ecosystem MCP servers into the registry if they
-    /// are not already registered.  Existing entries are never overwritten
-    /// so users can customise or remove them.
-    pub fn seed_defaults(&self) -> Result<()> {
-        use loom_core::{McpTransport, McpTransportType};
-
-        #[allow(unused_mut)]
-        let mut defaults: Vec<McpServerEntry> = vec![
-            McpServerEntry {
-                id: "context-mode".into(),
-                name: "Context Mode".into(),
-                transport: McpTransport {
-                    transport_type: McpTransportType::Stdio,
-                    command: Some("/usr/local/bin/context-mode".into()),
-                    args: vec![],
-                    url: None,
-                    env: Default::default(),
-                },
-                shared: true,
-                tools_filter: vec![],
-                health_status: HealthStatusStr::Unknown,
-                last_health_check: String::new(),
-                tags: vec!["ecosystem".into(), "shared".into()],
-                compatible_tools: vec![],
-                required_by_skills: vec![],
-            },
-            McpServerEntry {
-                id: "rtk".into(),
-                name: "Reading Toolkit".into(),
-                transport: McpTransport {
-                    transport_type: McpTransportType::Stdio,
-                    command: Some("/usr/local/bin/rtk".into()),
-                    args: vec![],
-                    url: None,
-                    env: Default::default(),
-                },
-                shared: true,
-                tools_filter: vec![],
-                health_status: HealthStatusStr::Unknown,
-                last_health_check: String::new(),
-                tags: vec!["ecosystem".into(), "shared".into()],
-                compatible_tools: vec![],
-                required_by_skills: vec![],
-            },
-            // Loom self-registration: exposes shared Loom resources
-            // (skills, MCP servers, auth providers) as MCP tools to any
-            // MCP-compatible client tool.
-            McpServerEntry {
-                id: "loom".into(),
-                name: "Loom Ecosystem".into(),
-                transport: McpTransport {
-                    transport_type: McpTransportType::Stdio,
-                    command: Some("loom".into()),
-                    args: vec!["mcp".into(), "serve".into()],
-                    url: None,
-                    env: Default::default(),
-                },
-                shared: true,
-                tools_filter: vec![],
-                health_status: HealthStatusStr::Unknown,
-                last_health_check: String::new(),
-                tags: vec!["ecosystem".into(), "shared".into(), "loom".into()],
-                compatible_tools: vec![],
-                required_by_skills: vec![],
-            },
-            // AgentMemory (agent-memory.dev): persistent AI coding agent memory.
-            // The MCP shim proxies to the agentmemory REST server on port 3111.
-            // When loomd runs, it manages the agentmemory server process automatically.
-            // Tools connect to this MCP shim via stdio and get 53 memory tools.
-            McpServerEntry {
-                id: "agentmemory".into(),
-                name: "AgentDB Memory".into(),
-                transport: McpTransport {
-                    transport_type: McpTransportType::Stdio,
-                    command: Some("npx".into()),
-                    args: vec!["-y".into(), "@agentmemory/mcp".into()],
-                    url: None,
-                    env: {
-                        let mut map = std::collections::HashMap::new();
-                        map.insert(
-                            "AGENTMEMORY_URL".to_string(),
-                            "http://localhost:3111".to_string(),
-                        );
-                        map
-                    },
-                },
-                shared: true,
-                tools_filter: vec![],
-                health_status: HealthStatusStr::Unknown,
-                last_health_check: String::new(),
-                tags: vec![
-                    "ecosystem".into(),
-                    "shared".into(),
-                    "memory".into(),
-                ],
-                compatible_tools: vec![],
-                required_by_skills: vec![],
-            },
-        ];
-
-        // On Windows, use cmd /c to wrap npx for spawn compatibility
-        #[cfg(windows)]
-        {
-            for entry in &mut defaults {
-                if entry.transport.command.as_deref() == Some("npx") {
-                    entry.transport.args.insert(0, entry.transport.command.take().unwrap());
-                    entry.transport.command = Some("cmd".into());
-                    entry.transport.args.insert(0, "/c".into());
-                }
+    /// Decrement reference count for a server.
+    pub fn decrement_refcount(&self, id: &str) -> Result<()> {
+        let mut ref_counts = self.ref_counts.lock().unwrap();
+        if let Some(count) = ref_counts.get_mut(id) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                ref_counts.remove(id);
             }
         }
+        Ok(())
+    }
 
-        for entry in &defaults {
-            if self.get(&entry.id).ok().flatten().is_none() {
-                if let Err(e) = self.upsert(entry) {
-                    tracing::warn!("Failed to seed default MCP server '{}': {e}", entry.id);
-                }
+    /// Get current reference count for a server.
+    pub fn get_refcount(&self, id: &str) -> usize {
+        let ref_counts = self.ref_counts.lock().unwrap();
+        *ref_counts.get(id).unwrap_or(&0)
+    }
+
+    /// Set process state for a server.
+    pub fn set_process_state(&self, server_id: &str, state: &str, pid: Option<i32>) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO mcp_process_state (server_id, state, pid)
+             VALUES (?1, ?2, ?3)",
+            params![server_id, state, pid],
+        )?;
+        Ok(())
+    }
+
+    /// Get process state for a server.
+    pub fn get_process_state(&self, server_id: &str) -> Result<Option<(String, Option<i32>)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT state, pid FROM mcp_process_state WHERE server_id = ?1",
+        )?;
+        let mut rows = stmt.query(params![server_id])?;
+        match rows.next()? {
+            Some(row) => {
+                let state: String = row.get(0)?;
+                let pid: Option<i32> = row.get(1)?;
+                Ok(Some((state, pid)))
             }
+            None => Ok(None),
         }
+    }
 
+    /// Reset process state for all servers (on daemon restart).
+    pub fn reset_process_state(&self) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch("DELETE FROM mcp_process_state;")?;
+        let mut ref_counts = self.ref_counts.lock().unwrap();
+        ref_counts.clear();
         Ok(())
     }
 
@@ -354,17 +359,18 @@ impl McpRegistry {
         }
         Ok(entries)
     }
+
+    pub fn db_path(&self) -> &Path {
+        &self.db_path
+    }
 }
 
 /// Simple UTC timestamp string (ISO-8601-like).
 fn chrono_now() -> String {
-    // Avoid pulling in chrono just for a timestamp.
-    // Use std::time + manual formatting (millisecond precision).
     let dur = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     let secs = dur.as_secs();
-    // Compute YMD HMS from secs since epoch (simple leap-year-aware algorithm).
     let (y, m, d, hh, mm, ss) = secs_to_datetime(secs);
     format!(
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
@@ -373,22 +379,18 @@ fn chrono_now() -> String {
 }
 
 fn secs_to_datetime(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
-    // Days since epoch
     let days = secs / 86400;
     let time_secs = secs % 86400;
     let hh = time_secs / 3600;
     let mm = (time_secs % 3600) / 60;
     let ss = time_secs % 60;
 
-    // Year/month/day from days (civil date algorithm)
     let mut y = 1970i64;
     let mut d = days as i64;
 
-    // Approx year
     y += d / 365;
     d %= 365;
 
-    // Adjust for leap years
     loop {
         let days_this_year = if is_leap(y) { 366 } else { 365 };
         if d < days_this_year {
@@ -430,6 +432,84 @@ fn is_leap(y: i64) -> bool {
     (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
 }
 
+/// Create default MCP server entries.
+fn default_entries() -> Vec<McpServerEntry> {
+    vec![
+        McpServerEntry {
+            id: "context-mode".to_string(),
+            name: "context-mode".to_string(),
+            transport: McpTransport {
+                transport_type: McpTransportType::Stdio,
+                command: Some("context".to_string()),
+                args: vec![],
+                url: None,
+                env: std::collections::HashMap::new(),
+            },
+            shared: true,
+            tools_filter: vec![],
+            health_status: HealthStatusStr::Unknown,
+            last_health_check: String::new(),
+            tags: vec!["builtin".to_string()],
+            compatible_tools: vec![],
+            required_by_skills: vec![],
+        },
+        McpServerEntry {
+            id: "rtk".to_string(),
+            name: "rtk".to_string(),
+            transport: McpTransport {
+                transport_type: McpTransportType::Stdio,
+                command: Some("rtk".to_string()),
+                args: vec![],
+                url: None,
+                env: std::collections::HashMap::new(),
+            },
+            shared: true,
+            tools_filter: vec![],
+            health_status: HealthStatusStr::Unknown,
+            last_health_check: String::new(),
+            tags: vec!["builtin".to_string()],
+            compatible_tools: vec![],
+            required_by_skills: vec![],
+        },
+        McpServerEntry {
+            id: "loom".to_string(),
+            name: "loom".to_string(),
+            transport: McpTransport {
+                transport_type: McpTransportType::Stdio,
+                command: Some("loom-mcp-server".to_string()),
+                args: vec![],
+                url: None,
+                env: std::collections::HashMap::new(),
+            },
+            shared: true,
+            tools_filter: vec![],
+            health_status: HealthStatusStr::Unknown,
+            last_health_check: String::new(),
+            tags: vec!["builtin".to_string()],
+            compatible_tools: vec![],
+            required_by_skills: vec![],
+        },
+        McpServerEntry {
+            id: "agentmemory".to_string(),
+            name: "agentmemory".to_string(),
+            transport: McpTransport {
+                transport_type: McpTransportType::Stdio,
+                command: Some("agentmemory".to_string()),
+                args: vec![],
+                url: None,
+                env: std::collections::HashMap::new(),
+            },
+            shared: true,
+            tools_filter: vec![],
+            health_status: HealthStatusStr::Unknown,
+            last_health_check: String::new(),
+            tags: vec!["builtin".to_string()],
+            compatible_tools: vec![],
+            required_by_skills: vec![],
+        },
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -468,19 +548,54 @@ mod tests {
     }
 
     #[test]
-    fn test_delete() {
-        let reg = McpRegistry::in_memory().unwrap();
-        reg.upsert(&sample_entry("srv-1", "Test")).unwrap();
-        assert!(reg.delete("srv-1").unwrap());
-        assert!(!reg.delete("srv-1").unwrap());
+    fn test_seed_defaults_only_on_empty_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let reg = McpRegistry::new(dir.path().to_str().unwrap()).unwrap();
+        // A fresh low-level registry has no defaults until seed_defaults() runs.
+        assert_eq!(reg.count().unwrap(), 0);
+
+        // Seeding an empty table adds the 4 built-in defaults.
+        reg.seed_defaults().unwrap();
+        assert_eq!(reg.count().unwrap(), 4);
+
+        // Adding a user server does not re-seed, but the count reflects both
+        // defaults and the user entry (guard prevents duplicate re-seeding).
+        let user = sample_entry("user-srv", "UserServer");
+        reg.upsert(&user).unwrap();
+        assert_eq!(reg.count().unwrap(), 5);
+
+        // Re-running seeding is a no-op: defaults are not duplicated.
+        reg.seed_defaults().unwrap();
+        assert_eq!(reg.count().unwrap(), 5);
+
+        // The user's entry is preserved (nothing is wiped or overwritten).
+        let fetched = reg.get("user-srv").unwrap().expect("user entry preserved");
+        assert_eq!(fetched.name, "UserServer");
     }
 
     #[test]
-    fn test_list() {
+    fn test_upsert_does_not_affect_refcount() {
         let reg = McpRegistry::in_memory().unwrap();
-        reg.upsert(&sample_entry("a", "Alpha")).unwrap();
-        reg.upsert(&sample_entry("b", "Beta")).unwrap();
-        assert_eq!(reg.list().unwrap().len(), 2);
+        let entry = sample_entry("srv-1", "TestServer");
+        reg.upsert(&entry).unwrap();
+        // A registration alone is not an acquisition; refcount stays 0
+        assert_eq!(reg.get_refcount("srv-1"), 0);
+
+        reg.delete("srv-1").unwrap();
+        assert_eq!(reg.get_refcount("srv-1"), 0);
+    }
+
+    #[test]
+    fn test_increment_refcount() {
+        let reg = McpRegistry::in_memory().unwrap();
+        let entry = sample_entry("srv-1", "TestServer");
+        reg.upsert(&entry).unwrap();
+
+        reg.increment_refcount("srv-1").unwrap();
+        assert_eq!(reg.get_refcount("srv-1"), 1);
+
+        reg.decrement_refcount("srv-1").unwrap();
+        assert_eq!(reg.get_refcount("srv-1"), 0);
     }
 
     #[test]
@@ -532,10 +647,47 @@ mod tests {
         let reg = McpRegistry::in_memory().unwrap();
         reg.upsert(&sample_entry("srv-1", "Test")).unwrap();
         assert!(
-            reg.update_health("srv-1", &HealthStatusStr::Healthy)
-                .unwrap()
+            reg.update_health("srv-1", &HealthStatusStr::Healthy).unwrap()
         );
         let entry = reg.get("srv-1").unwrap().unwrap();
         assert!(matches!(entry.health_status, HealthStatusStr::Healthy));
+    }
+
+    #[test]
+    fn test_process_state_tracking() {
+        let reg = McpRegistry::in_memory().unwrap();
+        let entry = sample_entry("srv-1", "ProcessTest");
+
+        reg.upsert(&entry).unwrap();
+
+        reg.set_process_state("srv-1", "running", Some(1234)).unwrap();
+        let state = reg.get_process_state("srv-1").unwrap();
+        assert!(state.is_some());
+        let (state_val, pid_val) = state.unwrap();
+        assert_eq!(state_val, "running");
+        assert_eq!(pid_val, Some(1234));
+    }
+
+    #[test]
+    fn test_reset_process_state() {
+        let reg = McpRegistry::in_memory().unwrap();
+        let entry = sample_entry("srv-1", "ResetTest");
+        reg.upsert(&entry).unwrap();
+
+        reg.set_process_state("srv-1", "running", Some(1234)).unwrap();
+        reg.reset_process_state().unwrap();
+
+        let state = reg.get_process_state("srv-1").unwrap();
+        assert!(state.is_none());
+    }
+
+    #[test]
+    fn test_shared_registry_clone() {
+        let reg = McpRegistry::in_memory().unwrap();
+        let reg_clone = reg.clone();
+
+        // Both should share the same underlying connection
+        assert!(reg.get("nonexistent").unwrap().is_none());
+        assert!(reg_clone.get("nonexistent").unwrap().is_none());
     }
 }
