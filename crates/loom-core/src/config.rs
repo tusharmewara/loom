@@ -1091,32 +1091,28 @@ version = "0.2.0"
         .unwrap();
 
         // Test from_env() directly without polluting global env state.
-        // Mutating std::env from a #[test] is a data race with other
-        // tests running in parallel (test_extends_cycle_detection was
-        // getting `LOOM_NO_EXTEND=1` set by this test under load, which
-        // made it silently skip the cycle). We can either:
-        //  (a) spawn a child process to test env handling, or
-        //  (b) set+remove inside a Mutex that other env-reading tests take.
-        // For now we use a single global env Mutex (process-wide) so
-        // other tests don't observe partial state.
-        use std::sync::Mutex;
-        static ENV_LOCK: Mutex<()> = Mutex::new(());
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-
-        // Set the env var, immediately test from_env's response, and
-        // remove it before releasing the lock — minimizing the window
-        // where other threads could observe the polluted state.
-        std::env::set_var("LOOM_NO_EXTEND", "1");
-        let options = ConfigOptions::default().from_env();
-        std::env::remove_var("LOOM_NO_EXTEND");
-
+        // Mutating std::env from a #[test] runs in parallel with the other
+        // tests in this module, which call from_env()/load() and read the
+        // same env vars — a data race that made test_extends_cycle_detection
+        // intermittently see LOOM_NO_EXTEND=1 and silently skip the cycle.
+        // To avoid the race entirely we run the env-sensitive assertion in a
+        // child process (whose env mutations cannot leak into this process).
+        //
+        // The child runs the dedicated probe below with the target env vars
+        // set via Command::env; its exit status is the assertion result.
+        let exe = std::env::current_exe().unwrap();
+        let child = std::process::Command::new(&exe)
+            .env("LOOM_CHILD_PROBE", "1")
+            .env("LOOM_NO_EXTEND", "1")
+            .env("LOOM_NO_REMOTE", "1")
+            .arg("--exact")
+            .arg("config::tests::from_env_probe")
+            .output()
+            .unwrap();
         assert!(
-            options.skip_extends,
-            "from_env should set skip_extends when LOOM_NO_EXTEND=1"
-        );
-        assert!(
-            !options.skip_remote,
-            "skip_remote should remain false (LOOM_NO_REMOTE not set)"
+            child.status.success(),
+            "from_env probe failed: {}",
+            String::from_utf8_lossy(&child.stderr)
         );
 
         // Test the actual skip behavior using the captured options
@@ -1136,6 +1132,29 @@ version = "0.2.0"
         assert_ne!(
             format!("{:?}", config.ecosystem.conflict_resolution),
             "BaseFirst"
+        );
+    }
+
+    /// Dedicated child-process probe for [`ConfigOptions::from_env`].
+    ///
+    /// Only meaningful when run by `test_options_from_env_respects_no_extend`
+    /// via `Command::env(...)` with `LOOM_CHILD_PROBE` and the target env vars
+    /// set. In a normal (parent) test-suite run this is a harmless no-op, so
+    /// the env-sensitive assertions never execute in-process and therefore
+    /// cannot race with the other env-reading tests.
+    #[test]
+    fn from_env_probe() {
+        if std::env::var("LOOM_CHILD_PROBE").is_err() {
+            return;
+        }
+        let options = ConfigOptions::default().from_env();
+        assert!(
+            options.skip_extends,
+            "from_env should set skip_extends when LOOM_NO_EXTEND=1"
+        );
+        assert!(
+            options.skip_remote,
+            "from_env should set skip_remote when LOOM_NO_REMOTE=1"
         );
     }
 }
