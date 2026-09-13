@@ -38,15 +38,36 @@ pub struct TaskPlan {
 /// Validates and parses the plan JSON contract.
 ///
 /// Validation rules:
-/// - task `id`s are unique and non-empty
+/// - `goal` is non-empty (after trimming whitespace)
+/// - task `id`s are unique and non-empty (after trimming whitespace)
 /// - every `depends_on` entry resolves to an existing task id
-/// - `goal` is non-empty
 pub struct PlanParser;
 
 impl PlanParser {
-    #[allow(unused_variables)]
     pub fn parse(json: &str) -> Result<TaskPlan> {
-        unimplemented!("PlanParser::parse")
+        let plan: TaskPlan = serde_json::from_str(json)?;
+        if plan.goal.trim().is_empty() {
+            anyhow::bail!("plan goal must be non-empty");
+        }
+        let mut seen = std::collections::HashSet::new();
+        for task in &plan.tasks {
+            if task.id.trim().is_empty() {
+                anyhow::bail!("task id must be non-empty");
+            }
+            if !seen.insert(task.id.clone()) {
+                anyhow::bail!("duplicate task id: {}", task.id);
+            }
+        }
+        for task in &plan.tasks {
+            if let Some(dep) = task
+                .depends_on
+                .iter()
+                .find(|d| !seen.contains(*d))
+            {
+                anyhow::bail!("task '{}' depends on unknown task '{}'", task.id, dep);
+            }
+        }
+        Ok(plan)
     }
 }
 
@@ -84,6 +105,52 @@ mod tests {
         assert_eq!(plan.tasks[1].depends_on, vec!["t1".to_string()]);
         assert_eq!(plan.tasks[0].agent.as_deref(), Some("goose"));
         assert_eq!(plan.tasks[0].acceptance.len(), 1);
+    }
+
+    #[test]
+    fn omitted_optional_fields_deserialize_to_defaults() {
+        let plan = r#"{
+            "goal": "g",
+            "tasks": [
+                {
+                    "id": "t1",
+                    "title": "a",
+                    "description": "d"
+                }
+            ]
+        }"#;
+        let parsed = PlanParser::parse(plan).unwrap();
+        assert!(parsed.tasks[0].depends_on.is_empty());
+        assert!(parsed.tasks[0].agent.is_none());
+        assert!(parsed.tasks[0].acceptance.is_empty());
+    }
+
+    #[test]
+    fn rejects_empty_goal() {
+        for goal in ["\"\"", "\"   \""] {
+            let plan = format!(
+                r#"{{
+                    "goal": {goal},
+                    "tasks": [
+                        {{ "id": "t1", "title": "a", "description": "d", "depends_on": [], "agent": "x", "acceptance": [] }}
+                    ]
+                }}"#
+            );
+            let err = PlanParser::parse(&plan).unwrap_err();
+            assert!(err.to_string().contains("goal"));
+        }
+    }
+
+    #[test]
+    fn rejects_empty_task_id() {
+        let plan = r#"{
+            "goal": "g",
+            "tasks": [
+                { "id": "", "title": "a", "description": "d", "depends_on": [], "agent": "x", "acceptance": [] }
+            ]
+        }"#;
+        let err = PlanParser::parse(plan).unwrap_err();
+        assert!(err.to_string().contains("id"));
     }
 
     #[test]
