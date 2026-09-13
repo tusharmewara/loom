@@ -19,13 +19,38 @@ pub struct DispatchEntry {
 
 /// Map DAG batches to fan-out batches. Workers are assigned round-robin across
 /// the selection's worker pool; receipts must exist for every task.
-#[allow(unused_variables)] // params read only by the implementation (Task 5 TDD)
 pub fn build_dispatch(
     dag: &TaskDag,
     selection: &HarnessSelection,
     worktrees: &HashMap<String, String>,
 ) -> Result<Vec<Vec<DispatchEntry>>> {
-    unimplemented!("build_dispatch")
+    if selection.workers.is_empty() && !dag.tasks.is_empty() {
+        anyhow::bail!("no worker harnesses available for dispatch");
+    }
+    let mut batches = Vec::new();
+    let mut worker_i = 0usize;
+    for batch_ids in dag.execution_batches()? {
+        let mut entries = Vec::new();
+        for task_id in batch_ids {
+            let worktree_path = worktrees
+                .get(&task_id)
+                .ok_or_else(|| anyhow::anyhow!("no worktree for task '{task_id}'"))?;
+            let harness = if selection.workers.is_empty() {
+                String::new()
+            } else {
+                let h = selection.workers[worker_i % selection.workers.len()].clone();
+                worker_i += 1;
+                h
+            };
+            entries.push(DispatchEntry {
+                task_id,
+                harness,
+                worktree_path: worktree_path.clone(),
+            });
+        }
+        batches.push(entries);
+    }
+    Ok(batches)
 }
 
 #[cfg(test)]
