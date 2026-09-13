@@ -15,15 +15,70 @@ pub struct TaskDag {
 
 impl TaskDag {
     /// Build a DAG from the plan; rejects unknown `depends_on` refs and cycles.
-    #[allow(unused_variables)]
     pub fn from_plan(plan: &TaskPlan) -> Result<TaskDag> {
-        unimplemented!("TaskDag::from_plan")
+        let ids: std::collections::HashSet<&str> =
+            plan.tasks.iter().map(|t| t.id.as_str()).collect();
+        for task in &plan.tasks {
+            if let Some(dep) = task
+                .depends_on
+                .iter()
+                .find(|d| !ids.contains(d.as_str()))
+            {
+                anyhow::bail!("task '{}' depends on unknown task '{}'", task.id, dep);
+            }
+        }
+        let dag = TaskDag {
+            tasks: plan.tasks.clone(),
+        };
+        dag.execution_batches()?; // eager acyclicity validation
+        Ok(dag)
     }
 
     /// Level-order batches: batch N+1 runs only after every task in batch N.
     /// Unblocked tasks within a batch sort by id for deterministic output.
     pub fn execution_batches(&self) -> Result<Vec<Vec<String>>> {
-        unimplemented!("TaskDag::execution_batches")
+        let mut remaining: Vec<usize> = (0..self.tasks.len()).collect();
+        let mut batches = Vec::new();
+        let mut unmet: Vec<usize> = self
+            .tasks
+            .iter()
+            .map(|t| t.depends_on.len())
+            .collect();
+
+        while !remaining.is_empty() {
+            let mut ready: Vec<usize> = remaining
+                .iter()
+                .copied()
+                .filter(|&i| unmet[i] == 0)
+                .collect();
+            if ready.is_empty() {
+                let stuck: Vec<&str> = remaining
+                    .iter()
+                    .map(|&i| self.tasks[i].id.as_str())
+                    .collect();
+                anyhow::bail!("dependency cycle among tasks: {:?}", stuck);
+            }
+            ready.sort_by_key(|&i| self.tasks[i].id.as_str());
+            let ready_set: std::collections::HashSet<usize> = ready.iter().copied().collect();
+            for &i in &ready {
+                for j in &remaining {
+                    if self.tasks[*j]
+                        .depends_on
+                        .contains(&self.tasks[i].id)
+                    {
+                        unmet[*j] -= 1;
+                    }
+                }
+            }
+            batches.push(
+                ready
+                    .iter()
+                    .map(|&i| self.tasks[i].id.clone())
+                    .collect::<Vec<_>>(),
+            );
+            remaining.retain(|i| !ready_set.contains(i));
+        }
+        Ok(batches)
     }
 }
 
