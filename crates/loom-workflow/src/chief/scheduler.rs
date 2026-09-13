@@ -35,13 +35,8 @@ pub fn build_dispatch(
             let worktree_path = worktrees
                 .get(&task_id)
                 .ok_or_else(|| anyhow::anyhow!("no worktree for task '{task_id}'"))?;
-            let harness = if selection.workers.is_empty() {
-                String::new()
-            } else {
-                let h = selection.workers[worker_i % selection.workers.len()].clone();
-                worker_i += 1;
-                h
-            };
+            let harness = selection.workers[worker_i % selection.workers.len()].clone();
+            worker_i += 1;
             entries.push(DispatchEntry {
                 task_id,
                 harness,
@@ -122,6 +117,18 @@ mod tests {
         let selection = HarnessSelection {
             chief: "codex".to_string(),
             workers: vec!["jcode".to_string()],
+        };
+        let worktrees = worktrees(&[("t1", "/tmp/wt/t1")]);
+        let err = build_dispatch(&dag, &selection, &worktrees).unwrap_err();
+        assert!(err.to_string().contains("t2"));
+    }
+
+    #[test]
+    fn no_workers_with_pending_tasks_is_an_error() {
+        let dag = TaskDag::from_plan(&pl()).unwrap();
+        let selection = HarnessSelection {
+            chief: "codex".to_string(),
+            workers: vec![],
         };
         let worktrees = worktrees(&[("t1", "/tmp/wt/t1")]);
         assert!(build_dispatch(&dag, &selection, &worktrees).is_err());
