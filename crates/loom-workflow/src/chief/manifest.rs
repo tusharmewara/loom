@@ -22,24 +22,29 @@ pub struct WorktreeManifest {
 }
 
 impl WorktreeManifest {
-    #[allow(unused_variables)]
     pub fn add(&mut self, entry: WorktreeEntry) {
-        unimplemented!("WorktreeManifest::add")
+        self.entries.push(entry);
     }
 
-    #[allow(unused_variables)]
     pub fn entry_for(&self, task_id: &str) -> Option<&WorktreeEntry> {
-        unimplemented!("WorktreeManifest::entry_for")
+        self.entries.iter().find(|e| e.task_id == task_id)
     }
 
-    #[allow(unused_variables)]
     pub fn save(&self, path: &Path) -> Result<()> {
-        unimplemented!("WorktreeManifest::save")
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let json = serde_json::to_string_pretty(self)?;
+        std::fs::write(path, json)?;
+        Ok(())
     }
 
-    #[allow(unused_variables)]
     pub fn load(path: &Path) -> Result<WorktreeManifest> {
-        unimplemented!("WorktreeManifest::load")
+        if !path.exists() {
+            return Ok(WorktreeManifest::default());
+        }
+        let json = std::fs::read_to_string(path)?;
+        Ok(serde_json::from_str(&json)?)
     }
 }
 
