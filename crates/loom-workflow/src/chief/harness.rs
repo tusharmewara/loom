@@ -19,7 +19,6 @@ pub struct HarnessSelection {
 }
 
 /// Picks a chief + worker set from installed harness names.
-#[allow(dead_code)] // fields read only after `select` is implemented (Task 3 TDD)
 pub struct HarnessSelector<'a> {
     preferences: &'a [&'a str],
     installations: Vec<String>,
@@ -48,7 +47,19 @@ impl<'a> HarnessSelector<'a> {
     /// The first installed harness in preference order becomes chief; the rest
     /// become workers (sorted for determinism).
     pub fn select(&self) -> HarnessSelection {
-        unimplemented!("HarnessSelector::select")
+        let mut available: Vec<String> = self.installations.clone();
+        available.sort();
+        let mut chief = String::new();
+        for pref in self.preferences {
+            if let Some(pos) = available.iter().position(|h| h == pref) {
+                chief = available.remove(pos);
+                break;
+            }
+        }
+        HarnessSelection {
+            chief,
+            workers: available,
+        }
     }
 }
 
