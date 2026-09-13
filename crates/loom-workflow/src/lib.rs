@@ -1,3 +1,4 @@
+pub mod chief;
 pub mod orchestrator;
 pub mod phases;
 pub mod routing;
