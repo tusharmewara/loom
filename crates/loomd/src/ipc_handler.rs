@@ -436,12 +436,27 @@ impl IpcHandler for LoomdIpcHandler {
             "acp.dispatch" => {
                 let task_id = req.params.get("task_id").and_then(|v| v.as_str()).unwrap_or("");
                 let agent_id = req.params.get("agent_id").and_then(|v| v.as_str()).unwrap_or("");
+                let run_id = req.params.get("run_id").and_then(|v| v.as_str()).unwrap_or("");
                 if task_id.is_empty() || agent_id.is_empty() {
                     return IpcResponse::error(req.request_id, "task_id and agent_id required");
                 }
                 match dispatch_acp_agent(&self.loom_dir, agent_id, task_id) {
-                    Ok(msg) => IpcResponse::ok(req.request_id, json!({ "dispatched": true, "message": msg })),
+                    Ok(msg) => IpcResponse::ok(req.request_id, json!({
+                        "dispatched": true,
+                        "message": msg,
+                        "run_id": if !run_id.is_empty() { Some(run_id) } else { None },
+                    })),
                     Err(e) => IpcResponse::error(req.request_id, format!("ACP dispatch failed: {e}")),
+                }
+            }
+            "run.status" => {
+                let run_id = req.params.get("run_id").and_then(|v| v.as_str()).unwrap_or("");
+                if run_id.is_empty() {
+                    return IpcResponse::error(req.request_id, "run_id parameter required");
+                }
+                match self.run_manager.get_run(run_id) {
+                    Some(run) => IpcResponse::ok(req.request_id, json!(run)),
+                    None => IpcResponse::error(req.request_id, "run not found"),
                 }
             }
             "knowledge.query" => {
