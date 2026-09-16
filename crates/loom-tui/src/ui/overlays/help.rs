@@ -63,6 +63,10 @@ pub fn draw_help_overlay(frame: &mut Frame, area: Rect, theme: &Theme) {
         Span::styled("Run doctor checks", theme.text),
     ]));
     lines.push(Line::from(vec![
+        Span::styled("  c         ", Style::default().fg(theme.primary)),
+        Span::styled("Create PR from branch (PRs tab)", theme.text),
+    ]));
+    lines.push(Line::from(vec![
         Span::styled("  a         ", Style::default().fg(theme.primary)),
         Span::styled("Dispatch selected task", theme.text),
     ]));

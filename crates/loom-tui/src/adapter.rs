@@ -138,6 +138,19 @@ impl LoomCliAdapter {
         self.run_json(&["acp", "run-status", "--run-id", run_id]).await
     }
 
+    /// Create a pull request from the current branch (`gh pr create
+    /// --fill`). Returns the PR URL.
+    pub async fn create_pull_request(&self, repo: &str) -> Result<String> {
+        let value = self.run_json(&["issues", "create-pr", "--repo", repo]).await?;
+        value
+            .get("url")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| {
+                anyhow::anyhow!("`loom issues create-pr` returned no PR URL")
+            })
+    }
+
     /// Create a workflow task from Orchestrator title/details input.
     ///
     /// `loom workflow create` prints a human-readable confirmation before

@@ -52,6 +52,9 @@ pub async fn run(_loom_dir: &Path, action: &IssuesAction) -> anyhow::Result<()> 
         IssuesAction::CiStatus { pr, repo, token, json } => {
             cmd_ci_status(*pr, repo, token.as_deref(), *json).await
         }
+        IssuesAction::CreatePr { repo, title, body, json } => {
+            cmd_create_pr(repo, title.as_deref(), body.as_deref(), *json).await
+        }
         IssuesAction::PullRequests { repo, state, json, token } => {
             cmd_pull_requests(repo, state, *json, token.as_deref()).await
         }
@@ -322,4 +325,87 @@ async fn cmd_pull_requests(repo: &str, state: &str, json: bool, token: Option<&s
         }
     }
     Ok(())
+}
+
+/// Build the `gh pr create` argument vector. Explicit title/body win;
+/// otherwise `--fill` derives them from the branch (non-interactive).
+fn gh_pr_create_args(repo: &str, title: Option<&str>, body: Option<&str>) -> Vec<String> {
+    let mut args = vec![
+        "pr".to_string(),
+        "create".to_string(),
+        "--repo".to_string(),
+        repo.to_string(),
+    ];
+    match title.map(str::trim).filter(|t| !t.is_empty()) {
+        Some(title) => {
+            args.push("--title".to_string());
+            args.push(title.to_string());
+            args.push("--body".to_string());
+            args.push(body.unwrap_or("").to_string());
+        }
+        None => args.push("--fill".to_string()),
+    }
+    args
+}
+
+async fn cmd_create_pr(
+    repo: &str,
+    title: Option<&str>,
+    body: Option<&str>,
+    json: bool,
+) -> anyhow::Result<()> {
+    let args = gh_pr_create_args(repo, title, body);
+    let output = std::process::Command::new("gh")
+        .args(&args)
+        .output()
+        .map_err(|e| anyhow::anyhow!("Failed to run gh (is GitHub CLI installed?): {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("gh pr create failed: {}", stderr.trim());
+    }
+    let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "url": url,
+                "repo": repo,
+            }))?
+        );
+    } else {
+        println!("Created PR: {url}");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::gh_pr_create_args;
+
+    #[test]
+    fn create_args_use_fill_without_title_or_body() {
+        assert_eq!(
+            gh_pr_create_args("owner/repo", None, None),
+            vec![
+                "pr".to_string(),
+                "create".to_string(),
+                "--repo".to_string(),
+                "owner/repo".to_string(),
+                "--fill".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn create_args_prefer_explicit_title_and_body() {
+        let args = gh_pr_create_args(
+            "owner/repo",
+            Some("Add feature"),
+            Some("Longer description"),
+        );
+        assert!(args.contains(&"--title".to_string()));
+        assert!(args.contains(&"Add feature".to_string()));
+        assert!(args.contains(&"--body".to_string()));
+        assert!(!args.contains(&"--fill".to_string()));
+    }
 }

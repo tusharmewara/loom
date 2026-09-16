@@ -17,6 +17,7 @@ pub use migrate::migrate_if_needed;
 pub mod acp_client;
 pub mod acp_discovery;
 pub mod acp_handshake;
+pub mod acp_protocol;
 pub mod acp_server;
 pub use acp_client::AcpClient;
 pub use acp_client::AgentMetadata;

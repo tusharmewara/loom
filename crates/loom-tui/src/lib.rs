@@ -372,6 +372,11 @@ async fn run_loop(
                     KeyCode::Char('8') => app.set_tab_from_digit(7),
                     KeyCode::Char('9') => app.set_tab_from_digit(8),
                     KeyCode::Char('0') => app.set_tab_from_digit(9),
+                    KeyCode::Char('c')
+                        if app.tab_index == 8 && app.embedded_task.is_none() =>
+                    {
+                        app.create_pull_request().await
+                    }
                     KeyCode::Char('D') => app.toggle_action_palette(),
                     KeyCode::Char('a') if app.is_task_tab() => app.open_dispatch_menu(),
                     KeyCode::Char(']') => app.next_theme(),
