@@ -24,8 +24,14 @@ loom daemon start
 
 ### Using Loom
 - **Cross‑tool sessions**: Start a session in jcode, export it, and continue in claude‑code.
+- **Tracked ACP dispatch**: Dispatch agents through the daemon with per-run logs, completion status, and automatic session capture (`loom acp run`, `run.status`).
+- **Resume with context**: Continue any task on another agent with its prior sessions injected (`LOOM_PRIOR_SESSIONS`).
+- **Orchestrator + Review tabs**: Create tasks from the TUI intake, review the task list, and dispatch/resume/reassign/remove per task.
+- **Plan import & drafts**: Turn chief plans into tasks (`workflow create --from-plan`), draft plans from free text (`workflow draft-plan`), create tasks from tickets (`--from-ticket`).
 - **Shared skills**: Write a skill once, use it from any tool.
 - **MCP servers**: Register MCP servers once, share across tools.
+- **PR workflow**: Review diffs and CI status in the TUI, open PRs with `c` (`loom issues create-pr`).
+- **Remote capture**: Run commands over SSH and persist output as indexed sessions (`loom remote exec --capture-session`).
 - **Plugin registry**: Install tool integrations from URLs or local files.
 - **Config inheritance**: Compose configs with `extends:` for layered setups.
 - **Sub‑agent orchestration**: Decompose complex tasks across multiple agents.
@@ -45,7 +51,7 @@ Loom is built as a Rust workspace with a daemon + CLI + TUI architecture.
 | `loom-core` | Core types, constants, errors, traits, and plugin registry |
 | `loom-cli` | CLI binary with 25+ subcommands (`loom`) |
 | `loomd` | Background daemon (Unix socket IPC, auto-shutdown) |
-| `loom-tui` | Terminal UI (ratatui + crossterm, 7 tabs) |
+| `loom-tui` | Terminal UI (ratatui + crossterm, 11 tabs incl. Orchestrator and Review) |
 | `loom-ipc` | Unix socket JSON-line IPC protocol |
 | `loom-event-bus` | In‑process (tokio broadcast) + cross‑process (ZeroMQ) event bus |
 | `loom-discovery` | Two‑phase discovery engine for tools and resources |
@@ -71,7 +77,7 @@ Each crate shares the workspace version and depends on `loom-core` for types and
 
 - **CLI mode** (`loom`): Connects to the daemon via Unix socket when available, or runs standalone.
 - **Daemon mode** (`loomd`): Background daemon that aggregates all subsystems. Auto‑shutdown after 5 min idle.
-- **TUI mode** (`loom tui`): Terminal UI with dashboard, daemon controls, discovery, MCP, skills, sessions, and logs tabs.
+- **TUI mode** (`loom tui`): Terminal UI with dashboard, daemon controls, discovery, MCP, skills, sessions, logs, knowledge, PRs, Orchestrator, and Review tabs.
 
 ### IPC Protocol
 

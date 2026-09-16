@@ -52,7 +52,7 @@ sha2.workspace = true
 hex.workspace = true
 ureq.workspace = true
 lsp-types = "0.97.0"
-loom-debug = { version = "0.7.1", path = "../loom-debug" }
+loom-debug = { version = "0.8.0", path = "../loom-debug" }
 
 [features]
 default = ["tui"]
