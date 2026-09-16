@@ -1,4 +1,4 @@
-use crate::app::{App, OrchestratorField};
+use crate::app::{format_run_line, App, OrchestratorField};
 use crate::theme::Theme;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -90,7 +90,7 @@ pub fn draw_orchestrator(frame: &mut Frame, area: Rect, app: &App, theme: &Theme
             Constraint::Length(3),
             Constraint::Min(5),
             Constraint::Min(7),
-            Constraint::Length(4),
+            Constraint::Length(5),
         ])
         .split(area);
 
@@ -230,20 +230,24 @@ pub fn draw_orchestrator(frame: &mut Frame, area: Rect, app: &App, theme: &Theme
         chunks[3],
     );
 
-    let footer = vec![
-        status_line(app, theme),
-        Line::from(vec![
-            Span::styled("Tab move", theme.text_dim),
-            Span::styled(" · ", theme.text_dim),
-            Span::styled("↑↓/←→ select tool", theme.text_dim),
-            Span::styled(" · ", theme.text_dim),
-            Span::styled("Enter send", theme.text_dim),
-            Span::styled(" · ", theme.text_dim),
-            Span::styled("Esc clear status", theme.text_dim),
-            Span::styled(" · ", theme.text_dim),
-            Span::styled("Ctrl+C quit", theme.text_dim),
-        ]),
-    ];
+    let mut footer = vec![status_line(app, theme)];
+    if let Some(run) = &app.orchestrator_last_run {
+        footer.push(Line::from(vec![
+            Span::styled("Last run: ", theme.text_dim),
+            Span::styled(format_run_line(run), Style::default().fg(theme.text)),
+        ]));
+    }
+    footer.push(Line::from(vec![
+        Span::styled("Tab move", theme.text_dim),
+        Span::styled(" · ", theme.text_dim),
+        Span::styled("↑↓/←→ select tool", theme.text_dim),
+        Span::styled(" · ", theme.text_dim),
+        Span::styled("Enter send", theme.text_dim),
+        Span::styled(" · ", theme.text_dim),
+        Span::styled("Esc clear status", theme.text_dim),
+        Span::styled(" · ", theme.text_dim),
+        Span::styled("Ctrl+C quit", theme.text_dim),
+    ]));
     frame.render_widget(
         Paragraph::new(footer)
             .block(field_block("Status", false, theme))

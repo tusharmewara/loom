@@ -41,6 +41,16 @@ impl TaskOrchestrator {
         self.manager.set_last_agent(task_id, agent)
     }
 
+    /// Replace the tag set for a task.
+    pub fn set_tags(&self, task_id: &str, tags: &[String]) -> Result<Task> {
+        self.manager.set_tags(task_id, tags)
+    }
+
+    /// Delete a task manifest plus its per-phase sidecars.
+    pub fn remove_task(&self, task_id: &str) -> Result<()> {
+        self.manager.remove_task(task_id)
+    }
+
     pub fn assign_routing_with_overrides(
         &self,
         task_id: &str,

@@ -7,6 +7,8 @@ mod pulls;
 mod skills;
 mod sessions;
 mod logs;
+mod orchestrator;
+mod review;
 
 pub use dashboard::*;
 pub use daemon::*;
@@ -17,3 +19,5 @@ pub use pulls::*;
 pub use skills::*;
 pub use sessions::*;
 pub use logs::*;
+pub use orchestrator::*;
+pub use review::*;

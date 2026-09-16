@@ -54,6 +54,111 @@ impl LoomCliAdapter {
         self.run_json(&["workflow", "list"]).await
     }
 
+    /// Fetch one full workflow task (`workflow show` payload).
+    pub async fn fetch_workflow_show(&self, task_id: &str) -> Result<Value> {
+        self.run_json(&["workflow", "show", task_id]).await
+    }
+
+    /// Draft a task plan from title/details (`draft-plan --json`).
+    pub async fn draft_plan(&self, title: &str, description: &str) -> Result<Value> {
+        self.run_json(&[
+            "workflow",
+            "draft-plan",
+            "--title",
+            title,
+            "--description",
+            description,
+        ])
+        .await
+    }
+
+    /// Draft a plan and import it as tasks; returns created task ids.
+    pub async fn draft_plan_create(
+        &self,
+        title: &str,
+        description: &str,
+    ) -> Result<Vec<String>> {
+        let value = self
+            .run_json(&[
+                "workflow",
+                "draft-plan",
+                "--title",
+                title,
+                "--description",
+                description,
+                "--create",
+            ])
+            .await?;
+        Ok(value
+            .get("created")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    /// Remove a workflow task. Output is human text; the exit code is
+    /// the contract.
+    pub async fn remove_task(&self, task_id: &str) -> Result<()> {
+        self.run_text(vec![
+            "workflow".to_string(),
+            "remove".to_string(),
+            task_id.to_string(),
+        ])
+        .await
+        .map(|_| ())
+    }
+
+    /// Persist the agent assignment for a task. `workflow assign` has
+    /// no JSON mode, so success is the process exit code (via run_text).
+    pub async fn assign_task_agent(&self, task_id: &str, agent: &str) -> Result<()> {
+        self.run_text(vec![
+            "workflow".to_string(),
+            "assign".to_string(),
+            task_id.to_string(),
+            "--agent".to_string(),
+            agent.to_string(),
+        ])
+        .await
+        .map(|_| ())
+    }
+
+    /// Fetch launchable ACP agents: daemon-registered handlers plus
+    /// `config/agents.toml` entries (what `loom add-acp-agent` writes).
+    pub async fn fetch_acp_agents(&self) -> Result<Value> {
+        self.run_json(&["acp", "agents"]).await
+    }
+
+    /// Fetch a tracked ACP run's status from the daemon.
+    pub async fn fetch_run_status(&self, run_id: &str) -> Result<Value> {
+        self.run_json(&["acp", "run-status", "--run-id", run_id]).await
+    }
+
+    /// Create a workflow task from Orchestrator title/details input.
+    ///
+    /// `loom workflow create` prints a human-readable confirmation before
+    /// the task payload, so the created task ID is extracted with
+    /// [`parse_created_task_id`] instead of parsing stdout as pure JSON.
+    pub async fn create_workflow_task(&self, title: &str, description: &str) -> Result<String> {
+        let stdout = self
+            .run_text(vec![
+                "workflow".to_string(),
+                "create".to_string(),
+                "--title".to_string(),
+                title.to_string(),
+                "--description".to_string(),
+                description.to_string(),
+            ])
+            .await?;
+        parse_created_task_id(&stdout).ok_or_else(|| {
+            anyhow::anyhow!("could not parse created task ID from `loom workflow create` output")
+        })
+    }
+
     pub async fn fetch_hooks_list(&self) -> Result<Value> {
         self.run_json(&["hooks", "list"]).await
     }
@@ -201,6 +306,33 @@ impl LoomCliAdapter {
         Ok(value)
     }
 
+    /// Run a CLI command and return its stdout as text. Unlike
+    /// [`Self::run_json`], no `--json` flag is appended, for commands
+    /// whose output mixes human-readable lines with a JSON payload.
+    async fn run_text(&self, args: Vec<String>) -> Result<String> {
+        let output = Command::new(&self.bin)
+            .args(&args)
+            .output()
+            .await
+            .with_context(|| format!("failed to execute `{}`", self.bin))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            anyhow::bail!(
+                "`{} {}` failed: {}",
+                self.bin,
+                args.join(" "),
+                if stderr.is_empty() {
+                    "unknown error".to_string()
+                } else {
+                    stderr
+                }
+            );
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
     /// Run a CLI command and stream its stdout lines through a channel.
     /// Returns the child process handle and a receiver for stdout lines.
     /// Callers must await the child process to completion after draining
@@ -251,6 +383,54 @@ impl LoomCliAdapter {
                 (None, rx, None)
             }
         }
+    }
+}
+
+/// Extract the created task ID from `loom workflow create` output.
+///
+/// The command prints a human-readable confirmation line before the
+/// task payload, so three shapes are accepted, in order:
+/// 1. a `Created task <id>` confirmation line (authoritative),
+/// 2. an embedded JSON payload containing `task_id`,
+/// 3. any bare UUID-shaped token (8-4-4-4-12 hex).
+/// No `regex` dependency: the UUID scan is a small manual matcher.
+fn parse_created_task_id(output: &str) -> Option<String> {
+    for line in output.lines().map(str::trim) {
+        if let Some(rest) = line.strip_prefix("Created task ") {
+            if let Some(id) = rest.split_whitespace().next().filter(|s| !s.is_empty()) {
+                return Some(id.to_string());
+            }
+        }
+    }
+    if let Some(start) = output.find('{') {
+        if let Ok(value) = serde_json::from_str::<Value>(&output[start..]) {
+            if let Some(id) = value
+                .get("task_id")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+            {
+                return Some(id.to_string());
+            }
+        }
+    }
+    output.split_whitespace().find_map(|token| {
+        let token = token.trim_matches(|c: char| !c.is_ascii_hexdigit() && c != '-');
+        is_uuid_shaped(token).then(|| token.to_string())
+    })
+}
+
+fn is_uuid_shaped(token: &str) -> bool {
+    let parts: Vec<&str> = token.split('-').collect();
+    match parts.as_slice() {
+        [a, b, c, d, e] => {
+            a.len() == 8
+                && b.len() == 4
+                && c.len() == 4
+                && d.len() == 4
+                && e.len() == 12
+                && token.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+        }
+        _ => false,
     }
 }
 
@@ -329,5 +509,48 @@ mod tests {
         assert_eq!(normalize_repo(""), None);
         assert_eq!(normalize_repo("https://github.com"), None);
         assert_eq!(normalize_repo("not a url"), None);
+    }
+
+    #[test]
+    fn test_parse_created_task_id_prefix_line() {
+        let output = "Created task 123e4567-e89b-12d3-a456-426614174000\n";
+        assert_eq!(
+            parse_created_task_id(output).as_deref(),
+            Some("123e4567-e89b-12d3-a456-426614174000")
+        );
+    }
+
+    #[test]
+    fn test_parse_created_task_id_prefers_prefix_over_payload() {
+        let output = "Created task 123e4567-e89b-12d3-a456-426614174000\n{\"task_id\": \"ignored\"}";
+        assert_eq!(
+            parse_created_task_id(output).as_deref(),
+            Some("123e4567-e89b-12d3-a456-426614174000")
+        );
+    }
+
+    #[test]
+    fn test_parse_created_task_id_json_only() {
+        let output = "{\"task_id\": \"123e4567-e89b-12d3-a456-426614174000\", \"title\": \"x\"}";
+        assert_eq!(
+            parse_created_task_id(output).as_deref(),
+            Some("123e4567-e89b-12d3-a456-426614174000")
+        );
+    }
+
+    #[test]
+    fn test_parse_created_task_id_bare_uuid() {
+        let output = "task ready: 123e4567-e89b-12d3-a456-426614174000 done";
+        assert_eq!(
+            parse_created_task_id(output).as_deref(),
+            Some("123e4567-e89b-12d3-a456-426614174000")
+        );
+    }
+
+    #[test]
+    fn test_parse_created_task_id_none() {
+        assert_eq!(parse_created_task_id("no task here"), None);
+        assert_eq!(parse_created_task_id("Created task "), None);
+        assert_eq!(parse_created_task_id(""), None);
     }
 }

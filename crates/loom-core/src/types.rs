@@ -566,6 +566,10 @@ pub struct Task {
     /// when the next phase is dispatched.
     #[serde(default)]
     pub phase_results: Vec<PhaseResult>,
+    /// Free-form tags for grouping/filtering tasks (e.g. plan imports).
+    /// `#[serde(default)]` keeps older task files loadable.
+    #[serde(default)]
+    pub tags: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
     pub status: TaskStatus,

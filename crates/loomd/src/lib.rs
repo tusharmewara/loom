@@ -1,10 +1,11 @@
 mod activity;
+mod capture;
 mod ipc_handler;
+mod run_manager;
 use activity::{now_ms, ActivityHandler};
-use crate::ipc_handler::dispatch_acp_agent;
 use loom_core::{constants::DAEMON_DEFAULT_IDLE_TIMEOUT_MS, HealthCheck, LoomEvent};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tokio::sync::{broadcast, RwLock};
 
@@ -22,6 +23,7 @@ pub struct Loomd {
     telemetry: Arc<loom_telemetry::TelemetryCollector>,
     memory_mgr: Arc<loom_mcp::AgentMemoryManager>,
     acp_server: Arc<RwLock<Option<Arc<loom_sessions::AcpDispatchServer>>>>,
+    run_manager: Arc<Mutex<run_manager::RunManager>>,
     shutdown_tx: broadcast::Sender<()>,
 }
 
@@ -54,6 +56,9 @@ impl Loomd {
             telemetry: telemetry.clone(),
             memory_mgr,
             acp_server: Arc::new(RwLock::new(None)),
+            run_manager: Arc::new(Mutex::new(run_manager::RunManager::with_dir(
+                std::path::Path::new(loom_dir).join("runs"),
+            ))),
             shutdown_tx,
         })
     }
@@ -97,6 +102,10 @@ impl Loomd {
     /// Access to the inner RwLock for IPC handler construction.
     pub fn acp_server_inner(&self) -> &Arc<RwLock<Option<Arc<loom_sessions::AcpDispatchServer>>>> {
         &self.acp_server
+    }
+
+    pub fn run_manager(&self) -> &Arc<Mutex<run_manager::RunManager>> {
+        &self.run_manager
     }
 
     pub async fn run(&self) -> anyhow::Result<()> {
@@ -180,14 +189,27 @@ impl Loomd {
             Ok(server) => {
                 let server_arc = Arc::new(server);
 
-                // Register a default dispatch handler
+                // Register a default dispatch handler. Agent-to-agent
+                // dispatches go through the same tracked flow as IPC
+                // dispatches (headless spawn, per-run logs, session
+                // capture on completion); the TCP payload may carry
+                // `prior_sessions` and `run_id` overrides.
                 let loom_dir = self.loom_dir.clone();
+                let run_manager = self.run_manager.clone();
                 let default_handler: loom_sessions::DispatchFn = Arc::new(move |req: &loom_sessions::DispatchRequest| {
-                    // Try dispatching to a local agent binary
-                    match dispatch_acp_agent(&loom_dir, &req.agent_id, &req.task_id) {
-                        Ok(msg) => Ok(serde_json::json!({ "dispatched": true, "message": msg })),
-                        Err(e) => Err(anyhow::anyhow!("Dispatch failed: {e}")),
-                    }
+                    let prior_sessions =
+                        crate::capture::prior_sessions_from_params(&req.payload);
+                    let requested_run_id =
+                        req.payload.get("run_id").and_then(|v| v.as_str());
+                    crate::capture::dispatch_tracked(
+                        &loom_dir,
+                        &run_manager,
+                        &req.task_id,
+                        &req.agent_id,
+                        requested_run_id,
+                        prior_sessions,
+                    )
+                    .map_err(|e| anyhow::anyhow!("Dispatch failed: {e}"))
                 });
 
                 // Set the default handler on the server before it starts

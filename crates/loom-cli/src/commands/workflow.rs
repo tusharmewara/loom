@@ -77,7 +77,34 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
             repo,
             token,
             template,
+            from_plan,
         } => {
+            // If --from-plan is given, import a chief plan as tasks.
+            if let Some(plan_path) = from_plan {
+                let raw = std::fs::read_to_string(plan_path).map_err(|e| {
+                    anyhow::anyhow!("Could not read plan file: {e}")
+                })?;
+                let plan = loom_workflow::chief::PlanParser::parse(&raw)?;
+                let tasks = loom_workflow::chief::import_plan(
+                    orchestrator.manager(),
+                    &plan,
+                )?;
+                for task in &tasks {
+                    let plan_tag = task
+                        .tags
+                        .iter()
+                        .find(|t| t.starts_with("plan-task:"))
+                        .cloned()
+                        .unwrap_or_default();
+                    println!("Created task {} [{plan_tag}]", task.task_id);
+                }
+                println!(
+                    "Imported {} task(s) from plan '{}'",
+                    tasks.len(),
+                    plan.goal
+                );
+                return Ok(());
+            }
             // If --template is given, create from template
             if let Some(template_name) = template {
                 let tmgr = loom_workflow::TemplateManager::new(loom_dir_str);
@@ -135,6 +162,57 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                 println!("Created task {}", task.task_id);
                 println!("{}", serde_json::to_string_pretty(&task)?);
             }
+        }
+        WorkflowAction::Remove { task_id } => {
+            orchestrator.remove_task(task_id)?;
+            println!("Removed task {task_id}");
+        }
+        WorkflowAction::DraftPlan {
+            title,
+            description,
+            create,
+            json,
+        } => {
+            let goal = title.clone().unwrap_or_else(|| "Untitled goal".to_string());
+            let details = description.clone().unwrap_or_default();
+            let plan = loom_workflow::chief::draft_plan(&goal, &details)?;
+            if *create {
+                let tasks =
+                    loom_workflow::chief::import_plan(orchestrator.manager(), &plan)?;
+                if *json {
+                    let ids: Vec<&str> =
+                        tasks.iter().map(|t| t.task_id.as_str()).collect();
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "created": ids,
+                            "count": ids.len(),
+                        }))?
+                    );
+                } else {
+                    for task in &tasks {
+                        println!("Created task {} [draft]", task.task_id);
+                    }
+                    println!(
+                        "Imported {} drafted task(s) for goal '{}'",
+                        tasks.len(),
+                        plan.goal
+                    );
+                }
+                return Ok(());
+            }
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&plan)?);
+                return Ok(());
+            }
+            println!("Draft plan for '{}':", plan.goal);
+            for task in &plan.tasks {
+                println!("  {}  {}", task.id, task.title);
+            }
+            println!(
+                "{} task(s). Re-run with --create to import.",
+                plan.tasks.len()
+            );
         }
         WorkflowAction::Advance {
             task_id,

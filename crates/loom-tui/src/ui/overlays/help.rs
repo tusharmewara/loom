@@ -27,7 +27,7 @@ pub fn draw_help_overlay(frame: &mut Frame, area: Rect, theme: &Theme) {
             .add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::from(vec![
-        Span::styled("  1-7       ", Style::default().fg(theme.primary)),
+        Span::styled("  1-9, 0     ", Style::default().fg(theme.primary)),
         Span::styled("Switch tabs", theme.text),
     ]));
     lines.push(Line::from(vec![
@@ -85,6 +85,14 @@ pub fn draw_help_overlay(frame: &mut Frame, area: Rect, theme: &Theme) {
     lines.push(Line::from(vec![
         Span::styled("  Ctrl+P    ", Style::default().fg(theme.primary)),
         Span::styled("Command palette", theme.text),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  Tab       ", Style::default().fg(theme.primary)),
+        Span::styled("Next Orchestrator field", theme.text),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  Enter     ", Style::default().fg(theme.primary)),
+        Span::styled("Send Orchestrator task", theme.text),
     ]));
     lines.push(Line::from(Span::styled("", Style::default())));
 

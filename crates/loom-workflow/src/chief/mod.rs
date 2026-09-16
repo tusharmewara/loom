@@ -6,13 +6,17 @@
 //! contract core consumed by the executor layers.
 
 pub mod dag;
+pub mod draft;
 pub mod harness;
+pub mod import;
 pub mod manifest;
 pub mod plan;
 pub mod scheduler;
 
 pub use dag::TaskDag;
+pub use draft::draft_plan;
 pub use harness::{HarnessRole, HarnessSelection, HarnessSelector};
+pub use import::import_plan;
 pub use manifest::{WorktreeEntry, WorktreeManifest};
 pub use plan::{PlanParser, PlanTask, TaskPlan};
 pub use scheduler::{build_dispatch, DispatchEntry};

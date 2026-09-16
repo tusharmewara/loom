@@ -2063,6 +2063,7 @@ version = "0.7.2"
 dependencies = [
  "anyhow",
  "capnp",
+ "chrono",
  "loom-adapters",
  "loom-auth",
  "loom-core",
@@ -2079,9 +2080,11 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "toml",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

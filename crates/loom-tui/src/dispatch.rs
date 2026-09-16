@@ -7,6 +7,80 @@ pub const DISPATCHER_COUNT: usize = 3;
 pub struct DispatchResult {
     pub success: bool,
     pub message: String,
+    /// Daemon-side run id for tracked ACP dispatches, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+}
+
+impl DispatchResult {
+    fn ok(message: String, run_id: Option<String>) -> Self {
+        Self { success: true, message, run_id }
+    }
+
+    fn err(message: String) -> Self {
+        Self { success: false, message, run_id: None }
+    }
+}
+
+/// Parse one daemon JSON-line response into a [`DispatchResult`].
+/// Pure function so the protocol handling is unit-testable without a
+/// live Unix socket.
+pub fn parse_daemon_response(line: &str) -> DispatchResult {
+    let line = line.trim();
+    if line.is_empty() {
+        return DispatchResult::err("Empty response from daemon".to_string());
+    }
+    let resp: Value = match serde_json::from_str(line) {
+        Ok(v) => v,
+        Err(_) => return DispatchResult::err("Invalid response from daemon".to_string()),
+    };
+    if resp.get("status").and_then(Value::as_str).unwrap_or("error") == "ok" {
+        let data = resp.get("data");
+        DispatchResult::ok(
+            data
+                .and_then(|d| d.get("message"))
+                .and_then(Value::as_str)
+                .unwrap_or("dispatched")
+                .to_string(),
+            data
+                .and_then(|d| d.get("run_id"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        )
+    } else {
+        DispatchResult::err(format!(
+            "Daemon error: {}",
+            resp.get("error").and_then(Value::as_str).unwrap_or("unknown error")
+        ))
+    }
+}
+
+/// Extract a dispatch target from a task payload: required
+/// `task_id`/`agent_id` plus optional `prior_sessions` (non-string
+/// and blank entries dropped). Returns `None` when the required ids
+/// are missing, so callers fail before touching the socket.
+pub fn dispatch_target(task: &Value) -> Option<(String, String, Vec<String>)> {
+    let task_id = task.pointer("/task_id").and_then(Value::as_str).unwrap_or("");
+    let agent_id = task
+        .pointer("/agent_id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if task_id.is_empty() || agent_id.is_empty() {
+        return None;
+    }
+    let prior_sessions = task
+        .pointer("/prior_sessions")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    Some((task_id.to_string(), agent_id.to_string(), prior_sessions))
 }
 
 pub trait Dispatcher: Send + Sync {
@@ -80,20 +154,16 @@ impl Dispatcher for TerminalLaunch {
         let agent = match Self::find_agent_binary() {
             Some(a) => a,
             None => {
-                return DispatchResult {
-                    success: false,
-                    message: "No agent binary found on PATH (opencode, claude-code, jcode, crush)".to_string(),
-                };
+                return DispatchResult::err(
+                    "No agent binary found on PATH (opencode, claude-code, jcode, crush)".to_string(),
+                );
             }
         };
 
         let (launcher, arg) = match Self::find_terminal_launcher() {
             Some(l) => l,
             None => {
-                return DispatchResult {
-                    success: false,
-                    message: "No terminal emulator found".to_string(),
-                };
+                return DispatchResult::err("No terminal emulator found".to_string());
             }
         };
 
@@ -101,10 +171,7 @@ impl Dispatcher for TerminalLaunch {
         let _title = task.pointer("/title").and_then(Value::as_str).unwrap_or("");
 
         if !Self::is_safe_task_id(task_id) {
-            return DispatchResult {
-                success: false,
-                message: "Invalid task ID: contains unsafe characters".to_string(),
-            };
+            return DispatchResult::err("Invalid task ID: contains unsafe characters".to_string());
         }
 
         let cwd = std::env::current_dir()
@@ -113,10 +180,7 @@ impl Dispatcher for TerminalLaunch {
 
         let cwd_has_metachar = cwd.contains([';', '|', '&', '$', '`', '(', ')', '{', '}', '<', '>', '!', '\\']);
         if cwd_has_metachar {
-            return DispatchResult {
-                success: false,
-                message: "Working directory contains unsafe characters".to_string(),
-            };
+            return DispatchResult::err("Working directory contains unsafe characters".to_string());
         }
 
         let command = format!("cd '{}' && loom workflow show '{}' && exec {}", Self::shell_escape(&cwd), Self::shell_escape(task_id), agent);
@@ -133,14 +197,11 @@ impl Dispatcher for TerminalLaunch {
         }
 
         match cmd.spawn() {
-            Ok(child) => DispatchResult {
-                success: true,
-                message: format!("Opened {} in terminal (pid {})", agent, child.id()),
-            },
-            Err(e) => DispatchResult {
-                success: false,
-                message: format!("Failed to launch terminal: {}", e),
-            },
+            Ok(child) => DispatchResult::ok(
+                format!("Opened {} in terminal (pid {})", agent, child.id()),
+                None,
+            ),
+            Err(e) => DispatchResult::err(format!("Failed to launch terminal: {e}")),
         }
     }
 }
@@ -170,15 +231,9 @@ impl Dispatcher for ACPDispatch {
     }
 
     fn dispatch(&self, task: &serde_json::Value) -> DispatchResult {
-        let task_id = task.pointer("/task_id").and_then(Value::as_str).unwrap_or("");
-        let agent_id = task.pointer("/agent_id").and_then(Value::as_str).unwrap_or("");
-
-        if task_id.is_empty() || agent_id.is_empty() {
-            return DispatchResult {
-                success: false,
-                message: "task_id and agent_id required".to_string(),
-            };
-        }
+        let Some((task_id, agent_id, prior_sessions)) = dispatch_target(task) else {
+            return DispatchResult::err("task_id and agent_id required".to_string());
+        };
 
         // Try daemon IPC via Unix socket
         if let Some(socket_path) = &self.socket_path {
@@ -194,6 +249,7 @@ impl Dispatcher for ACPDispatch {
                 "params": {
                     "task_id": task_id,
                     "agent_id": agent_id,
+                    "prior_sessions": prior_sessions,
                 },
             });
 
@@ -201,10 +257,7 @@ impl Dispatcher for ACPDispatch {
                 Ok(mut stream) => {
                     let req_line = serde_json::to_string(&request).unwrap() + "\n";
                     if let Err(e) = stream.write_all(req_line.as_bytes()) {
-                        return DispatchResult {
-                            success: false,
-                            message: format!("IPC write failed: {e}"),
-                        };
+                        return DispatchResult::err(format!("IPC write failed: {e}"));
                     }
                     // Read one JSON line from the daemon response (daemon keeps connection open)
                     // Use a simple line-by-line read from the stream
@@ -220,54 +273,19 @@ impl Dispatcher for ACPDispatch {
                                 line.push(buf[0] as char);
                             }
                             Err(e) => {
-                                return DispatchResult {
-                                    success: false,
-                                    message: format!("IPC read failed: {e}"),
-                                };
+                                return DispatchResult::err(format!("IPC read failed: {e}"));
                             }
                         }
                     }
-                    if !line.is_empty() {
-                        if let Ok(resp) = serde_json::from_str::<serde_json::Value>(line.trim()) {
-                            let status = resp.get("status").and_then(|v| v.as_str()).unwrap_or("error");
-                            if status == "ok" {
-                                let msg = resp.get("data")
-                                    .and_then(|d| d.get("message"))
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("dispatched");
-                                return DispatchResult {
-                                    success: true,
-                                    message: msg.to_string(),
-                                };
-                            } else {
-                                let err = resp.get("error")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("unknown error");
-                                return DispatchResult {
-                                    success: false,
-                                    message: format!("Daemon error: {err}"),
-                                };
-                            }
-                        }
-                    }
-                    return DispatchResult {
-                        success: false,
-                        message: "Empty response from daemon".to_string(),
-                    };
+                    return parse_daemon_response(&line);
                 }
                 Err(e) => {
-                    return DispatchResult {
-                        success: false,
-                        message: format!("Failed to connect to daemon: {e}"),
-                    };
+                    return DispatchResult::err(format!("Failed to connect to daemon: {e}"));
                 }
             }
         }
 
-        DispatchResult {
-            success: false,
-            message: "ACP dispatch requires daemon IPC — daemon not running".to_string(),
-        }
+        DispatchResult::err("ACP dispatch requires daemon IPC — daemon not running".to_string())
     }
 }
 
@@ -289,15 +307,9 @@ impl Dispatcher for EmbeddedPane {
     fn dispatch(&self, task: &serde_json::Value) -> DispatchResult {
         let task_id = task.pointer("/task_id").and_then(Value::as_str).unwrap_or("");
         if task_id.is_empty() {
-            return DispatchResult {
-                success: false,
-                message: "task_id required".to_string(),
-            };
+            return DispatchResult::err("task_id required".to_string());
         }
-        DispatchResult {
-            success: true,
-            message: format!("Opened task {} in embedded pane", task_id),
-        }
+        DispatchResult::ok(format!("Opened task {task_id} in embedded pane"), None)
     }
 }
 
@@ -319,13 +331,11 @@ mod tests {
 
     #[test]
     fn test_dispatch_result_serialization() {
-        let result = DispatchResult {
-            success: true,
-            message: "ok".to_string(),
-        };
+        let result = DispatchResult::ok("ok".to_string(), Some("run-1".to_string()));
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains("success"));
         assert!(json.contains("message"));
+        assert!(json.contains("run-1"));
     }
 
     #[test]
@@ -368,5 +378,69 @@ mod tests {
     #[test]
     fn test_shell_escape_single_quote() {
         assert_eq!(TerminalLaunch::shell_escape("it's"), "it'\\''s");
+    }
+
+    #[test]
+    fn test_parse_daemon_response_ok_with_run_id() {
+        let line = r#"{"request_id":"tui-1","status":"ok","data":{"dispatched":true,"message":"Dispatched task t to a (run r1)","run_id":"r1"}}"#;
+        let result = parse_daemon_response(line);
+        assert!(result.success);
+        assert_eq!(result.run_id.as_deref(), Some("r1"));
+        assert!(result.message.contains("run r1"));
+    }
+
+    #[test]
+    fn test_parse_daemon_response_ok_without_run_id() {
+        let line = r#"{"request_id":"tui-1","status":"ok","data":{"dispatched":true,"message":"legacy"}}"#;
+        let result = parse_daemon_response(line);
+        assert!(result.success);
+        assert_eq!(result.run_id, None);
+        assert_eq!(result.message, "legacy");
+    }
+
+    #[test]
+    fn test_parse_daemon_response_error() {
+        let line = r#"{"request_id":"tui-1","status":"error","error":"boom"}"#;
+        let result = parse_daemon_response(line);
+        assert!(!result.success);
+        assert_eq!(result.run_id, None);
+        assert!(result.message.contains("boom"));
+    }
+
+    #[test]
+    fn test_parse_daemon_response_empty_and_garbage() {
+        let empty = parse_daemon_response("   \n");
+        assert!(!empty.success);
+        assert_eq!(empty.run_id, None);
+        let garbage = parse_daemon_response("not json at all");
+        assert!(!garbage.success);
+        assert_eq!(garbage.run_id, None);
+    }
+
+    #[test]
+    fn test_dispatch_target_full() {
+        let task = serde_json::json!({
+            "task_id": "t1",
+            "agent_id": "a1",
+            "prior_sessions": ["s1", 7, "s2", ""],
+        });
+        let (task_id, agent_id, priors) = dispatch_target(&task).unwrap();
+        assert_eq!(task_id, "t1");
+        assert_eq!(agent_id, "a1");
+        assert_eq!(priors, vec!["s1".to_string(), "s2".to_string()]);
+    }
+
+    #[test]
+    fn test_dispatch_target_rejects_missing_ids() {
+        assert!(dispatch_target(&serde_json::json!({"task_id": "t"})).is_none());
+        assert!(dispatch_target(&serde_json::json!({"agent_id": "a"})).is_none());
+        assert!(dispatch_target(&serde_json::json!({})).is_none());
+    }
+
+    #[test]
+    fn test_dispatch_target_allows_no_priors() {
+        let task = serde_json::json!({"task_id": "t1", "agent_id": "a1"});
+        let (_, _, priors) = dispatch_target(&task).unwrap();
+        assert!(priors.is_empty());
     }
 }

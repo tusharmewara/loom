@@ -10,6 +10,10 @@ pub async fn run(loom_dir: &Path, action: &AcpAction) -> anyhow::Result<()> {
         AcpAction::Start => handle_start(loom_dir).await,
         AcpAction::Stop => handle_stop(loom_dir).await,
         AcpAction::Show { json: json_output } => handle_show(loom_dir, *json_output).await,
+        AcpAction::Agents { json: json_output } => handle_agents(loom_dir, *json_output).await,
+        AcpAction::RunStatus { run_id, json: json_output } => {
+            handle_run_status(loom_dir, run_id, *json_output).await
+        }
     }
 }
 
@@ -115,8 +119,7 @@ async fn handle_stop(loom_dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn handle_show(loom_dir: &Path, json_output: bool) -> anyhow::Result<()> {
-    let req = IpcRequest::new("acp.status").with_params(json!({}));
+async fn handle_show(loom_dir: &Path, json_output: bool) -> anyhow::Result<()> {    let req = IpcRequest::new("acp.status").with_params(json!({}));
     let resp = ipc_client::send_daemon_command(loom_dir, req).await?;
 
     if resp.status == "error" {
@@ -175,6 +178,127 @@ async fn handle_show(loom_dir: &Path, json_output: bool) -> anyhow::Result<()> {
         } else {
             println!("ACP Dispatch Server: STOPPED");
         }
+    }
+    Ok(())
+}
+
+/// List launchable ACP agents: daemon-registered handlers merged with
+/// local `config/agents.toml` entries (what `loom add-acp-agent`
+/// writes). The daemon half is best-effort so the command still works
+/// while loomd is stopped.
+async fn handle_agents(loom_dir: &Path, json_output: bool) -> anyhow::Result<()> {
+    let mut agents_toml: Vec<String> = Vec::new();
+    let agents_path = loom_dir.join("config").join("agents.toml");
+    if agents_path.exists() {
+        if let Ok(raw) = std::fs::read_to_string(&agents_path) {
+            if let Ok(table) = toml::from_str::<toml::Table>(&raw) {
+                let mut keys: Vec<String> = table.keys().cloned().collect();
+                keys.sort();
+                agents_toml = keys;
+            }
+        }
+    }
+
+    let mut handlers: Vec<String> = Vec::new();
+    let mut has_default_handler = false;
+    let mut daemon_reachable = false;
+    let req = IpcRequest::new("acp.status").with_params(json!({}));
+    if let Ok(resp) = ipc_client::send_daemon_command(loom_dir, req).await {
+        if resp.status != "error" {
+            daemon_reachable = true;
+            let data = get_data(&resp);
+            handlers = data
+                .get("handlers")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(str::trim))
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            has_default_handler = data
+                .get("has_default_handler")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+        }
+    }
+
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "running": daemon_reachable,
+                "handlers": handlers,
+                "agents_toml": agents_toml,
+                "has_default_handler": has_default_handler,
+            }))?
+        );
+        return Ok(());
+    }
+
+    let mut merged = handlers.clone();
+    for agent in &agents_toml {
+        if !merged.iter().any(|a| a == agent) {
+            merged.push(agent.clone());
+        }
+    }
+    merged.sort();
+    if merged.is_empty() {
+        println!("No ACP agents found.");
+        println!("Register one with: loom add-acp-agent <agent_id>");
+    } else {
+        println!("Launchable ACP agents:");
+        for agent in &merged {
+            println!("  - {agent}");
+        }
+    }
+    Ok(())
+}
+
+/// Show a tracked ACP run's status (exit code and captured session,
+// recorded by the daemon when a tracked `acp.dispatch` completes).
+async fn handle_run_status(
+    loom_dir: &Path,
+    run_id: &str,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    if run_id.trim().is_empty() {
+        anyhow::bail!("run_id must not be empty");
+    }
+    let req = IpcRequest::new("run.status").with_params(json!({ "run_id": run_id }));
+    let resp = ipc_client::send_daemon_command(loom_dir, req).await?;
+
+    if resp.status == "error" {
+        let err = resp.error.unwrap_or_else(|| "unknown error".to_string());
+        anyhow::bail!("run status check failed: {err}");
+    }
+
+    let data = get_data(&resp);
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&data)?);
+        return Ok(());
+    }
+
+    let status = data.get("status").and_then(|v| v.as_str()).unwrap_or("unknown");
+    println!("Run {}", data.get("run_id").and_then(|v| v.as_str()).unwrap_or(run_id));
+    println!("  Status:  {status}");
+    println!(
+        "  Task:    {}",
+        data.get("task_id").and_then(|v| v.as_str()).unwrap_or("unknown")
+    );
+    println!(
+        "  Agent:   {}",
+        data.get("agent_id").and_then(|v| v.as_str()).unwrap_or("unknown")
+    );
+    match data.get("exit_code").and_then(|v| v.as_i64()) {
+        Some(code) => println!("  Exit:    {code}"),
+        None => println!("  Exit:    (still running)"),
+    }
+    match data.get("session_id").and_then(|v| v.as_str()) {
+        Some(session) => println!("  Session: {session}"),
+        None => println!("  Session: (none captured yet)"),
     }
     Ok(())
 }

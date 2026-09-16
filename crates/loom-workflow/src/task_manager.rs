@@ -129,6 +129,7 @@ impl TaskManager {
             linked_issue: None,
             sub_agents: None,
             phase_results: Vec::new(),
+            tags: Vec::new(),
             created_at: now.clone(),
             updated_at: now,
             status: TaskStatus::Pending,
@@ -406,6 +407,41 @@ impl TaskManager {
         Ok(task)
     }
 
+    /// Replace the tag set for a task.
+    pub fn set_tags(&self, task_id: &str, tags: &[String]) -> Result<Task> {
+        let mut task = self
+            .get(task_id)?
+            .with_context(|| format!("task '{task_id}' not found"))?;
+        task.tags = tags.to_vec();
+        task.updated_at = rfc3339_now();
+        self.write_task(&task)?;
+        Ok(task)
+    }
+
+    /// Delete a task manifest plus its per-phase sidecars
+    /// (`{id}.{phase}.result.{json,md}`, `{id}.prior_sessions.json`).
+    /// Captured sessions are left intact (they are history, not metadata).
+    /// Errors when the task does not exist.
+    pub fn remove_task(&self, task_id: &str) -> Result<()> {
+        let path = self.task_path(task_id);
+        if !path.exists() {
+            anyhow::bail!("task '{task_id}' not found");
+        }
+        std::fs::remove_file(&path)?;
+        if let Ok(entries) = std::fs::read_dir(&self.tasks_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                let is_result = name.starts_with(&format!("{task_id}."))
+                    && (name.ends_with(".result.json") || name.ends_with(".result.md"));
+                let is_priors = name == format!("{task_id}.prior_sessions.json");
+                if is_result || is_priors {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Get the most recent phase result (across all phases), if any.
     pub fn latest_phase_result(&self, task_id: &str) -> Result<Option<loom_core::PhaseResult>> {
         let task = self
@@ -444,4 +480,53 @@ fn days_to_date(z: i64) -> (i64, u32, u32) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     (y, m as u32, d as u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TaskManager;
+
+    fn manager() -> (tempfile::TempDir, TaskManager) {
+        let dir = tempfile::tempdir().unwrap();
+        let loom = dir.path().join("loom");
+        let manager = TaskManager::new(loom.to_str().unwrap());
+        (dir, manager)
+    }
+
+    #[test]
+    fn set_tags_replaces_the_tag_set() {
+        let (_tmp, manager) = manager();
+        let task = manager.create_task("title", "description").unwrap();
+        assert!(task.tags.is_empty());
+
+        let updated = manager
+            .set_tags(&task.task_id, &["plan".to_string(), "plan-task:t1".to_string()])
+            .unwrap();
+        assert_eq!(updated.tags, vec!["plan".to_string(), "plan-task:t1".to_string()]);
+
+        let reloaded = manager.get(&task.task_id).unwrap().unwrap();
+        assert_eq!(reloaded.tags, updated.tags);
+
+        assert!(manager.set_tags("no-such-task", &[]).is_err());
+    }
+
+    #[test]
+    fn remove_task_deletes_manifest_and_sidecars() {
+        use std::io::Write;
+        let (_tmp, manager) = manager();
+        let task = manager.create_task("title", "description").unwrap();
+
+        let tasks_dir = _tmp.path().join("loom").join("workflow").join("tasks");
+        let sidecar = tasks_dir.join(format!("{}.Plan.result.json", task.task_id));
+        let mut file = std::fs::File::create(&sidecar).unwrap();
+        writeln!(file, "{{\"summary\": \"x\"}}").unwrap();
+        let priors = tasks_dir.join(format!("{}.prior_sessions.json", task.task_id));
+        std::fs::write(&priors, "{}").unwrap();
+
+        manager.remove_task(&task.task_id).unwrap();
+        assert!(manager.get(&task.task_id).unwrap().is_none());
+        assert!(!sidecar.exists());
+        assert!(!priors.exists());
+        assert!(manager.remove_task(&task.task_id).is_err());
+    }
 }

@@ -1,4 +1,5 @@
 use crate::adapter::{CommandResult, LoomCliAdapter};
+use crate::dispatch::Dispatcher;
 use crate::theme::Theme;
 use anyhow::Result;
 use serde_json::Value;
@@ -12,6 +13,193 @@ const DAEMON_ACTIONS: &[&str] = &["start", "stop", "restart", "install-service",
 /// re-fetched on every tick or it would hammer the GitHub API rate limit.
 const PR_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// Minimum interval between ACP run-status polls. Runs are long-lived
+/// compared to the 1s refresh tick, so polling every tick would spawn a
+/// `loom` subprocess per second for no benefit.
+const RUN_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// A tracked ACP dispatch started from the Orchestrator tab, plus the
+/// latest `run.status` payload fetched from the daemon.
+#[derive(Clone, Debug, Default)]
+pub struct OrchestratorRun {
+    pub run_id: String,
+    pub task_id: String,
+    pub agent: String,
+    pub status: Value,
+}
+
+/// Terminal run states need no further polling.
+fn run_is_terminal(status: &str) -> bool {
+    matches!(status, "succeeded" | "failed")
+}
+
+/// One-line summary of a tracked run for the Orchestrator status area.
+/// Tolerates missing fields (e.g. a freshly dispatched run with no
+/// status payload yet).
+pub fn format_run_line(run: &OrchestratorRun) -> String {
+    let short: String = run.run_id.chars().take(8).collect();
+    let status = run
+        .status
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("dispatched");
+    let mut line = format!("run {short} · {status}");
+    if let Some(code) = run.status.get("exit_code").and_then(Value::as_i64) {
+        line.push_str(&format!(" · exit {code}"));
+    }
+    match run.status.get("session_id").and_then(Value::as_str) {
+        Some(session) => {
+            let preview: String = session.chars().take(21).collect();
+            line.push_str(&format!(" · session {preview}"));
+            if session.chars().count() > 21 {
+                line.push('…');
+            }
+        }
+        None => line.push_str(" · no session yet"),
+    }
+    line
+}
+
+/// Task ids for the Review tab, in workflow-list order.
+pub fn review_task_ids(workflow: &Value) -> Vec<String> {
+    workflow
+        .pointer("/tasks")
+        .and_then(Value::as_array)
+        .map(|tasks| {
+            tasks
+                .iter()
+                .filter_map(|t| t.get("task_id"))
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Session ids captured for a task's phases (`{task_id}.{phase}`),
+/// in sessions-list order. The bare task id itself is not a phase
+/// session and is excluded.
+pub fn task_session_ids(sessions: &Value, task_id: &str) -> Vec<String> {
+    let prefix = format!("{task_id}.");
+    sessions
+        .pointer("/sessions")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|s| s.get("session_id"))
+                .filter_map(Value::as_str)
+                .filter(|id| id.starts_with(&prefix))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Agent to dispatch a reviewed task with: the task's recorded
+/// `last_agent`, falling back to the Orchestrator-selected agent.
+pub fn review_dispatch_agent(
+    task_detail: &Value,
+    fallback: Option<&str>,
+) -> Option<String> {
+    task_detail
+        .pointer("/task/last_agent")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| fallback.map(str::to_string))
+}
+
+/// One-line task summary for the Review list.
+pub fn format_review_task_line(task: &Value) -> String {
+    let phase = task.get("phase").and_then(Value::as_str).unwrap_or("?");
+    let status = task.get("status").and_then(Value::as_str).unwrap_or("?");
+    let title = task.get("title").and_then(Value::as_str).unwrap_or("(untitled)");
+    let id: String = task
+        .get("task_id")
+        .and_then(Value::as_str)
+        .map(|s| s.chars().take(8).collect())
+        .unwrap_or_else(|| "?".to_string());
+    format!("[{phase}] [{status}] {title} ({id})")
+}
+
+/// Draft task titles from `workflow draft-plan --json` output, in order.
+/// Entries without a title are skipped.
+pub fn draft_task_titles(draft: &Value) -> Vec<String> {
+    draft
+        .pointer("/tasks")
+        .and_then(Value::as_array)
+        .map(|tasks| {
+            tasks
+                .iter()
+                .filter_map(|t| t.get("title"))
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+/// Next agent in the list after `current`, wrapping around. Unknown
+/// or missing current resolves to the first agent; empty list yields
+/// `None`. Pure so the reassignment cycling is unit-testable.
+pub fn next_agent_after(current: Option<&str>, agents: &[String]) -> Option<String> {
+    if agents.is_empty() {
+        return None;
+    }
+    let next = current
+        .and_then(|c| agents.iter().position(|a| a == c))
+        .map(|i| (i + 1) % agents.len())
+        .unwrap_or(0);
+    agents.get(next).cloned()
+}
+
+/// Merge the launchable-agent sources from `loom acp agents` output:
+/// daemon-registered `/handlers` first, then `/agents_toml` entries,
+/// trimmed, de-duplicated, order-preserving.
+fn orchestrator_agent_list(acp: &Value) -> Vec<String> {
+    let mut agents: Vec<String> = Vec::new();
+    let mut push_unique = |name: &str| {
+        let name = name.trim();
+        if !name.is_empty() && !agents.iter().any(|a| a == name) {
+            agents.push(name.to_string());
+        }
+    };
+    if let Some(handlers) = acp.pointer("/handlers").and_then(Value::as_array) {
+        for h in handlers.iter().filter_map(Value::as_str) {
+            push_unique(h);
+        }
+    }
+    if let Some(entries) = acp.pointer("/agents_toml").and_then(Value::as_array) {
+        for e in entries.iter().filter_map(Value::as_str) {
+            push_unique(e);
+        }
+    }
+    agents
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OrchestratorField {
+    Title,
+    Details,
+    Agent,
+}
+
+impl OrchestratorField {
+    fn next(self) -> Self {
+        match self {
+            Self::Title => Self::Details,
+            Self::Details => Self::Agent,
+            Self::Agent => Self::Title,
+        }
+    }
+
+    fn previous(self) -> Self {
+        match self {
+            Self::Title => Self::Agent,
+            Self::Details => Self::Title,
+            Self::Agent => Self::Details,
+        }
+    }
+}
+
 pub struct App {
     pub tabs: Vec<&'static str>,
     pub tab_index: usize,
@@ -24,6 +212,7 @@ pub struct App {
     pub skills: Value,
     pub sessions: Value,
     pub workflow: Value,
+    pub acp: Value,
     pub hooks: Value,
     pub knowledge: Value,
     pub pulls: Value,
@@ -55,10 +244,24 @@ pub struct App {
     pub embedded_log_rx: Option<mpsc::Receiver<String>>,
     pub embedded_child: Option<tokio::process::Child>,
     pub embedded_stdin: Option<tokio::process::ChildStdin>,
+    pub orchestrator_title: String,
+    pub orchestrator_details: String,
+    pub orchestrator_field: OrchestratorField,
+    pub orchestrator_agents: Vec<String>,
+    pub orchestrator_agent_index: usize,
+    pub orchestrator_busy: bool,
+    pub orchestrator_status: Option<CommandResult>,
+    pub orchestrator_last_run: Option<OrchestratorRun>,
+    pub orchestrator_draft: Option<Value>,
+    pub review_selection_index: usize,
+    pub review_detail: Option<Value>,
+    pub review_detail_task_id: Option<String>,
     theme_manager: crate::theme::ThemeManager,
     pub adapter: LoomCliAdapter,
     /// Time of the last GitHub-backed poll, used to throttle PR/CI/diff fetches.
     last_pr_poll: Option<Instant>,
+    /// Time of the last ACP run-status poll (throttled separately).
+    last_run_poll: Option<Instant>,
 }
 
 impl App {
@@ -66,7 +269,7 @@ impl App {
         let theme_manager = crate::theme::ThemeManager::new();
         let theme = theme_manager.current();
         Self {
-            tabs: vec!["Dashboard", "Daemon", "Discovery", "MCP", "Skills", "Sessions", "Logs", "Knowledge", "PRs"],
+            tabs: vec!["Dashboard", "Daemon", "Discovery", "MCP", "Skills", "Sessions", "Logs", "Knowledge", "PRs", "Orchestrator", "Review"],
             tab_index: 0,
             last_refresh: Instant::now(),
             status: Value::Null,
@@ -77,6 +280,7 @@ impl App {
             skills: Value::Null,
             sessions: Value::Null,
             workflow: Value::Null,
+            acp: Value::Null,
             hooks: Value::Null,
             knowledge: Value::Null,
             pulls: Value::Null,
@@ -93,7 +297,7 @@ impl App {
             last_action_result: None,
             action_in_progress: false,
             help_overlay_open: false,
-            scroll_offsets: vec![0; 9],
+            scroll_offsets: vec![0; 11],
             task_selection_index: 0,
             dispatch_menu_open: false,
             dispatch_menu_selected: 0,
@@ -108,9 +312,22 @@ impl App {
             embedded_log_rx: None,
             embedded_child: None,
             embedded_stdin: None,
+            orchestrator_title: String::new(),
+            orchestrator_details: String::new(),
+            orchestrator_field: OrchestratorField::Title,
+            orchestrator_agents: Vec::new(),
+            orchestrator_agent_index: 0,
+            orchestrator_busy: false,
+            orchestrator_status: None,
+            orchestrator_last_run: None,
+            orchestrator_draft: None,
+            review_selection_index: 0,
+            review_detail: None,
+            review_detail_task_id: None,
             theme_manager,
             adapter,
             last_pr_poll: None,
+            last_run_poll: None,
         }
     }
 
@@ -202,6 +419,12 @@ impl App {
         if let Ok(v) = self.adapter.fetch_workflow_list().await {
             self.workflow = v;
         }
+        if let Ok(v) = self.adapter.fetch_acp_agents().await {
+            self.acp = v;
+            self.sync_orchestrator_agents();
+        }
+        self.poll_orchestrator_run().await;
+        self.refresh_review_detail().await;
         if let Ok(v) = self.adapter.fetch_hooks_list().await {
             self.hooks = v;
         }
@@ -556,6 +779,577 @@ impl App {
         self.tab_index == 5 || self.tab_index == 6
     }
 
+    /// Dynamic index of the Orchestrator tab (never hardcoded, so future
+    /// tabs cannot silently shift it).
+    pub fn orchestrator_tab_index(&self) -> Option<usize> {
+        self.tabs.iter().position(|&t| t == "Orchestrator")
+    }
+
+    pub fn is_orchestrator_tab(&self) -> bool {
+        self.orchestrator_tab_index() == Some(self.tab_index)
+    }
+
+    /// Dynamic index of the Review tab.
+    pub fn review_tab_index(&self) -> Option<usize> {
+        self.tabs.iter().position(|&t| t == "Review")
+    }
+
+    pub fn is_review_tab(&self) -> bool {
+        self.review_tab_index() == Some(self.tab_index)
+    }
+
+    /// Task id under the Review cursor, if any.
+    pub fn review_selected_task_id(&self) -> Option<String> {
+        review_task_ids(&self.workflow)
+            .get(self.review_selection_index)
+            .cloned()
+    }
+
+    pub fn review_select_next(&mut self) {
+        let count = review_task_ids(&self.workflow).len();
+        if count > 0 {
+            self.review_selection_index = (self.review_selection_index + 1) % count;
+        }
+    }
+
+    pub fn review_select_prev(&mut self) {
+        let count = review_task_ids(&self.workflow).len();
+        if count > 0 {
+            if self.review_selection_index == 0 {
+                self.review_selection_index = count - 1;
+            } else {
+                self.review_selection_index -= 1;
+            }
+        }
+    }
+
+    /// Keep the cursor inside the task list after refresh shrinks it.
+    pub fn review_clamp_selection(&mut self) {
+        let count = review_task_ids(&self.workflow).len();
+        if count == 0 {
+            self.review_selection_index = 0;
+            self.review_detail = None;
+            self.review_detail_task_id = None;
+        } else if self.review_selection_index >= count {
+            self.review_selection_index = count - 1;
+        }
+    }
+
+    /// Fetch full detail for the selected Review task when the cached
+    /// detail belongs to another task (or is missing). Runs inside the
+    /// 1s refresh so selection changes resolve on the next tick without
+    /// spawning a subprocess per keypress. Failures keep the previous
+    /// detail; the next tick retries, matching every other refresh fetch.
+    async fn refresh_review_detail(&mut self) {
+        if !self.is_review_tab() {
+            return;
+        }
+        self.review_clamp_selection();
+        let selected = self.review_selected_task_id();
+        if self.review_detail_task_id == selected {
+            return;
+        }
+        let Some(task_id) = selected else {
+            self.review_detail = None;
+            return;
+        };
+        if let Ok(detail) = self.adapter.fetch_workflow_show(&task_id).await {
+            self.review_detail = Some(detail);
+            self.review_detail_task_id = Some(task_id);
+        }
+    }
+
+    /// Cycle the selected Review task's assigned agent through the
+    /// known ACP agents and persist it (`workflow assign --agent`).
+    /// The cached detail is invalidated so the next refresh refetches.
+    pub async fn cycle_review_task_agent(&mut self) {
+        let Some(task_id) = self.review_selected_task_id() else {
+            self.last_action_result = Some(CommandResult {
+                action: "review reassign".to_string(),
+                success: false,
+                message: "No task selected.".to_string(),
+            });
+            return;
+        };
+        let current = self
+            .review_detail
+            .as_ref()
+            .and_then(|d| d.pointer("/task/last_agent"))
+            .and_then(Value::as_str);
+        let Some(next) = next_agent_after(current, &self.orchestrator_agents) else {
+            self.last_action_result = Some(CommandResult {
+                action: "review reassign".to_string(),
+                success: false,
+                message: "No ACP agents available to assign.".to_string(),
+            });
+            return;
+        };
+        match self.adapter.assign_task_agent(&task_id, &next).await {
+            Ok(()) => {
+                self.review_detail = None;
+                self.review_detail_task_id = None;
+                self.last_action_result = Some(CommandResult {
+                    action: "review reassign".to_string(),
+                    success: true,
+                    message: format!("Assigned task {task_id} to {next}."),
+                });
+            }
+            Err(e) => {
+                self.last_action_result = Some(CommandResult {
+                    action: "review reassign".to_string(),
+                    success: false,
+                    message: format!("Could not assign task {task_id}: {e}"),
+                });
+            }
+        }
+        self.refresh_safe().await;
+    }
+
+    /// Preview a deterministic draft plan for the current inputs.
+    /// Nothing is created; the draft is stored for an explicit create.
+    pub async fn preview_orchestrator_draft(&mut self) {
+        let title = self.orchestrator_title_value();
+        let details = self.orchestrator_details_value();
+        if title.is_empty() || details.is_empty() {
+            self.orchestrator_status = Some(CommandResult {
+                action: "orchestrator draft".to_string(),
+                success: false,
+                message: "Title and details are both required to draft a plan.".to_string(),
+            });
+            return;
+        }
+        match self.adapter.draft_plan(&title, &details).await {
+            Ok(draft) => {
+                let titles = draft_task_titles(&draft);
+                let preview: Vec<String> =
+                    titles.iter().take(3).cloned().collect();
+                let mut message = format!(
+                    "Draft: {} task(s) ({})",
+                    titles.len(),
+                    preview.join(", ")
+                );
+                if titles.len() > preview.len() {
+                    message.push_str(", …");
+                }
+                message.push_str(" — run `orchestrator draft create` to import.");
+                self.orchestrator_draft = Some(draft);
+                self.orchestrator_status = Some(CommandResult {
+                    action: "orchestrator draft".to_string(),
+                    success: true,
+                    message,
+                });
+            }
+            Err(e) => {
+                self.orchestrator_status = Some(CommandResult {
+                    action: "orchestrator draft".to_string(),
+                    success: false,
+                    message: format!("Could not draft plan: {e}"),
+                });
+            }
+        }
+    }
+
+    /// Import the drafted plan as workflow tasks (explicit confirm step;
+    /// never runs implicitly). Clears inputs and the stored draft.
+    pub async fn create_orchestrator_draft(&mut self) {
+        let title = self.orchestrator_title_value();
+        let details = self.orchestrator_details_value();
+        if title.is_empty() || details.is_empty() {
+            self.orchestrator_status = Some(CommandResult {
+                action: "orchestrator draft create".to_string(),
+                success: false,
+                message: "Title and details are both required to draft a plan.".to_string(),
+            });
+            return;
+        }
+        match self.adapter.draft_plan_create(&title, &details).await {
+            Ok(ids) => {
+                self.orchestrator_title.clear();
+                self.orchestrator_details.clear();
+                self.orchestrator_draft = None;
+                self.orchestrator_status = Some(CommandResult {
+                    action: "orchestrator draft create".to_string(),
+                    success: true,
+                    message: format!(
+                        "Created {} task(s) from draft — see Review.",
+                        ids.len()
+                    ),
+                });
+            }
+            Err(e) => {
+                self.orchestrator_status = Some(CommandResult {
+                    action: "orchestrator draft create".to_string(),
+                    success: false,
+                    message: format!("Could not create tasks from draft: {e}"),
+                });
+            }
+        }
+        self.refresh_safe().await;
+    }
+
+    /// Remove the selected Review task (undo for drafts and mistakes).
+    pub async fn remove_review_task(&mut self) {
+        let Some(task_id) = self.review_selected_task_id() else {
+            self.last_action_result = Some(CommandResult {
+                action: "review remove".to_string(),
+                success: false,
+                message: "No task selected.".to_string(),
+            });
+            return;
+        };
+        match self.adapter.remove_task(&task_id).await {
+            Ok(()) => {
+                self.review_detail = None;
+                self.review_detail_task_id = None;
+                self.last_action_result = Some(CommandResult {
+                    action: "review remove".to_string(),
+                    success: true,
+                    message: format!("Removed task {task_id}."),
+                });
+            }
+            Err(e) => {
+                self.last_action_result = Some(CommandResult {
+                    action: "review remove".to_string(),
+                    success: false,
+                    message: format!("Could not remove task {task_id}: {e}"),
+                });
+            }
+        }
+        self.refresh_safe().await;
+    }
+
+    /// Dispatch the selected Review task to its recorded agent (or the
+    /// Orchestrator-selected fallback) via tracked ACP dispatch.
+    /// Send a task to an ACP agent over daemon IPC, with optional
+    /// prior sessions for continuation. Shared by the dispatch actions.
+    fn run_acp_dispatch(
+        &self,
+        task_id: &str,
+        agent: &str,
+        prior_sessions: &[String],
+    ) -> crate::dispatch::DispatchResult {
+        let dispatcher = crate::dispatch::ACPDispatch::new(
+            self.status
+                .pointer("/daemon/reachable")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            self.daemon
+                .pointer("/socket_path")
+                .and_then(Value::as_str)
+                .map(String::from),
+        );
+        dispatcher.dispatch(&serde_json::json!({
+            "task_id": task_id,
+            "agent_id": agent,
+            "prior_sessions": prior_sessions,
+        }))
+    }
+
+    /// Shared tail for task dispatch actions: store the tracked run and
+    /// build the status result. `resumed` is the number of prior
+    /// sessions sent for continuation (0 for a fresh dispatch).
+    fn record_task_dispatch(
+        &mut self,
+        action: &str,
+        task_id: &str,
+        agent: &str,
+        result: crate::dispatch::DispatchResult,
+        resumed: usize,
+    ) -> CommandResult {
+        if !result.success {
+            return CommandResult {
+                action: action.to_string(),
+                success: false,
+                message: result.message,
+            };
+        }
+        let mut message = format!("Dispatched task {task_id} to {agent}");
+        if resumed > 0 {
+            message.push_str(&format!(" with {resumed} prior session(s)"));
+        }
+        match result.run_id {
+            Some(run_id) => {
+                message.push_str(&format!(" (run {run_id})."));
+                self.orchestrator_last_run = Some(OrchestratorRun {
+                    run_id,
+                    task_id: task_id.to_string(),
+                    agent: agent.to_string(),
+                    status: Value::Null,
+                });
+                self.last_run_poll = None;
+            }
+            None => message.push('.'),
+        }
+        CommandResult {
+            action: action.to_string(),
+            success: true,
+            message,
+        }
+    }
+
+    /// Resolve the selected Review task plus its dispatch agent: the
+    /// task's recorded `last_agent`, else the Orchestrator-selected one.
+    fn review_dispatch_target(&self) -> Result<(String, String), String> {
+        let Some(task_id) = self.review_selected_task_id() else {
+            return Err("No task selected.".to_string());
+        };
+        let detail = self.review_detail.clone().unwrap_or(Value::Null);
+        let Some(agent) =
+            review_dispatch_agent(&detail, self.orchestrator_selected_agent())
+        else {
+            return Err(format!(
+                "Task {task_id} has no recorded agent and none is selected."
+            ));
+        };
+        Ok((task_id, agent))
+    }
+
+    pub async fn dispatch_review_task(&mut self) {
+        let outcome = match self.review_dispatch_target() {
+            Ok((task_id, agent)) => {
+                let result = self.run_acp_dispatch(&task_id, &agent, &[]);
+                self.record_task_dispatch("review dispatch", &task_id, &agent, result, 0)
+            }
+            Err(message) => CommandResult {
+                action: "review dispatch".to_string(),
+                success: false,
+                message,
+            },
+        };
+        self.last_action_result = Some(outcome);
+        self.refresh_safe().await;
+    }
+
+    /// Resume the selected Review task on its agent, sending the task's
+    /// linked sessions as prior context so the agent continues with
+    /// full history instead of starting blank.
+    pub async fn resume_review_task(&mut self) {
+        let outcome = match self.review_dispatch_target() {
+            Ok((task_id, agent)) => {
+                let priors = task_session_ids(&self.sessions, &task_id);
+                if priors.is_empty() {
+                    CommandResult {
+                        action: "review resume".to_string(),
+                        success: false,
+                        message: format!(
+                            "Task {task_id} has no captured sessions yet — dispatch it first."
+                        ),
+                    }
+                } else {
+                    let result = self.run_acp_dispatch(&task_id, &agent, &priors);
+                    let resumed = priors.len();
+                    self.record_task_dispatch(
+                        "review resume",
+                        &task_id,
+                        &agent,
+                        result,
+                        resumed,
+                    )
+                }
+            }
+            Err(message) => CommandResult {
+                action: "review resume".to_string(),
+                success: false,
+                message,
+            },
+        };
+        self.last_action_result = Some(outcome);
+        self.refresh_safe().await;
+    }
+
+    pub fn orchestrator_focus_next(&mut self) {
+        self.orchestrator_field = self.orchestrator_field.next();
+    }
+
+    pub fn orchestrator_focus_previous(&mut self) {
+        self.orchestrator_field = self.orchestrator_field.previous();
+    }
+
+    pub fn orchestrator_append(&mut self, c: char) {
+        match self.orchestrator_field {
+            OrchestratorField::Title => self.orchestrator_title.push(c),
+            OrchestratorField::Details => self.orchestrator_details.push(c),
+            OrchestratorField::Agent => {}
+        }
+    }
+
+    pub fn orchestrator_backspace(&mut self) {
+        match self.orchestrator_field {
+            OrchestratorField::Title => {
+                self.orchestrator_title.pop();
+            }
+            OrchestratorField::Details => {
+                self.orchestrator_details.pop();
+            }
+            OrchestratorField::Agent => {}
+        }
+    }
+
+    pub fn orchestrator_title_value(&self) -> String {
+        self.orchestrator_title.trim().to_string()
+    }
+
+    pub fn orchestrator_details_value(&self) -> String {
+        self.orchestrator_details.trim().to_string()
+    }
+
+    pub fn orchestrator_selected_agent(&self) -> Option<&str> {
+        self.orchestrator_agents
+            .get(self.orchestrator_agent_index)
+            .map(String::as_str)
+    }
+
+    pub fn orchestrator_can_submit(&self) -> bool {
+        !self.orchestrator_busy
+            && !self.orchestrator_title_value().is_empty()
+            && !self.orchestrator_details_value().is_empty()
+            && self.orchestrator_selected_agent().is_some()
+    }
+
+    pub fn orchestrator_agent_next(&mut self) {
+        if !self.orchestrator_agents.is_empty() {
+            self.orchestrator_agent_index =
+                (self.orchestrator_agent_index + 1) % self.orchestrator_agents.len();
+        }
+    }
+
+    pub fn orchestrator_agent_previous(&mut self) {
+        if !self.orchestrator_agents.is_empty() {
+            if self.orchestrator_agent_index == 0 {
+                self.orchestrator_agent_index = self.orchestrator_agents.len() - 1;
+            } else {
+                self.orchestrator_agent_index -= 1;
+            }
+        }
+    }
+
+    pub fn clear_orchestrator_status(&mut self) {
+        self.orchestrator_status = None;
+    }
+
+    fn sync_orchestrator_agents(&mut self) {
+        self.orchestrator_agents = orchestrator_agent_list(&self.acp);
+        if self.orchestrator_agents.is_empty() {
+            self.orchestrator_agent_index = 0;
+        } else if self.orchestrator_agent_index >= self.orchestrator_agents.len() {
+            self.orchestrator_agent_index = self.orchestrator_agents.len() - 1;
+        }
+    }
+
+    /// Poll the daemon for the last Orchestrator run's status, throttled
+    /// to `RUN_POLL_INTERVAL`. Terminal runs and polling errors (e.g.
+    /// daemon stopped) leave the last known status untouched.
+    async fn poll_orchestrator_run(&mut self) {
+        let run_id = match self.orchestrator_last_run.as_ref() {
+            Some(run) => {
+                let status = run
+                    .status
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if run_is_terminal(status) {
+                    return;
+                }
+                run.run_id.clone()
+            }
+            None => return,
+        };
+        if run_id.is_empty() {
+            return;
+        }
+        let due = self
+            .last_run_poll
+            .map(|t| t.elapsed() >= RUN_POLL_INTERVAL)
+            .unwrap_or(true);
+        if !due {
+            return;
+        }
+        self.last_run_poll = Some(Instant::now());
+        if let Ok(status) = self.adapter.fetch_run_status(&run_id).await {
+            if let Some(run) = self.orchestrator_last_run.as_mut() {
+                run.status = status;
+            }
+        }
+    }
+
+    /// Create a workflow task from the Orchestrator inputs and dispatch
+    /// it to the selected ACP agent. The daemon tracks the dispatch as a
+    /// run and its id is surfaced in the status message for follow-up.
+    pub async fn submit_orchestrator(&mut self) {
+        if self.orchestrator_busy {
+            return;
+        }
+
+        let title = self.orchestrator_title_value();
+        let details = self.orchestrator_details_value();
+        let Some(agent) = self.orchestrator_selected_agent().map(str::to_string) else {
+            self.orchestrator_status = Some(CommandResult {
+                action: "orchestrator submit".to_string(),
+                success: false,
+                message: "Select a connected ACP tool before submitting.".to_string(),
+            });
+            return;
+        };
+
+        if title.is_empty() || details.is_empty() {
+            self.orchestrator_status = Some(CommandResult {
+                action: "orchestrator submit".to_string(),
+                success: false,
+                message: "Title and details are both required.".to_string(),
+            });
+            return;
+        }
+
+        self.orchestrator_busy = true;
+        self.orchestrator_status = Some(CommandResult {
+            action: "orchestrator submit".to_string(),
+            success: true,
+            message: format!("Creating task and dispatching to {agent}..."),
+        });
+
+        let result = match self.adapter.create_workflow_task(&title, &details).await {
+            Ok(task_id) => {
+                let dispatch = self.run_acp_dispatch(&task_id, &agent, &[]);
+                if dispatch.success {
+                    self.orchestrator_title.clear();
+                    self.orchestrator_details.clear();
+                    let mut message =
+                        format!("Created task {task_id} and dispatched to {agent}.");
+                    if let Some(run_id) = dispatch.run_id {
+                        message.push_str(&format!(" (run {run_id})"));
+                        self.orchestrator_last_run = Some(OrchestratorRun {
+                            run_id,
+                            task_id: task_id.clone(),
+                            agent: agent.clone(),
+                            status: Value::Null,
+                        });
+                        self.last_run_poll = None;
+                    }
+                    CommandResult {
+                        action: "orchestrator submit".to_string(),
+                        success: true,
+                        message,
+                    }
+                } else {
+                    CommandResult {
+                        action: "orchestrator submit".to_string(),
+                        success: false,
+                        message: format!("Created task {task_id}, but dispatch failed: {}", dispatch.message),
+                    }
+                }
+            }
+            Err(e) => CommandResult {
+                action: "orchestrator submit".to_string(),
+                success: false,
+                message: format!("Could not create workflow task: {e}"),
+            },
+        };
+
+        self.orchestrator_busy = false;
+        self.orchestrator_status = Some(result);
+        self.refresh_safe().await;
+    }
+
     pub async fn execute_named_command(&mut self, cmd_name: &str) -> bool {
         match cmd_name {
             "daemon start" => {
@@ -583,6 +1377,13 @@ impl App {
             "tab 5" => self.set_tab_from_digit(4),
             "tab 6" => self.set_tab_from_digit(5),
             "tab 7" => self.set_tab_from_digit(6),
+            "tab 8" => self.set_tab_from_digit(7),
+            "tab 9" => self.set_tab_from_digit(8),
+            "tab 10" => self.set_tab_from_digit(9),
+            "tab 11" => self.set_tab_from_digit(10),
+            "orchestrator submit" => self.submit_orchestrator().await,
+            "orchestrator draft" => self.preview_orchestrator_draft().await,
+            "orchestrator draft create" => self.create_orchestrator_draft().await,
             "refresh" => self.refresh_safe().await,
             "scan" => {
                 self.last_action_result = Some(self.adapter.run_scan().await);
@@ -598,5 +1399,264 @@ impl App {
             _ => {}
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapter::LoomCliAdapter;
+    use serde_json::json;
+
+    fn app() -> App {
+        App::new(LoomCliAdapter::new("loom"))
+    }
+
+    #[test]
+    fn exposes_orchestrator_as_the_last_tab() {
+        let app = app();
+        let len = app.tabs.len();
+        assert_eq!(app.tabs[len - 2], "Orchestrator");
+        assert_eq!(app.orchestrator_tab_index(), Some(len - 2));
+        assert_eq!(app.scroll_offsets.len(), app.tabs.len());
+    }
+
+    #[test]
+    fn orchestrator_field_navigation_wraps() {
+        let mut app = app();
+        assert_eq!(app.orchestrator_field, OrchestratorField::Title);
+        app.orchestrator_focus_next();
+        assert_eq!(app.orchestrator_field, OrchestratorField::Details);
+        app.orchestrator_focus_next();
+        assert_eq!(app.orchestrator_field, OrchestratorField::Agent);
+        app.orchestrator_focus_next();
+        assert_eq!(app.orchestrator_field, OrchestratorField::Title);
+        app.orchestrator_focus_previous();
+        assert_eq!(app.orchestrator_field, OrchestratorField::Agent);
+    }
+
+    #[test]
+    fn types_and_deletes_only_in_the_focused_orchestrator_field() {
+        let mut app = app();
+        app.orchestrator_append('A');
+        app.orchestrator_append('B');
+        app.orchestrator_focus_next();
+        app.orchestrator_append('T');
+        app.orchestrator_backspace();
+        assert_eq!(app.orchestrator_title, "AB");
+        assert_eq!(app.orchestrator_details, "");
+    }
+
+    #[test]
+    fn merges_registered_handlers_with_agents_toml_entries() {
+        let value = json!({
+            "running": true,
+            "handlers": ["codex", "  ", "claude-code", 7],
+            "agents_toml": ["goose", "codex"],
+            "has_default_handler": true,
+        });
+        assert_eq!(
+            orchestrator_agent_list(&value),
+            vec![
+                "codex".to_string(),
+                "claude-code".to_string(),
+                "goose".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_agent_sources_yield_no_agents() {
+        let value = json!({
+            "running": true,
+            "handlers": [],
+            "agents_toml": [],
+            "has_default_handler": true,
+        });
+        assert!(orchestrator_agent_list(&value).is_empty());
+    }
+
+    #[test]
+    fn rejects_incomplete_orchestrator_submissions() {
+        let mut app = app();
+        assert!(!app.orchestrator_can_submit());
+
+        app.orchestrator_title = "Add dark mode".to_string();
+        assert!(!app.orchestrator_can_submit());
+
+        app.orchestrator_details = "Use theme tokens.".to_string();
+        assert!(!app.orchestrator_can_submit());
+
+        app.orchestrator_agents = vec!["codex".to_string()];
+        assert!(app.orchestrator_can_submit());
+    }
+
+    #[test]
+    fn run_terminal_states_stop_polling() {
+        assert!(run_is_terminal("succeeded"));
+        assert!(run_is_terminal("failed"));
+        assert!(!run_is_terminal("dispatched"));
+        assert!(!run_is_terminal("unknown"));
+        assert!(!run_is_terminal(""));
+    }
+
+    #[test]
+    fn formats_completed_run_line() {
+        let run = OrchestratorRun {
+            run_id: "abcdef1234567890".to_string(),
+            task_id: "task-1".to_string(),
+            agent: "codex".to_string(),
+            status: json!({
+                "status": "succeeded",
+                "exit_code": 0,
+                "session_id": "task-1.abcdef12",
+            }),
+        };
+        let line = format_run_line(&run);
+        assert!(line.starts_with("run abcdef12"), "got: {line}");
+        assert!(line.contains("succeeded"), "got: {line}");
+        assert!(line.contains("exit 0"), "got: {line}");
+        assert!(line.contains("session"), "got: {line}");
+    }
+
+    #[test]
+    fn formats_pending_run_line_without_session() {
+        let run = OrchestratorRun {
+            run_id: "abcdef1234567890".to_string(),
+            task_id: "task-1".to_string(),
+            agent: "codex".to_string(),
+            status: Value::Null,
+        };
+        let line = format_run_line(&run);
+        assert!(line.contains("dispatched"), "got: {line}");
+        assert!(line.contains("no session yet"), "got: {line}");
+        assert!(!line.contains("exit"), "got: {line}");
+    }
+
+    fn workflow_value() -> Value {
+        json!({
+            "tasks": [
+                {"task_id": "t1", "title": "First", "phase": "Plan", "status": "Pending"},
+                {"task_id": "t2", "title": "Second", "phase": "Implement", "status": "InProgress"},
+            ]
+        })
+    }
+
+    #[test]
+    fn exposes_review_as_the_last_tab() {
+        let app = app();
+        assert_eq!(app.tabs.last(), Some(&"Review"));
+        assert_eq!(app.review_tab_index(), Some(app.tabs.len() - 1));
+        assert_eq!(app.scroll_offsets.len(), app.tabs.len());
+    }
+
+    #[test]
+    fn extracts_review_task_ids_in_order() {
+        assert_eq!(
+            review_task_ids(&workflow_value()),
+            vec!["t1".to_string(), "t2".to_string()]
+        );
+        assert!(review_task_ids(&Value::Null).is_empty());
+    }
+
+    #[test]
+    fn review_selection_wraps_and_clamps() {
+        let mut app = app();
+        app.workflow = workflow_value();
+        assert_eq!(app.review_selected_task_id().as_deref(), Some("t1"));
+        app.review_select_next();
+        assert_eq!(app.review_selected_task_id().as_deref(), Some("t2"));
+        app.review_select_next();
+        assert_eq!(app.review_selected_task_id().as_deref(), Some("t1"));
+        app.review_select_prev();
+        assert_eq!(app.review_selected_task_id().as_deref(), Some("t2"));
+
+        app.workflow = Value::Null;
+        app.review_clamp_selection();
+        assert_eq!(app.review_selected_task_id(), None);
+    }
+
+    #[test]
+    fn links_sessions_by_task_prefix() {
+        let sessions = json!({
+            "sessions": [
+                {"session_id": "t1.Plan"},
+                {"session_id": "t1.Implement"},
+                {"session_id": "other.Task"},
+                {"session_id": "t1"},
+            ]
+        });
+        assert_eq!(
+            task_session_ids(&sessions, "t1"),
+            vec!["t1.Plan".to_string(), "t1.Implement".to_string()]
+        );
+        assert!(task_session_ids(&sessions, "missing").is_empty());
+    }
+
+    #[test]
+    fn review_dispatch_agent_prefers_last_agent_then_fallback() {
+        let detail = json!({"task": {"task_id": "t1", "last_agent": "goose"}});
+        assert_eq!(
+            review_dispatch_agent(&detail, Some("codex")).as_deref(),
+            Some("goose")
+        );
+        let no_agent = json!({"task": {"task_id": "t1"}});
+        assert_eq!(
+            review_dispatch_agent(&no_agent, Some("codex")).as_deref(),
+            Some("codex")
+        );
+        assert_eq!(review_dispatch_agent(&no_agent, None), None);
+        assert_eq!(review_dispatch_agent(&Value::Null, Some("codex")).as_deref(), Some("codex"));
+    }
+
+    #[test]
+    fn formats_review_task_line() {
+        let task = json!({"task_id": "abc123", "title": "Fix it", "phase": "Verify", "status": "InProgress"});
+        let line = format_review_task_line(&task);
+        assert!(line.contains("Verify"), "got: {line}");
+        assert!(line.contains("InProgress"), "got: {line}");
+        assert!(line.contains("Fix it"), "got: {line}");
+    }
+
+    #[test]
+    fn draft_task_titles_extract_in_order() {
+        let draft = json!({
+            "tasks": [
+                {"id": "t1", "title": "Alpha"},
+                {"id": "t2", "title": "Beta"},
+                {"id": "t3"},
+            ]
+        });
+        assert_eq!(
+            draft_task_titles(&draft),
+            vec!["Alpha".to_string(), "Beta".to_string()]
+        );
+        assert!(draft_task_titles(&Value::Null).is_empty());
+    }
+
+    #[test]
+    fn agent_cycle_starts_at_first_and_wraps() {
+        let agents = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        assert_eq!(next_agent_after(None, &agents).as_deref(), Some("a"));
+        assert_eq!(
+            next_agent_after(Some("a"), &agents).as_deref(),
+            Some("b")
+        );
+        assert_eq!(
+            next_agent_after(Some("c"), &agents).as_deref(),
+            Some("a")
+        );
+    }
+
+    #[test]
+    fn agent_cycle_handles_unknown_and_empty() {
+        let agents = vec!["a".to_string(), "b".to_string()];
+        assert_eq!(
+            next_agent_after(Some("ghost"), &agents).as_deref(),
+            Some("a")
+        );
+        let empty: Vec<String> = vec![];
+        assert_eq!(next_agent_after(None, &empty), None);
+        assert_eq!(next_agent_after(Some("a"), &empty), None);
     }
 }

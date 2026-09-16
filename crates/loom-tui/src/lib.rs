@@ -244,9 +244,59 @@ async fn run_loop(
                     continue;
                 }
 
-                // Embedded pane: Esc to close, j/k to scroll log, i to send input, Ctrl-C to interrupt
-                if app.embedded_task.is_some() {
+                // Orchestrator tab: all keys are consumed as form input so
+                // typing titles like "query" can never trigger global
+                // shortcuts (notably `q` for quit).
+                if app.is_orchestrator_tab() {
                     match key.code {
+                        KeyCode::Esc => app.clear_orchestrator_status(),
+                        KeyCode::Enter => app.submit_orchestrator().await,
+                        KeyCode::Tab => app.orchestrator_focus_next(),
+                        KeyCode::BackTab => app.orchestrator_focus_previous(),
+                        KeyCode::Up | KeyCode::Left => app.orchestrator_agent_previous(),
+                        KeyCode::Down | KeyCode::Right => app.orchestrator_agent_next(),
+                        KeyCode::Backspace | KeyCode::Delete => app.orchestrator_backspace(),
+                        KeyCode::Char('c') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => break,
+                        KeyCode::Char(c) if !c.is_control() => app.orchestrator_append(c),
+                        _ => {}
+                    }
+                    continue;
+                }
+
+                // Review tab: navigate tasks and dispatch. All other keys
+                // fall through to the global shortcuts below.
+                if app.is_review_tab() {
+                    match key.code {
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            app.review_select_prev();
+                            continue;
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            app.review_select_next();
+                            continue;
+                        }
+                        KeyCode::Enter => {
+                            app.dispatch_review_task().await;
+                            continue;
+                        }
+                        KeyCode::Char('R') => {
+                            app.resume_review_task().await;
+                            continue;
+                        }
+                        KeyCode::Char('x') => {
+                            app.remove_review_task().await;
+                            continue;
+                        }
+                        KeyCode::Char('a') => {
+                            app.cycle_review_task_agent().await;
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Embedded pane: Esc to close, j/k to scroll log, i to send input, Ctrl-C to interrupt
+                if app.embedded_task.is_some() {                    match key.code {
                         KeyCode::Esc => {
                             app.close_embedded_pane();
                             continue;
@@ -321,6 +371,7 @@ async fn run_loop(
                     KeyCode::Char('7') => app.set_tab_from_digit(6),
                     KeyCode::Char('8') => app.set_tab_from_digit(7),
                     KeyCode::Char('9') => app.set_tab_from_digit(8),
+                    KeyCode::Char('0') => app.set_tab_from_digit(9),
                     KeyCode::Char('D') => app.toggle_action_palette(),
                     KeyCode::Char('a') if app.is_task_tab() => app.open_dispatch_menu(),
                     KeyCode::Char(']') => app.next_theme(),

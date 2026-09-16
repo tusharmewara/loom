@@ -852,10 +852,10 @@ pub enum WorkflowAction {
     /// Create a new task
     Create {
         /// Task title
-        #[arg(long, short)]
+        #[arg(long, short, allow_hyphen_values = true)]
         title: Option<String>,
         /// Task description (used for complexity scoring)
-        #[arg(long, short)]
+        #[arg(long, short, allow_hyphen_values = true)]
         description: Option<String>,
         /// Create task from a GitHub issue (e.g. "owner/repo#123")
         #[arg(long)]
@@ -869,6 +869,28 @@ pub enum WorkflowAction {
         /// Create task from a workflow template
         #[arg(long)]
         template: Option<String>,
+        /// Create tasks from a chief plan JSON file
+        #[arg(long)]
+        from_plan: Option<String>,
+    },
+    /// Remove a workflow task and its per-phase sidecars
+    Remove {
+        task_id: String,
+    },
+    /// Draft a task plan from a goal plus free-text details
+    DraftPlan {
+        /// Plan goal
+        #[arg(long, allow_hyphen_values = true)]
+        title: Option<String>,
+        /// Free-text details (bullets/numbered lines become tasks)
+        #[arg(long, allow_hyphen_values = true)]
+        description: Option<String>,
+        /// Import the draft as workflow tasks instead of only printing it
+        #[arg(long)]
+        create: bool,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Advance a task to the next phase
     Advance {
@@ -1705,6 +1727,21 @@ pub enum AcpAction {
     Stop,
     /// Show detailed ACP dispatch server information
     Show {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// List launchable ACP agents (daemon handlers plus agents.toml entries)
+    Agents {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show a tracked ACP run's status
+    RunStatus {
+        /// Run ID returned by dispatch
+        #[arg(long)]
+        run_id: String,
         /// Output machine-readable JSON
         #[arg(long)]
         json: bool,
