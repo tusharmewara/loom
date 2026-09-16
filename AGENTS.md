@@ -288,10 +288,10 @@ emits `{ config, extends_chain: [...] }` for tooling.
 4. **Session compression** (v0.3.9): When a session's message count exceeds `SESSION_COMPRESSION_THRESHOLD` (20), older messages are folded into a single `System`-role summary (id `loom-summary-v1`) at the head of the message list, and the last `SESSION_FULL_FIDELITY_COUNT` (10) messages are kept verbatim. Auto-runs on `append_message`/`replace_message` once a session crosses the threshold; can be triggered manually via `loom sessions summarize <id> [--force]`. The manifest's `summarized_at` / `summarized_message_count` fields record the pass.
 5. **Vault lockout**: max `VAULT_MAX_UNLOCK_ATTEMPTS` (5) within `VAULT_MAX_UNLOCK_WINDOW_MS` (60s).
 6. **Daemon auto-shutdown**: after `DAEMON_DEFAULT_IDLE_TIMEOUT_MS` (300s = 5min) of no IPC activity.
-7. **TUI keybindings**: `D` opens action palette (daemon controls), `a` opens dispatch menu only on task tabs (5=Skills, 6=Sessions), `?` for help. Tab indices: 0=Dashboard, 1=Daemon, 2=Discovery, 3=MCP, 4=Skills, 5=Sessions, 6=Logs.
+7. **TUI keybindings**: `D` opens action palette (daemon controls), `a` opens dispatch menu only on task tabs (5=Skills, 6=Sessions), `?` for help. Tab indices: 0=Dashboard, 1=Daemon, 2=Discovery, 3=MCP, 4=Skills, 5=Sessions, 6=Logs, 7=Knowledge, 8=PRs, 9=Orchestrator, 10=Review. Digits `1-9` select tabs 0-8, `0` selects Orchestrator, Review is reachable via Tab cycling and the command palette (`tab 11`).
 8. **Adapter binaries for TerminalLaunch**: checks PATH for `opencode`, `claude-code`, `jcode`, `crush` (in order).
-9. **ACP dispatch not wired** — reports "requires daemon IPC" but no implementation.
-10. **EmbeddedPane dispatch** — explicit "not yet implemented".
+9. **ACP dispatch is wired and tracked** — `acp.dispatch` spawns headlessly with per-run logs, records completion plus a Loom session, and serves `run.status`. A canonical ACP-spec client also exists (`loom acp run`, `loom-sessions/src/acp_protocol.rs`).
+10. **EmbeddedPane dispatch** — opens the embedded pane and streams `workflow dispatch` output for the task.
 11. **`loom-ipc` uses Unix sockets only** — no TCP or Windows named pipe support.
 12. **Config `DocType` is v0.3.0 for all crates** (workspace version).
 13. **Knowledge extraction auto-runs on `loom sessions index` and `loom sessions export`** — entities and relationships are automatically extracted into `~/.loom/knowledge/graph.db` during session indexing.

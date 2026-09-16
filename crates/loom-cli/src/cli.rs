@@ -340,6 +340,9 @@ pub enum RemoteAction {
         conn: String,
         /// Command to run
         command: Vec<String>,
+        /// Capture output as a Loom session (memory + knowledge indexed)
+        #[arg(long)]
+        capture_session: bool,
     },
     /// Sync files to/from a remote host
     Sync {
@@ -860,7 +863,10 @@ pub enum WorkflowAction {
         /// Create task from a GitHub issue (e.g. "owner/repo#123")
         #[arg(long)]
         from_issue: Option<String>,
-        /// Repo for the issue (needed if from_issue is just a number)
+        /// Create task from any ticket (github:owner/repo#123,
+        /// linear:TEAM-1, gitlab:owner/repo#1, jira:PROJ-1)
+        #[arg(long)]
+        from_ticket: Option<String>,        /// Repo for the issue (needed if from_issue is just a number)
         #[arg(long, default_value = "")]
         repo: String,
         /// GitHub token (defaults to GITHUB_TOKEN env)
@@ -1237,6 +1243,21 @@ pub enum IssuesAction {
         /// GitHub token (defaults to GITHUB_TOKEN env)
         #[arg(long)]
         token: Option<String>,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a pull request with gh
+    CreatePr {
+        /// Repository (owner/repo)
+        #[arg(long)]
+        repo: String,
+        /// PR title (default: let gh fill from the branch)
+        #[arg(long)]
+        title: Option<String>,
+        /// PR body (default: let gh fill from commits)
+        #[arg(long)]
+        body: Option<String>,
         /// Output machine-readable JSON
         #[arg(long)]
         json: bool,
@@ -1733,6 +1754,26 @@ pub enum AcpAction {
     },
     /// List launchable ACP agents (daemon handlers plus agents.toml entries)
     Agents {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run one canonical ACP prompt turn against an agent program
+    Run {
+        /// Agent program (absolute path or PATH name)
+        program: String,
+        /// Prompt text to send
+        #[arg(long)]
+        prompt: String,
+        /// Session working directory (default: current dir)
+        #[arg(long)]
+        cwd: Option<String>,
+        /// Per-request timeout in seconds
+        #[arg(long, default_value = "120")]
+        timeout_secs: u64,
+        /// Extra args for the agent program (after --)
+        #[arg(last = true)]
+        args: Vec<String>,
         /// Output machine-readable JSON
         #[arg(long)]
         json: bool,

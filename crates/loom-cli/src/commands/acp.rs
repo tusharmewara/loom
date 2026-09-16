@@ -14,6 +14,25 @@ pub async fn run(loom_dir: &Path, action: &AcpAction) -> anyhow::Result<()> {
         AcpAction::RunStatus { run_id, json: json_output } => {
             handle_run_status(loom_dir, run_id, *json_output).await
         }
+        AcpAction::Run {
+            program,
+            prompt,
+            cwd,
+            timeout_secs,
+            args,
+            json: json_output,
+        } => {
+            crate::commands::acp_run::run_acp_prompt(
+                loom_dir,
+                program,
+                args,
+                prompt,
+                cwd.as_deref(),
+                *timeout_secs,
+                *json_output,
+            )
+            .await
+        }
     }
 }
 

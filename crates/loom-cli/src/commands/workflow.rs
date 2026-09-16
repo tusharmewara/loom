@@ -74,11 +74,33 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
             title,
             description,
             from_issue,
+            from_ticket,
             repo,
             token,
             template,
             from_plan,
         } => {
+            // If --from-ticket is given, fetch from any supported tracker.
+            if let Some(ticket_ref) = from_ticket {
+                let parsed = parse_ticket_ref(ticket_ref).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Unrecognized ticket reference '{ticket_ref}'. \
+                         Use github:owner/repo#123, linear:TEAM-1, \
+                         gitlab:owner/repo#1, or jira:PROJ-1"
+                    )
+                })?;
+                let (t_title, t_description, linked) =
+                    fetch_ticket(&parsed, repo, token).await?;
+                let task = orchestrator.create_task(&t_title, &t_description)?;
+                orchestrator.set_linked_issue(&task.task_id, &linked)?;
+                let task = orchestrator.get_task(&task.task_id)?.unwrap();
+                println!(
+                    "Created task {} from ticket {} 🔗",
+                    task.task_id, linked
+                );
+                println!("{}", serde_json::to_string_pretty(&task)?);
+                return Ok(());
+            }
             // If --from-plan is given, import a chief plan as tasks.
             if let Some(plan_path) = from_plan {
                 let raw = std::fs::read_to_string(plan_path).map_err(|e| {
@@ -1427,4 +1449,142 @@ fn build_prior_sessions_context(
         return None;
     }
     Some(ctx_path)
+}
+
+/// A ticket reference for `--from-ticket`: an explicit tracker prefix
+/// (`github:`/`linear:`/`gitlab:`/`jira:`) or a bare `owner/repo#123`
+/// GitHub form.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TicketRef {
+    GitHub(String),
+    Linear(String),
+    GitLab(String),
+    Jira(String),
+}
+
+pub fn parse_ticket_ref(input: &str) -> Option<TicketRef> {
+    let text = input.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let mut prefixed = |prefix: &str| {
+        text.strip_prefix(prefix)
+            .map(str::trim)
+            .filter(|rest| !rest.is_empty())
+            .map(str::to_string)
+    };
+    if let Some(rest) = prefixed("github:") {
+        return Some(TicketRef::GitHub(rest));
+    }
+    if let Some(rest) = prefixed("linear:") {
+        return Some(TicketRef::Linear(rest));
+    }
+    if let Some(rest) = prefixed("gitlab:") {
+        return Some(TicketRef::GitLab(rest));
+    }
+    if let Some(rest) = prefixed("jira:") {
+        return Some(TicketRef::Jira(rest));
+    }
+    if text.contains('#') {
+        return Some(TicketRef::GitHub(text.to_string()));
+    }
+    None
+}
+
+/// Fetch a ticket's title/body plus its canonical linked reference.
+/// Tracker credentials come from `--token` or the trackers' env vars
+/// (`GITHUB_TOKEN`, `LINEAR_API_KEY`, `GITLAB_TOKEN`, `JIRA_*`).
+async fn fetch_ticket(
+    ticket: &TicketRef,
+    repo: &str,
+    token: &Option<String>,
+) -> anyhow::Result<(String, String, String)> {
+    use loom_trackers::IssueTracker;
+    match ticket {
+        TicketRef::GitHub(id) => {
+            let issue_id = if id.chars().all(|c| c.is_ascii_digit()) && !repo.is_empty() {
+                format!("{repo}#{id}")
+            } else {
+                id.clone()
+            };
+            let tracker = loom_trackers::github::GitHubTracker::new(token.clone())?;
+            let issue = tracker.get_issue(&issue_id).await?;
+            Ok((
+                issue.title.clone(),
+                issue.body.clone().unwrap_or_default(),
+                issue_id,
+            ))
+        }
+        TicketRef::Linear(id) => {
+            let tracker = loom_trackers::linear::LinearTracker::new(token.clone())?;
+            let issue = tracker.get_issue(id).await?;
+            Ok((
+                issue.title.clone(),
+                issue.body.clone().unwrap_or_default(),
+                format!("linear:{id}"),
+            ))
+        }
+        TicketRef::GitLab(id) => {
+            let tracker = loom_trackers::gitlab::GitLabTracker::new(None, token.clone())?;
+            let issue = tracker.get_issue(id).await?;
+            Ok((
+                issue.title.clone(),
+                issue.body.clone().unwrap_or_default(),
+                format!("gitlab:{id}"),
+            ))
+        }
+        TicketRef::Jira(id) => {
+            let tracker =
+                loom_trackers::jira::JiraTracker::new(None, None, token.clone())?;
+            let issue = tracker.get_issue(id).await?;
+            Ok((
+                issue.title.clone(),
+                issue.body.clone().unwrap_or_default(),
+                format!("jira:{id}"),
+            ))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_ticket_ref, TicketRef};
+
+    #[test]
+    fn parses_explicit_tracker_prefixes() {
+        assert!(matches!(
+            parse_ticket_ref("github:owner/repo#123"),
+            Some(TicketRef::GitHub(id)) if id == "owner/repo#123"
+        ));
+        assert!(matches!(
+            parse_ticket_ref("linear:ENG-42"),
+            Some(TicketRef::Linear(id)) if id == "ENG-42"
+        ));
+        assert!(matches!(
+            parse_ticket_ref("gitlab:owner/repo#7"),
+            Some(TicketRef::GitLab(id)) if id == "owner/repo#7"
+        ));
+        assert!(matches!(
+            parse_ticket_ref("jira:PROJ-9"),
+            Some(TicketRef::Jira(id)) if id == "PROJ-9"
+        ));
+    }
+
+    #[test]
+    fn parses_bare_github_forms() {
+        assert!(matches!(
+            parse_ticket_ref("owner/repo#123"),
+            Some(TicketRef::GitHub(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_blank_and_unknown_refs() {
+        assert!(parse_ticket_ref("").is_none());
+        assert!(parse_ticket_ref("   ").is_none());
+        assert!(parse_ticket_ref("github:").is_none());
+        assert!(parse_ticket_ref("linear:").is_none());
+        assert!(parse_ticket_ref("not a ticket").is_none());
+        assert!(parse_ticket_ref("unknown:XYZ-1").is_none());
+    }
 }

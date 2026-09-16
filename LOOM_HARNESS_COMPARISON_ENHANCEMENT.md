@@ -1,6 +1,6 @@
 # Loom vs HarnessRouter / emdash / bb — Compatibility Analysis & Enhancement Document
 
-> Status: analysis, 2026-09-13
+> Status: analysis, 2026-09-13; re-checked against the tree 2026-09-16 (items marked ✅ verified, 🟡 partial, ⬜ open).
 > Scope: Loom v0.7.2 (`ECOSYSTEM_VERSION` 2.0.0) vs HarnessRouter Community Edition (UHP), emdash, and bb.
 
 ## Executive Summary
@@ -12,12 +12,12 @@ Loom, HarnessRouter, emdash, and bb are all members of the same category: an **o
 | Form factor | Rust CLI + daemon + TUI | Python server (UHP, Responses API) | Node desktop app (ADE) | Node self-building IDE + HTTP/SDK |
 | Primary job | Cross-tool shared ecosystem (skills, sessions, MCP, auth, hooks) | Run harnesses as a product backend | Parallel agents in git worktrees, diff/PR review | Threads you steer/hand off; self-extending |
 | Tool coverage | 12 preset adapters | 10 base harnesses | 22 providers | 7 providers |
-| Sessions | Cross-tool export/import/merge/resume | Persistent via `previous_response_id` | Per-worktree resume | Threads |
-| Remote/SSH | No | Sandboxed containers | SSH/SFTP | No |
+| Sessions | Cross-tool export/import/merge/resume + run-linked sessions (every ACP dispatch captures stdout/stderr into a session, memory-indexed, knowledge-extracted) + canonical-ACP transcripts via `loom acp run` | Persistent via `previous_response_id` | Per-worktree resume | Threads |
+| Remote/SSH | SSH/SFTP connections + `remote exec/sync` (List/Add/Remove/Exec/Sync); `remote exec --capture-session` persists output as an indexed session. No remote-*worktree* orchestration UX yet | Sandboxed containers | SSH/SFTP | No |
 | HTTP API | Unix-socket IPC only | Full HTTP + SSE streaming | Web/desktop UI | HTTP + CLI + SDK |
 | Licensing | MIT (workspace) | Apache-2.0 | Apache-2.0 | OSS |
 
-**Bottom line**: Loom already owns the one thing none of the others provide — **session portability and shared resources *across* heterogeneous agents**. Its main loses relative to the others are (a) adapter breadth, (b) a product-facing HTTP/streaming surface, (c) a parallel worktree UI, and (d) remote execution. This document maps both the compatibility surface and a prioritized feature list to close the gap.
+**Bottom line**: Loom already owns the one thing none of the others provide — **session portability and shared resources *across* heterogeneous agents**. Its main loses relative to the others are (a) adapter breadth, (b) a product-facing HTTP/streaming surface, (c) a parallel worktree UI, and (d) remote *worktree orchestration* UX (remote execution itself exists). This document maps both the compatibility surface and a prioritized feature list to close the gap.
 
 ## 1. Supported-Tool Compatibility Matrix
 
@@ -63,7 +63,7 @@ These are still runnable today via the TOML **generic adapter** or `loom exec` b
 
 - **Naming**: HR uses `gemini` / `claude-code` (alias `claude`); Loom accepts `gemini`/`gemini-cli` and `claude-code`/`claude_code` only.
 - **Model catalog drift**: Loom's routing catalog pins `claude-sonnet-4`, `gpt-4o`, `gemini-2.5-pro-exp-03-25` (`catalog.rs:53`); the three peers are on `claude-sonnet-4.6`-class IDs. Decisions still apply via env vars but lag current model IDs.
-- **Known stubs**: ACP dispatch reports "requires daemon IPC" but has no implementation (AGENTS.md gotcha #9); EmbeddedPane dispatch unimplemented (#10).
+- **Known stubs — both resolved 2026-09-16.** ACP dispatch is wired and tracked (`acp.dispatch` → headless spawn, per-run logs, completion + session capture, `run.status`; plus a canonical ACP-spec v1 client in `loom-sessions/src/acp_protocol.rs` with `loom acp run`). EmbeddedPane dispatch opens the pane and streams `workflow dispatch` output. (AGENTS.md gotchas #9/#10 corrected accordingly.)
 
 ## 3. Feature Recommendations — What To Add To Make Loom the Better Choice
 
@@ -85,21 +85,21 @@ Priorities: **P0** = biggest compatibility/differentiation lever. **P1** = close
 
 5. **UHP-compatible HTTP/SSE endpoint from `loomd`** (`/v1/responses`, `/v1/harnesses`, `/v1/models`), turning Loom into a server other products can drive — the mirror image of #4. Ship a conformance run against HarnessRouter's UHP conformance suite.
 
-6. **Complete ACP dispatch (P1/2.5).** Finish the stubbed ACP server so bb-style ACP-driving agents (cursor, hermes-agent) interoperate over the Agent Client Protocol.
+6. **✅ Complete ACP dispatch (P1/2.5).** DONE 2026-09-16: canonical ACP v1 client (`initialize` → `session/new` → `session/prompt` with stop reasons, `session/update` transcript collection, permission auto-policy, timeout + cancel) in `loom-sessions/src/acp_protocol.rs`, tested against a fixture fake server, exposed as `loom acp run` (persists indexed sessions). Remaining: TUI/daemon wiring of the protocol client (dispatch *through* ACP-speaking agents rather than only *to* them).
 
 7. **Lifecycle-hook tagging + additive config merge.** Marker-tagged hooks for status/notifications/resume (emdash-style), with strict additive JSON merge to coexist safely.
 
 8. **Model catalog refresh + cost-aware routing.** Update built-in model IDs and add cost-based model selection (extends existing `loom-routing`, per the earlier Xirp analysis).
 
-9. **Remote execution over SSH/SFTP.** Reuse `WorktreeManager` against remote checkouts (keychain-stored creds) so Loom runs the same parallel workflow on remote machines — emdash's SSH story, terminal-native.
+9. **🟡 Remote execution over SSH/SFTP.** DONE 2026-09-16 as far as execution + capture go: `loom remote` already managed connections (List/Add/Remove/Exec/Sync over SSH/SFTP with vault-backed keys), and `remote exec --capture-session` now persists output as an indexed, knowledge-extracted session. Remaining (the actual gap): running the parallel *worktree* workflow on remote checkouts.
 
 10. **Gateway for third-party session resume.** Read emdash/bb/HR session stores and surface them in `loom sessions` so a conversation started under another orchestrator can be resumed under any Loom-registered tool.
 
 ### P2 — Ecosystem alignment
 
-11. **Ticket-driven dispatch.** Pull Linear/GitHub/Jira/`gh` issues into `loom workflow create --from-ticket` and dispatch (loom-trackers already covers GitHub Issues + Linear).
+11. **✅ Ticket-driven dispatch.** DONE 2026-09-16: `loom workflow create --from-ticket` accepts `github:owner/repo#123` (plus legacy bare forms), `linear:TEAM-1`, `gitlab:owner/repo#1`, and `jira:PROJ-1`, creating linked tasks via the trackers' credentials/env vars. (Live fetch needs tracker credentials + network; parsing/routing is unit-tested.)
 
-12. **Diff review + PR pipeline in TUI.** Add side-by-side diff review and `gh pr create`/CI-watch to the task view (emdash's review loop, terminal-first).
+12. **✅ Diff review + PR pipeline in TUI.** DONE 2026-09-16: diff view and CI status already existed in the PRs tab; `loom issues create-pr` (shells `gh`, `--fill` by default) plus the `c` key on the PRs tab close the loop (emdash's review loop, terminal-first).
 
 13. **Trace/OpenTelemetry export.** Emit spans from dispatch, routing, and sessions; import/export the UHP trace fields.
 

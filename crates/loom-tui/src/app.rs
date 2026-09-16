@@ -987,6 +987,34 @@ impl App {
         self.refresh_safe().await;
     }
 
+    /// Create a pull request from the current branch for the
+    /// configured repository.
+    pub async fn create_pull_request(&mut self) {
+        let Some(repo) = self.configured_repo.clone() else {
+            self.last_action_result = Some(CommandResult {
+                action: "pr create".to_string(),
+                success: false,
+                message: "No repository configured for PR creation.".to_string(),
+            });
+            return;
+        };
+        let result = match self.adapter.create_pull_request(&repo).await {
+            Ok(url) => CommandResult {
+                action: "pr create".to_string(),
+                success: true,
+                message: format!("Created PR: {url}"),
+            },
+            Err(e) => CommandResult {
+                action: "pr create".to_string(),
+                success: false,
+                message: format!("Could not create PR: {e}"),
+            },
+        };
+        self.last_action_result = Some(result);
+        self.force_pr_poll().await;
+        self.refresh_safe().await;
+    }
+
     /// Remove the selected Review task (undo for drafts and mistakes).
     pub async fn remove_review_task(&mut self) {
         let Some(task_id) = self.review_selected_task_id() else {
@@ -1619,8 +1647,7 @@ mod tests {
     }
 
     #[test]
-    fn draft_task_titles_extract_in_order() {
-        let draft = json!({
+    fn draft_task_titles_extract_in_order() {        let draft = json!({
             "tasks": [
                 {"id": "t1", "title": "Alpha"},
                 {"id": "t2", "title": "Beta"},
@@ -1658,5 +1685,15 @@ mod tests {
         let empty: Vec<String> = vec![];
         assert_eq!(next_agent_after(None, &empty), None);
         assert_eq!(next_agent_after(Some("a"), &empty), None);
+    }
+
+    #[tokio::test]
+    async fn create_pull_request_requires_a_configured_repo() {
+        let mut app = app();
+        assert!(app.configured_repo.is_none());
+        app.create_pull_request().await;
+        let result = app.last_action_result.expect("status must be set");
+        assert!(!result.success);
+        assert!(result.message.contains("repository"));
     }
 }
