@@ -138,6 +138,11 @@ impl LoomCliAdapter {
         self.run_json(&["acp", "run-status", "--run-id", run_id]).await
     }
 
+    /// Fetch a tracked ACP run's stdout/stderr logs from the daemon.
+    pub async fn fetch_run_logs(&self, run_id: &str) -> Result<Value> {
+        self.run_json(&["acp", "run-logs", "--run-id", run_id]).await
+    }
+
     /// Create a pull request from the current branch (`gh pr create
     /// --fill`). Returns the PR URL.
     pub async fn create_pull_request(&self, repo: &str) -> Result<String> {

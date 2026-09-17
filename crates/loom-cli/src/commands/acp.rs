@@ -14,6 +14,9 @@ pub async fn run(loom_dir: &Path, action: &AcpAction) -> anyhow::Result<()> {
         AcpAction::RunStatus { run_id, json: json_output } => {
             handle_run_status(loom_dir, run_id, *json_output).await
         }
+        AcpAction::RunLogs { run_id, json: json_output } => {
+            handle_run_logs(loom_dir, run_id, *json_output).await
+        }
         AcpAction::Run {
             program,
             prompt,
@@ -319,5 +322,50 @@ async fn handle_run_status(
         Some(session) => println!("  Session: {session}"),
         None => println!("  Session: (none captured yet)"),
     }
+    Ok(())
+}
+
+/// Fetch a tracked ACP run's stdout/stderr logs from the daemon.
+async fn handle_run_logs(
+    loom_dir: &Path,
+    run_id: &str,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    if run_id.trim().is_empty() {
+        anyhow::bail!("run_id must not be empty");
+    }
+    let req = IpcRequest::new("run.log").with_params(json!({ "run_id": run_id }));
+    let resp = ipc_client::send_daemon_command(loom_dir, req).await?;
+
+    if resp.status == "error" {
+        let err = resp.error.unwrap_or_else(|| "unknown error".to_string());
+        anyhow::bail!("run logs fetch failed: {err}");
+    }
+
+    let data = get_data(&resp);
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&data)?);
+        return Ok(());
+    }
+
+    let stdout = data.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
+    let stderr = data.get("stderr").and_then(|v| v.as_str()).unwrap_or("");
+
+    if !stdout.is_empty() {
+        println!("=== STDOUT ===");
+        println!("{stdout}");
+    } else {
+        println!("=== STDOUT ===");
+        println!("(empty)");
+    }
+
+    if !stderr.is_empty() {
+        println!("\n=== STDERR ===");
+        println!("{stderr}");
+    } else {
+        println!("\n=== STDERR ===");
+        println!("(empty)");
+    }
+
     Ok(())
 }

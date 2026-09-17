@@ -19,3 +19,6 @@ tokio.workspace = true
 loom-ipc = { path = "../loom-ipc" }
 ratatui = { version = "0.28", default-features = false, features = ["crossterm"] }
 crossterm = "0.28"
+portable-pty = "0.8"
+tokio-util = { version = "0.7", features = ["codec", "io"] }
+futures = "0.3"

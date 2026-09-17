@@ -212,6 +212,14 @@ pub fn resolve_agent_launch(
                     description: format!("npx {package}"),
                 });
             }
+            if runner == "binary" && !package.is_empty() {
+                return Ok(AgentLaunch {
+                    program: package.to_string(),
+                    args: Vec::new(),
+                    envs: base_envs(loom_dir, task_id),
+                    description: format!("binary {package}"),
+                });
+            }
             if runner == "pip" && !package.is_empty() {
                 return Ok(AgentLaunch {
                     program: "pipx".to_string(),

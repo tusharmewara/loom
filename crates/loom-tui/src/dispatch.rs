@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::sync::mpsc;
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
 pub const DISPATCHER_COUNT: usize = 3;
 
@@ -306,10 +308,144 @@ impl Dispatcher for EmbeddedPane {
 
     fn dispatch(&self, task: &serde_json::Value) -> DispatchResult {
         let task_id = task.pointer("/task_id").and_then(Value::as_str).unwrap_or("");
-        if task_id.is_empty() {
-            return DispatchResult::err("task_id required".to_string());
+        let agent_id = task.pointer("/agent_id").and_then(Value::as_str).unwrap_or("");
+        let _prior_sessions: Vec<String> = task
+            .pointer("/prior_sessions")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if task_id.is_empty() || agent_id.is_empty() {
+            return DispatchResult::err("task_id and agent_id required".to_string());
         }
-        DispatchResult::ok(format!("Opened task {task_id} in embedded pane"), None)
+
+        // This dispatcher returns success with the info needed for the TUI
+        // to spawn the PTY session. The actual PTY spawn happens in the TUI app.
+        DispatchResult::ok(
+            format!("Ready to launch {agent_id} for task {task_id} in embedded pane (PTY)"),
+            None,
+        )
+    }
+}
+
+/// PTY-based embedded session state for the TUI
+pub struct EmbeddedSession {
+    pub task_id: String,
+    pub agent_id: String,
+    pub pty_pair: Option<Box<dyn portable_pty::MasterPty + Send>>,
+    pub child: Option<Box<dyn portable_pty::Child + Send + Sync>>,
+    pub log_rx: Option<mpsc::Receiver<String>>,
+    pub log_tx: Option<mpsc::Sender<String>>,
+    pub stdin_tx: Option<mpsc::Sender<Vec<u8>>>,
+}
+
+impl EmbeddedSession {
+    /// Spawn a new PTY session for the given agent and task
+    pub async fn spawn(task_id: String, agent_id: String) -> anyhow::Result<Self> {
+        let pty_system = native_pty_system();
+        let pty_pair = pty_system.openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })?;
+
+        let mut cmd = CommandBuilder::new(&agent_id);
+        
+        // Set up environment variables for the task
+        cmd.env("LOOM_TASK_ID", &task_id);
+        cmd.env("LOOM_AGENTS_DIR", std::env::var("LOOM_AGENTS_DIR").unwrap_or_else(|_| ".loom".to_string()));
+        
+        // Set working directory
+        if let Ok(cwd) = std::env::current_dir() {
+            cmd.cwd(cwd);
+        }
+
+        let child = pty_pair.slave.spawn_command(cmd)?;
+
+        let (log_tx, log_rx) = mpsc::channel::<String>(256);
+        let (stdin_tx, stdin_rx) = mpsc::channel::<Vec<u8>>(256);
+
+        // Spawn reader task for PTY output
+        let mut reader = pty_pair.master.try_clone_reader()?;
+        let log_tx_clone = log_tx.clone();
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 4096];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break, // EOF
+                    Ok(n) => {
+                        let output = String::from_utf8_lossy(&buf[..n]).to_string();
+                        if log_tx_clone.send(output).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        // Spawn writer task for stdin
+        let mut writer = pty_pair.master.take_writer()?;
+        tokio::spawn(async move {
+            let mut stdin_rx = stdin_rx;
+            while let Some(data) = stdin_rx.recv().await {
+                if writer.write_all(&data).is_err() {
+                    break;
+                }
+                if writer.flush().is_err() {
+                    break;
+                }
+            }
+        });
+
+        Ok(Self {
+            task_id,
+            agent_id,
+            pty_pair: Some(pty_pair.master),
+            child: Some(child),
+            log_rx: Some(log_rx),
+            log_tx: Some(log_tx),
+            stdin_tx: Some(stdin_tx),
+        })
+    }
+
+    /// Send input to the PTY
+    pub async fn write(&self, data: &[u8]) -> anyhow::Result<()> {
+        if let Some(tx) = &self.stdin_tx {
+            tx.send(data.to_vec()).await?;
+        }
+        Ok(())
+    }
+
+    /// Resize the PTY
+    pub fn resize(&self, rows: u16, cols: u16) -> anyhow::Result<()> {
+        if let Some(pty) = &self.pty_pair {
+            pty.resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Wait for the child process to exit
+    pub async fn wait(&mut self) -> anyhow::Result<i32> {
+        if let Some(mut child) = self.child.take() {
+            let exit_status = child.wait()?;
+            Ok(exit_status.exit_code() as i32)
+        } else {
+            Ok(-1)
+        }
     }
 }
 

@@ -239,11 +239,10 @@ pub struct App {
     pub theme: Theme,
     pub sidebar_visible: bool,
     pub embedded_task: Option<Value>,
+    pub embedded_session: Option<crate::dispatch::EmbeddedSession>,
     pub embedded_log: Vec<String>,
     pub embedded_log_scroll: usize,
     pub embedded_log_rx: Option<mpsc::Receiver<String>>,
-    pub embedded_child: Option<tokio::process::Child>,
-    pub embedded_stdin: Option<tokio::process::ChildStdin>,
     pub orchestrator_title: String,
     pub orchestrator_details: String,
     pub orchestrator_field: OrchestratorField,
@@ -262,6 +261,10 @@ pub struct App {
     last_pr_poll: Option<Instant>,
     /// Time of the last ACP run-status poll (throttled separately).
     last_run_poll: Option<Instant>,
+    /// Time of the last ACP run-logs poll (throttled separately).
+    pub last_log_poll: Option<Instant>,
+    /// Cached stdout/stderr logs for the active orchestrator run.
+    pub orchestrator_logs: Option<(String, String)>,
 }
 
 impl App {
@@ -307,11 +310,10 @@ impl App {
             theme,
             sidebar_visible: true,
             embedded_task: None,
+            embedded_session: None,
             embedded_log: Vec::new(),
             embedded_log_scroll: 0,
             embedded_log_rx: None,
-            embedded_child: None,
-            embedded_stdin: None,
             orchestrator_title: String::new(),
             orchestrator_details: String::new(),
             orchestrator_field: OrchestratorField::Title,
@@ -328,6 +330,8 @@ impl App {
             adapter,
             last_pr_poll: None,
             last_run_poll: None,
+            last_log_poll: None,
+            orchestrator_logs: None,
         }
     }
 
@@ -424,6 +428,7 @@ impl App {
             self.sync_orchestrator_agents();
         }
         self.poll_orchestrator_run().await;
+        self.poll_orchestrator_logs().await;
         self.refresh_review_detail().await;
         if let Ok(v) = self.adapter.fetch_hooks_list().await {
             self.hooks = v;
@@ -666,14 +671,10 @@ impl App {
 
     pub fn close_embedded_pane(&mut self) {
         self.embedded_task = None;
+        self.embedded_session = None;
         self.embedded_log.clear();
         self.embedded_log_scroll = 0;
         self.embedded_log_rx = None;
-        // Kill the child process if still running
-        if let Some(mut child) = self.embedded_child.take() {
-            let _ = child.start_kill();
-        }
-        self.embedded_stdin = None;
     }
 
     /// Drain any pending log lines from the embedded process receiver
@@ -1297,6 +1298,42 @@ impl App {
             if let Some(run) = self.orchestrator_last_run.as_mut() {
                 run.status = status;
             }
+        }
+    }
+
+    /// Poll the daemon for the last Orchestrator run's stdout/stderr logs,
+    /// throttled to `RUN_POLL_INTERVAL`. Only runs while the run is not
+    /// terminal.
+    async fn poll_orchestrator_logs(&mut self) {
+        let run_id = match self.orchestrator_last_run.as_ref() {
+            Some(run) => {
+                let status = run
+                    .status
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if run_is_terminal(status) {
+                    return;
+                }
+                run.run_id.clone()
+            }
+            None => return,
+        };
+        if run_id.is_empty() {
+            return;
+        }
+        let due = self
+            .last_log_poll
+            .map(|t| t.elapsed() >= RUN_POLL_INTERVAL)
+            .unwrap_or(true);
+        if !due {
+            return;
+        }
+        self.last_log_poll = Some(Instant::now());
+        if let Ok(logs) = self.adapter.fetch_run_logs(&run_id).await {
+            let stdout = logs.get("stdout").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let stderr = logs.get("stderr").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            self.orchestrator_logs = Some((stdout, stderr));
         }
     }
 

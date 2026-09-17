@@ -1787,6 +1787,15 @@ pub enum AcpAction {
         #[arg(long)]
         json: bool,
     },
+    /// Fetch a tracked ACP run's stdout/stderr logs
+    RunLogs {
+        /// Run ID returned by dispatch
+        #[arg(long)]
+        run_id: String,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 impl Cli {

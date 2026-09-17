@@ -3,6 +3,7 @@ use loom_core::HealthCheck;
 use loom_ipc::{IpcHandler, IpcRequest, IpcResponse};
 use serde_json::json;
 use std::sync::Arc;
+use tokio::runtime::Handle;
 use tokio::sync::RwLock;
 
 pub struct LoomdIpcHandler {
@@ -335,8 +336,9 @@ impl IpcHandler for LoomdIpcHandler {
                 IpcResponse::ok(req.request_id, json!({ "providers": providers }))
             }
             "hooks.list" => {
-                let runtime = tokio::runtime::Runtime::new().unwrap();
-                let hooks = runtime.block_on(self.hooks.registry().list());
+                let hooks = tokio::task::block_in_place(|| {
+                    Handle::current().block_on(self.hooks.registry().list())
+                });
                 IpcResponse::ok(req.request_id, json!({ "hooks": hooks }))
             }
             "version" => IpcResponse::ok(req.request_id, json!({ "version": self.version })),
@@ -405,11 +407,14 @@ impl IpcHandler for LoomdIpcHandler {
                 }
             }
             "acp.status" => {
-                let runtime = tokio::runtime::Runtime::new().unwrap();
-                let server = runtime.block_on(self.acp_server.read());
+                let server = tokio::task::block_in_place(|| {
+                    Handle::current().block_on(self.acp_server.read())
+                });
                 match server.as_ref() {
                     Some(srv) => {
-                        let status = runtime.block_on(srv.status());
+                        let status = tokio::task::block_in_place(|| {
+                            Handle::current().block_on(srv.status())
+                        });
                         IpcResponse::ok(req.request_id, status)
                     }
                     None => IpcResponse::ok(req.request_id, json!({
@@ -422,11 +427,14 @@ impl IpcHandler for LoomdIpcHandler {
                 IpcResponse::error(req.request_id, "ACP dispatch server auto-starts with daemon; use `loom daemon restart` to restart".to_string())
             }
             "acp.stop" => {
-                let runtime = tokio::runtime::Runtime::new().unwrap();
-                let server = runtime.block_on(self.acp_server.read());
+                let server = tokio::task::block_in_place(|| {
+                    Handle::current().block_on(self.acp_server.read())
+                });
                 match server.as_ref() {
                     Some(srv) => {
-                        runtime.block_on(srv.stop());
+                        tokio::task::block_in_place(|| {
+                            Handle::current().block_on(srv.stop())
+                        });
                         IpcResponse::ok(req.request_id, json!({ "stopped": true }))
                     }
                     None => IpcResponse::ok(req.request_id, json!({
@@ -471,6 +479,16 @@ impl IpcHandler for LoomdIpcHandler {
                     },
                     Err(_) => IpcResponse::error(req.request_id, "run registry unavailable"),
                 }
+            }
+            "run.log" => {
+                let run_id = req.params.get("run_id").and_then(|v| v.as_str()).unwrap_or("");
+                if run_id.is_empty() {
+                    return IpcResponse::error(req.request_id, "run_id parameter required");
+                }
+                let (stdout_log, stderr_log) = crate::capture::run_log_paths(&self.loom_dir, run_id);
+                let stdout = crate::capture::read_log_tail(&stdout_log, 64 * 1024);
+                let stderr = crate::capture::read_log_tail(&stderr_log, 16 * 1024);
+                IpcResponse::ok(req.request_id, json!({ "stdout": stdout, "stderr": stderr }))
             }
             "knowledge.query" => {
                 let entity_name = req.params.get("entity").and_then(|v| v.as_str()).unwrap_or("");

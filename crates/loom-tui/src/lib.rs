@@ -161,13 +161,20 @@ async fn run_loop(
                                 });
                                 app.embedded_task = Some(task.clone());
 
-                                // Spawn the agent in the background and stream output
-                                if let Some(agent) = task.pointer("/last_agent").and_then(Value::as_str) {
+                                // Spawn the PTY session
+                                if let Some(agent) = task.pointer("/agent_id").and_then(Value::as_str) {
                                     let task_id = task.pointer("/task_id").and_then(Value::as_str).unwrap_or("");
-                                    let (child, log_rx, stdin) = app.adapter.stream_background(agent, task_id);
-                                    app.embedded_log_rx = Some(log_rx);
-                                    app.embedded_child = child;
-                                    app.embedded_stdin = stdin;
+                                    if !task_id.is_empty() {
+                                        match crate::dispatch::EmbeddedSession::spawn(task_id.to_string(), agent.to_string()).await {
+                                            Ok(mut session) => {
+                                                app.embedded_log_rx = session.log_rx.take();
+                                                app.embedded_session = Some(session);
+                                            }
+                                            Err(e) => {
+                                                app.embedded_log.push(format!("Failed to spawn PTY: {e}"));
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             app.close_dispatch_menu();
@@ -196,11 +203,10 @@ async fn run_loop(
                         KeyCode::Enter => {
                             // If embedded pane is active, send input to the child process
                             if app.embedded_task.is_some() && !app.command_palette_query.is_empty() {
-                                if let Some(ref mut stdin) = app.embedded_stdin {
-                                    use tokio::io::AsyncWriteExt;
+                                if let Some(session) = &mut app.embedded_session {
                                     let mut line = app.command_palette_query.clone();
                                     line.push('\n');
-                                    let _ = stdin.write_all(line.as_bytes()).await;
+                                    let _ = session.write(line.as_bytes()).await;
                                     app.embedded_log.push(format!("> {}", app.command_palette_query));
                                     app.close_command_palette();
                                     continue;
@@ -311,9 +317,9 @@ async fn run_loop(
                         }
                         KeyCode::Char('c') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
                             // Send interrupt (SIGINT) to the child process
-                            if let Some(ref mut child) = app.embedded_child {
-                                let _ = child.start_kill();
-                                app.embedded_log.push("⏹  Process interrupted (SIGINT)".to_string());
+                            if let Some(session) = &mut app.embedded_session {
+                                let _ = session.write(b"\x03").await; // Ctrl-C
+                                app.embedded_log.push("⏹  Sent Ctrl-C".to_string());
                             }
                             continue;
                         }

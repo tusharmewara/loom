@@ -236,6 +236,45 @@ pub fn draw_orchestrator(frame: &mut Frame, area: Rect, app: &App, theme: &Theme
             Span::styled("Last run: ", theme.text_dim),
             Span::styled(format_run_line(run), Style::default().fg(theme.text)),
         ]));
+        // Show live logs if available
+        if let Some((stdout, stderr)) = &app.orchestrator_logs {
+            let has_output = !stdout.is_empty() || !stderr.is_empty();
+            if has_output {
+                footer.push(Line::from(Span::styled("", Style::default())));
+                footer.push(Line::from(Span::styled(
+                    "--- Live Logs ---",
+                    Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD),
+                )));
+                if !stdout.is_empty() {
+                    for line in stdout.lines().take(5) {
+                        footer.push(Line::from(Span::styled(
+                            format!("  > {}", line),
+                            Style::default().fg(theme.text),
+                        )));
+                    }
+                    if stdout.lines().count() > 5 {
+                        footer.push(Line::from(Span::styled(
+                            format!("  ... ({} more lines)", stdout.lines().count() - 5),
+                            Style::default().fg(theme.text_dim),
+                        )));
+                    }
+                }
+                if !stderr.is_empty() {
+                    for line in stderr.lines().take(3) {
+                        footer.push(Line::from(Span::styled(
+                            format!("  ! {}", line),
+                            Style::default().fg(theme.error),
+                        )));
+                    }
+                    if stderr.lines().count() > 3 {
+                        footer.push(Line::from(Span::styled(
+                            format!("  ... ({} more lines)", stderr.lines().count() - 3),
+                            Style::default().fg(theme.text_dim),
+                        )));
+                    }
+                }
+            }
+        }
     }
     footer.push(Line::from(vec![
         Span::styled("Tab move", theme.text_dim),
