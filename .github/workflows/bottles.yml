@@ -47,7 +47,7 @@ jobs:
           V: ${{ steps.extract_version.outputs.version }}
         run: |
           cargo build --release --bins -p loom -p loomd --target aarch64-apple-darwin
-          mkdir -p bottle-arm64/{loom/"$V"/bin}
+          mkdir -p bottle-arm64/loom/"$V"/bin
           cp target/aarch64-apple-darwin/release/loom \
              target/aarch64-apple-darwin/release/loomd \
              bottle-arm64/loom/"$V"/bin/
@@ -58,7 +58,7 @@ jobs:
           CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER: /usr/bin/clang
         run: |
           cargo build --release --bins -p loom -p loomd --target x86_64-apple-darwin
-          mkdir -p bottle-x86/{loom/"$V"/bin}
+          mkdir -p bottle-x86/loom/"$V"/bin
           cp target/x86_64-apple-darwin/release/loom \
              target/x86_64-apple-darwin/release/loomd \
              bottle-x86/loom/"$V"/bin/
@@ -134,7 +134,7 @@ jobs:
           V: ${{ steps.extract_version.outputs.version }}
         run: |
           cargo build --release --bins -p loom -p loomd
-          mkdir -p bottle-linux/{loom/"$V"/bin}
+          mkdir -p bottle-linux/loom/"$V"/bin
           cp target/release/loom target/release/loomd bottle-linux/loom/"$V"/bin/
 
       - name: Create Linux bottle
