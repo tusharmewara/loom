@@ -228,10 +228,8 @@ jobs:
             for f in /tmp/bottles/loom-*.bottle.tar.gz; do
               BASENAME=$(basename "$f")
               # Parse: loom-VERSION.TAG.bottle.tar.gz
-              # Remove "loom-" prefix and everything up to the version, then get TAG
-              TAG="${BASENAME#loom-}"
-              TAG="${TAG#*.}"  # Remove version (e.g., "0.8.2.")
-              TAG="${TAG%.bottle.tar.gz}"
+              # Use sed to extract TAG between version and .bottle.tar.gz
+              TAG=$(echo "$BASENAME" | sed -E 's/^loom-[0-9]+\.[0-9]+\.[0-9]+\.//' | sed 's/\.bottle\.tar\.gz$//')
               SHA=$(shasum -a 256 "$f" | cut -d' ' -f1)
               case "$TAG" in
                 x86_64_linux)
