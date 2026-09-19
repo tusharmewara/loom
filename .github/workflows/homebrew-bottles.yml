@@ -233,10 +233,10 @@ jobs:
               SHA=$(shasum -a 256 "$f" | cut -d' ' -f1)
               case "$TAG" in
                 x86_64_linux)
-                  BOTTLE_ENTRIES+="    sha256 cellar: :any_skip_relocation, x86_64_linux => \"$SHA\"\n"
+                  BOTTLE_ENTRIES+="    sha256 cellar: :any_skip_relocation, x86_64_linux: \"$SHA\"\n"
                   ;;
                 *)
-                  BOTTLE_ENTRIES+="    sha256 cellar: :any, ${TAG} => \"$SHA\"\n"
+                  BOTTLE_ENTRIES+="    sha256 cellar: :any, ${TAG}: \"$SHA\"\n"
                   ;;
               esac
             done
