@@ -246,14 +246,14 @@ jobs:
               echo 'class Loom < Formula'
               echo '  desc "Unified agentic ecosystem for sharing skills, sessions, and MCP servers"'
               echo '  homepage "https://github.com/tusharmewara/loom"'
-              echo '  version "${V}"'
+              echo "  version \"$V\""
               echo '  license "MIT"'
               echo ''
-              echo '  url "https://github.com/tusharmewara/loom/archive/refs/tags/v${V}.tar.gz"'
-              echo '  sha256 "${SRC_SHA}"'
+              echo "  url \"https://github.com/tusharmewara/loom/archive/refs/tags/v$V.tar.gz\""
+              echo "  sha256 \"$SRC_SHA\""
               echo ''
               echo '  bottle do'
-              echo '    root_url "https://github.com/tusharmewara/homebrew-loom/releases/download/v${V}"'
+              echo "    root_url \"https://github.com/tusharmewara/homebrew-loom/releases/download/v$V\""
               echo -e "$BOTTLE_ENTRIES"
               echo '  end'
               echo ''
