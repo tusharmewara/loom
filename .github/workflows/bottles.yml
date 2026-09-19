@@ -241,41 +241,38 @@ jobs:
             done
 
             # Generate formula
-            cat > Formula/loom.rb <<- 'FORMULA'
-            class Loom < Formula
-              desc "Unified agentic ecosystem for sharing skills, sessions, and MCP servers"
-              homepage "https://github.com/tusharmewara/loom"
-              version "${V}"
-              license "MIT"
+            cat > Formula/loom.rb << 'EOF'
+class Loom < Formula
+  desc "Unified agentic ecosystem for sharing skills, sessions, and MCP servers"
+  homepage "https://github.com/tusharmewara/loom"
+  version "${V}"
+  license "MIT"
 
-              url "https://github.com/tusharmewara/loom/archive/refs/tags/v${V}.tar.gz"
-              sha256 "${SRC_SHA}"
+  url "https://github.com/tusharmewara/loom/archive/refs/tags/v${V}.tar.gz"
+  sha256 "${SRC_SHA}"
 
-              bottle do
-                root_url "https://github.com/tusharmewara/homebrew-loom/releases/download/v${V}"
-            $(echo -e "$BOTTLE_ENTRIES")  end
+  bottle do
+    root_url "https://github.com/tusharmewara/homebrew-loom/releases/download/v${V}"
+$(echo -e "$BOTTLE_ENTRIES")  end
 
-              depends_on "rust" => :build
+  depends_on "rust" => :build
 
-              def install
-                bin.install "bin/loom"
-                bin.install "bin/loomd"
-              end
+  def install
+    bin.install "bin/loom"
+    bin.install "bin/loomd"
+  end
 
-              service do
-                run [opt_bin/"loomd"]
-                working_dir Dir.home
-                keep_alive true
-              end
+  service do
+    run [opt_bin/"loomd"]
+    working_dir Dir.home
+    keep_alive true
+  end
 
-              test do
-                assert_match "Loom", shell_output("\#{bin}/loom --help")
-              end
-            end
-            FORMULA
-
-            # Fix indentation
-            sed -i 's/^          //' Formula/loom.rb
+  test do
+    assert_match "Loom", shell_output("#{bin}/loom --help")
+  end
+end
+EOF
 
             git config user.name "Loom Bot"
             git config user.email "bot@loom.sh"
