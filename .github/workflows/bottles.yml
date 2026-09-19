@@ -1,8 +1,6 @@
 name: Build and Publish Bottles
 
 'on':
-  release:
-    types: [created]
   workflow_dispatch:
     inputs:
       version:
@@ -85,15 +83,10 @@ jobs:
         run: |
           V=$(echo "$VERSION" | sed 's/^v//')
           echo "Building bottles for v$V ($CODENAME)..."
-
-          # ARM bottle (from arm64 binaries)
           tar -czf "loom-${V}.arm64_${CODENAME}.bottle.tar.gz" -C bottle-arm64 loom
           echo "BOTTLE_ARM_SHA=$(shasum -a 256 "loom-${V}.arm64_${CODENAME}.bottle.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_ENV"
-
-          # Intel bottle (from x86_64 binaries)
           tar -czf "loom-${V}.${CODENAME}.bottle.tar.gz" -C bottle-x86 loom
           echo "BOTTLE_INTEL_SHA=$(shasum -a 256 "loom-${V}.${CODENAME}.bottle.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_ENV"
-
           echo "Created:"
           ls -lh *.bottle.tar.gz
 
@@ -192,32 +185,23 @@ jobs:
           GH_TOKEN: ${{ secrets.HOMEBREW_LOOM_PAT }}
         run: |
           V=$(echo "$VERSION" | sed 's/^v//')
-
-          # Create/update Homebrew release
           echo "Creating Homebrew release..."
           gh release create "$VERSION" \
             --repo tusharmewara/homebrew-loom \
             --title "Loom $VERSION Bottles" \
             --notes "Bottles for Loom v$VERSION (macOS + Linux)" \
             --clobber || true
-
-          # Upload bottles
           echo "Uploading bottles to Homebrew..."
           gh release upload "$VERSION" \
             --repo tusharmewara/homebrew-loom \
             /tmp/bottles/loom-*.bottle.tar.gz \
             --clobber
-
-          # Clone and update formula
           echo "Updating Homebrew formula..."
           git clone https://github.com/tusharmewara/homebrew-loom.git /tmp/homebrew-loom-update
           cd /tmp/homebrew-loom-update
-
-          # Compute bottle SHAs
           BOTTLE_ENTRIES=""
           for f in /tmp/bottles/loom-*.bottle.tar.gz; do
             BASENAME=$(basename "$f")
-            # Parse: loom-VERSION.TAG.bottle.tar.gz
             TAG="${BASENAME#loom-*.}"
             TAG="${TAG%.bottle.tar.gz}"
             SHA=$(shasum -a 256 "$f" | cut -d' ' -f1)
@@ -230,50 +214,37 @@ jobs:
                 ;;
             esac
           done
-
-          # Generate formula
           cat > Formula/loom.rb << 'FORMULA'
           class Loom < Formula
             desc "Unified agentic ecosystem for sharing skills, sessions, and MCP servers"
             homepage "https://github.com/tusharmewara/loom"
             version "${V}"
             license "MIT"
-
             url "https://github.com/tusharmewara/loom/archive/refs/tags/v${V}.tar.gz"
             sha256 "${SRC_SHA}"
-
             bottle do
               root_url "https://github.com/tusharmewara/homebrew-loom/releases/download/v${V}"
           $(echo -e "$BOTTLE_ENTRIES")  end
-
             depends_on "rust" => :build
-
             def install
               bin.install "bin/loom"
               bin.install "bin/loomd"
             end
-
             service do
               run [opt_bin/"loomd"]
               working_dir Dir.home
               keep_alive true
             end
-
             test do
               assert_match "Loom", shell_output("\#{bin}/loom --help")
             end
           end
           FORMULA
-
-          # Fix indentation
           sed -i 's/^          //' Formula/loom.rb
-
           git config user.name "Loom Bot"
           git config user.email "bot@loom.sh"
           git add -A
           git commit -m "Loom v$V" --allow-empty
-
-          # Check if we can push (only if PAT is available)
           if [[ -n "${GH_TOKEN:-}" && "$GH_TOKEN" != "NONE" ]]; then
             git push
           else
