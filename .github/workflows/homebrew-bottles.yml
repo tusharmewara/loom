@@ -1,6 +1,6 @@
 name: Build and Publish Bottles
 
-on:
+"on":
   workflow_dispatch:
     inputs:
       version:
@@ -242,38 +242,39 @@ jobs:
             done
 
             # Generate formula
-            cat > Formula/loom.rb << 'EOF'
-class Loom < Formula
-  desc "Unified agentic ecosystem for sharing skills, sessions, and MCP servers"
-  homepage "https://github.com/tusharmewara/loom"
-  version "${V}"
-  license "MIT"
-
-  url "https://github.com/tusharmewara/loom/archive/refs/tags/v${V}.tar.gz"
-  sha256 "${SRC_SHA}"
-
-  bottle do
-    root_url "https://github.com/tusharmewara/homebrew-loom/releases/download/v${V}"
-$(echo -e "$BOTTLE_ENTRIES")  end
-
-  depends_on "rust" => :build
-
-  def install
-    bin.install "bin/loom"
-    bin.install "bin/loomd"
-  end
-
-  service do
-    run [opt_bin/"loomd"]
-    working_dir Dir.home
-    keep_alive true
-  end
-
-  test do
-    assert_match "Loom", shell_output("#{bin}/loom --help")
-  end
-end
-EOF
+            {
+              echo 'class Loom < Formula'
+              echo '  desc "Unified agentic ecosystem for sharing skills, sessions, and MCP servers"'
+              echo '  homepage "https://github.com/tusharmewara/loom"'
+              echo '  version "${V}"'
+              echo '  license "MIT"'
+              echo ''
+              echo '  url "https://github.com/tusharmewara/loom/archive/refs/tags/v${V}.tar.gz"'
+              echo '  sha256 "${SRC_SHA}"'
+              echo ''
+              echo '  bottle do'
+              echo '    root_url "https://github.com/tusharmewara/homebrew-loom/releases/download/v${V}"'
+              echo -e "$BOTTLE_ENTRIES"
+              echo '  end'
+              echo ''
+              echo '  depends_on "rust" => :build'
+              echo ''
+              echo '  def install'
+              echo '    bin.install "bin/loom"'
+              echo '    bin.install "bin/loomd"'
+              echo '  end'
+              echo ''
+              echo '  service do'
+              echo '    run [opt_bin/"loomd"]'
+              echo '    working_dir Dir.home'
+              echo '    keep_alive true'
+              echo '  end'
+              echo ''
+              echo '  test do'
+              echo '    assert_match "Loom", shell_output("#{bin}/loom --help")'
+              echo '  end'
+              echo 'end'
+            } > Formula/loom.rb
 
             git config user.name "Loom Bot"
             git config user.email "bot@loom.sh"
