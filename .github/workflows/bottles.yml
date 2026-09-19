@@ -17,7 +17,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # ── macOS bottles (ARM64 native + x86_64 cross-compiled) ──────────────────
+  # -- macOS bottles (ARM64 native + x86_64 cross-compiled) ------------------
   build-macos:
     runs-on: macos-14
     outputs:
@@ -35,7 +35,7 @@ jobs:
             - aarch64-apple-darwin
             - x86_64-apple-darwin
 
-      # No special linker needed — macOS system clang cross-compiles x86_64
+      # No special linker needed - macOS system clang cross-compiles x86_64
       # natively on ARM64 runners when using CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER
 
       - name: Extract version
@@ -108,7 +108,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ── Linux bottle (native build on ubuntu) ─────────────────────────────────
+  # -- Linux bottle (native build on ubuntu) ---------------------------------
   build-linux:
     runs-on: ubuntu-latest
     steps:
@@ -158,7 +158,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ── Publish to homebrew-loom tap ──────────────────────────────────────────
+  # -- Publish to homebrew-loom tap ------------------------------------------
   publish:
     needs: [build-macos, build-linux]
     runs-on: ubuntu-latest
@@ -283,7 +283,7 @@ jobs:
           if [[ -n "${GH_TOKEN:-}" && "$GH_TOKEN" != "NONE" ]]; then
             git push
           else
-            echo "HOMEBREW_LOOM_PAT not set — skipping push."
+            echo "HOMEBREW_LOOM_PAT not set - skipping push."
             echo "Formula generated at: Formula/loom.rb"
             cat Formula/loom.rb
           fi
