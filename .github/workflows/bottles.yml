@@ -241,7 +241,7 @@ jobs:
             done
 
             # Generate formula
-            cat > Formula/loom.rb << 'FORMULA'
+            cat > Formula/loom.rb <<- 'FORMULA'
             class Loom < Formula
               desc "Unified agentic ecosystem for sharing skills, sessions, and MCP servers"
               homepage "https://github.com/tusharmewara/loom"
