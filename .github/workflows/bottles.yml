@@ -172,7 +172,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           V=$(echo "$VERSION" | sed 's/^v//')
-          gh release download "$VERSION" \
+          TAG="v$V"
+          gh release download "$TAG" \
             -R "${{ github.repository }}" \
             -p "loom-*.bottle.tar.gz" \
             -D /tmp/bottles
@@ -184,8 +185,10 @@ jobs:
           VERSION: ${{ github.event.inputs.version || github.ref_name }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          V=$(echo "$VERSION" | sed 's/^v//')
+          TAG="v$V"
           curl -sL -o /tmp/source.tar.gz \
-            "https://github.com/${{ github.repository }}/archive/refs/tags/$VERSION.tar.gz"
+            "https://github.com/${{ github.repository }}/archive/refs/tags/$TAG.tar.gz"
           SRC_SHA=$(shasum -a 256 /tmp/source.tar.gz | cut -d' ' -f1)
           echo "sha=$SRC_SHA" >> "$GITHUB_OUTPUT"
           echo "Source SHA: $SRC_SHA"
@@ -196,10 +199,11 @@ jobs:
           GH_TOKEN: ${{ secrets.HOMEBREW_LOOM_PAT }}
         run: |
           V=$(echo "$VERSION" | sed 's/^v//')
+          TAG="v$V"
 
           # Create/update Homebrew release
           echo "Creating Homebrew release..."
-          gh release create "$VERSION" \
+          gh release create "$TAG" \
             --repo tusharmewara/homebrew-loom \
             --title "Loom $VERSION Bottles" \
             --notes "Bottles for Loom v$VERSION (macOS + Linux)" \
@@ -207,7 +211,7 @@ jobs:
 
           # Upload bottles
           echo "Uploading bottles to Homebrew..."
-          gh release upload "$VERSION" \
+          gh release upload "$TAG" \
             --repo tusharmewara/homebrew-loom \
             /tmp/bottles/loom-*.bottle.tar.gz \
             --clobber
