@@ -1,0 +1,13 @@
+name: Test
+
+'on':
+  workflow_dispatch:
+    inputs:
+      version:
+        type: string
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
