@@ -228,15 +228,17 @@ jobs:
             for f in /tmp/bottles/loom-*.bottle.tar.gz; do
               BASENAME=$(basename "$f")
               # Parse: loom-VERSION.TAG.bottle.tar.gz
-              TAG="${BASENAME#loom-*.}"
+              # Remove "loom-" prefix and everything up to the version, then get TAG
+              TAG="${BASENAME#loom-}"
+              TAG="${TAG#*.}"  # Remove version (e.g., "0.8.2.")
               TAG="${TAG%.bottle.tar.gz}"
               SHA=$(shasum -a 256 "$f" | cut -d' ' -f1)
               case "$TAG" in
                 x86_64_linux)
-                  BOTTLE_ENTRIES+="    sha256 cellar: :any_skip_relocation, x86_64_linux: \"$SHA\"\n"
+                  BOTTLE_ENTRIES+="    sha256 cellar: :any_skip_relocation, x86_64_linux => \"$SHA\"\n"
                   ;;
                 *)
-                  BOTTLE_ENTRIES+="    sha256 cellar: :any, ${TAG}: \"$SHA\"\n"
+                  BOTTLE_ENTRIES+="    sha256 cellar: :any, ${TAG} => \"$SHA\"\n"
                   ;;
               esac
             done
