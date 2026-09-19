@@ -1,6 +1,6 @@
 name: Build and Publish Bottles
 
-'on':
+on:
   workflow_dispatch:
     inputs:
       version:
@@ -26,7 +26,9 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: [aarch64-apple-darwin, x86_64-apple-darwin]
+          targets:
+            - aarch64-apple-darwin
+            - x86_64-apple-darwin
 
       - name: Test
         run: echo "test"
