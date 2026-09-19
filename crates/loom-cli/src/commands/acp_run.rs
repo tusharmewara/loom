@@ -20,9 +20,13 @@ pub async fn run_acp_prompt(
     if prompt.is_empty() {
         anyhow::bail!("prompt must not be empty");
     }
+    let mut config_args = args.to_vec();
+    if program == "cline" {
+        config_args.insert(0, "--acp".to_string());
+    }
     let config = AcpClientConfig {
         program: program.to_string(),
-        args: args.to_vec(),
+        args: config_args,
         cwd: cwd.map(str::to_string),
         timeout_secs,
     };

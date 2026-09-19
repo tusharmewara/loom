@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::env;
 
 pub const DISPATCHER_COUNT: usize = 3;
 
@@ -19,6 +20,200 @@ impl DispatchResult {
 
     fn err(message: String) -> Self {
         Self { success: false, message, run_id: None }
+    }
+}
+
+/// Supported terminal applications for launching new tabs/windows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalApp {
+    Terminal,    // macOS Terminal.app
+    Iterm2,      // iTerm2
+    Ghostty,     // Ghostty
+    Wezterm,     // WezTerm
+    Alacritty,   // Alacritty
+    Kitty,       // Kitty
+    Unknown,
+}
+
+impl TerminalApp {
+    /// Detect the current terminal application from environment variables.
+    pub fn detect() -> Self {
+        // Check TERM_PROGRAM first (most reliable on macOS)
+        if let Ok(term_program) = env::var("TERM_PROGRAM") {
+            match term_program.to_lowercase().as_str() {
+                "iterm.app" | "iterm2" => return TerminalApp::Iterm2,
+                "apple_terminal" => return TerminalApp::Terminal,
+                "ghostty" => return TerminalApp::Ghostty,
+                "wezterm" => return TerminalApp::Wezterm,
+                "vscode" => return TerminalApp::Unknown, // VS Code integrated terminal - can't easily open new tab
+                _ => {}
+            }
+        }
+
+        // Check TERM for additional clues
+        if let Ok(term) = env::var("TERM") {
+            let term_lower = term.to_lowercase();
+            if term_lower.contains("iterm") || term_lower.contains("xterm-256color") {
+                // Could be iTerm2 or Terminal.app - check parent process
+                if Self::is_parent_iterm2() {
+                    return TerminalApp::Iterm2;
+                }
+            }
+            if term_lower.contains("ghostty") {
+                return TerminalApp::Ghostty;
+            }
+            if term_lower.contains("wezterm") {
+                return TerminalApp::Wezterm;
+            }
+            if term_lower.contains("alacritty") {
+                return TerminalApp::Alacritty;
+            }
+            if term_lower.contains("kitty") {
+                return TerminalApp::Kitty;
+            }
+        }
+
+        // Check parent process name as fallback
+        if Self::is_parent_iterm2() {
+            return TerminalApp::Iterm2;
+        }
+        if Self::is_parent_ghostty() {
+            return TerminalApp::Ghostty;
+        }
+        if Self::is_parent_wezterm() {
+            return TerminalApp::Wezterm;
+        }
+
+        TerminalApp::Terminal // Default fallback
+    }
+
+    fn is_parent_iterm2() -> bool {
+        Self::parent_process_contains("iterm")
+    }
+
+    fn is_parent_ghostty() -> bool {
+        Self::parent_process_contains("ghostty")
+    }
+
+    fn is_parent_wezterm() -> bool {
+        Self::parent_process_contains("wezterm")
+    }
+
+    fn parent_process_contains(name: &str) -> bool {
+        // Read /proc/<ppid>/comm on Linux or use ps on macOS
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(output) = std::process::Command::new("ps")
+                .args(["-p", &std::process::id().to_string(), "-o", "ppid="])
+                .output()
+            {
+                if let Ok(ppid_str) = String::from_utf8(output.stdout) {
+                    if let Ok(ppid) = ppid_str.trim().parse::<u32>() {
+                        if let Ok(output) = std::process::Command::new("ps")
+                            .args(["-p", &ppid.to_string(), "-o", "comm="])
+                            .output()
+                        {
+                            if let Ok(comm) = String::from_utf8(output.stdout) {
+                                return comm.to_lowercase().contains(name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(comm) = std::fs::read_to_string(format!("/proc/{}/comm", nix::unistd::getppid())) {
+                return comm.to_lowercase().contains(name);
+            }
+        }
+        false
+    }
+
+    /// Get the launcher command and args for this terminal app.
+    pub fn launcher(&self) -> Option<(&'static str, Vec<&'static str>)> {
+        match self {
+            TerminalApp::Terminal => {
+                if cfg!(target_os = "macos") && TerminalLaunch::command_exists("osascript") {
+                    Some(("osascript", vec!["-e"]))
+                } else {
+                    None
+                }
+            }
+            TerminalApp::Iterm2 => {
+                if cfg!(target_os = "macos") && TerminalLaunch::command_exists("osascript") {
+                    Some(("osascript", vec!["-e"]))
+                } else {
+                    None
+                }
+            }
+            TerminalApp::Ghostty => {
+                if TerminalLaunch::command_exists("ghostty") {
+                    Some(("ghostty", vec!["--new-tab"]))
+                } else {
+                    None
+                }
+            }
+            TerminalApp::Wezterm => {
+                if TerminalLaunch::command_exists("wezterm") {
+                    Some(("wezterm", vec!["cli", "spawn"]))
+                } else {
+                    None
+                }
+            }
+            TerminalApp::Alacritty => {
+                if TerminalLaunch::command_exists("alacritty") {
+                    Some(("alacritty", vec!["--new-tab"])) // Requires alacritty msg command or specific version
+                } else {
+                    None
+                }
+            }
+            TerminalApp::Kitty => {
+                if TerminalLaunch::command_exists("kitty") {
+                    Some(("kitty", vec!["@launch", "--type=tab"]))
+                } else {
+                    None
+                }
+            }
+            TerminalApp::Unknown => None,
+        }
+    }
+
+    /// Generate the command to open a new tab/window with the given command.
+    pub fn build_command(&self, command: &str, cwd: &str) -> Option<String> {
+        let cwd_escaped = TerminalLaunch::shell_escape(cwd);
+        let cmd_escaped = TerminalLaunch::shell_escape(command);
+        let full_cmd = format!("cd '{}' && {}", cwd_escaped, cmd_escaped);
+
+        match self {
+            TerminalApp::Terminal => {
+                Some(format!(r#"tell application "Terminal" to do script "{}""#, full_cmd.replace('"', r#"\""#)))
+            }
+            TerminalApp::Iterm2 => {
+                // iTerm2: create a new tab in the current window
+                Some(format!(
+                    r#"tell application "iTerm2" to tell current window to create tab with default profile command "{}""#,
+                    full_cmd.replace('"', r#"\""#)
+                ))
+            }
+            TerminalApp::Ghostty => {
+                // Ghostty: --new-tab with command
+                Some(format!("bash -c '{}'", full_cmd))
+            }
+            TerminalApp::Wezterm => {
+                // WezTerm: wezterm cli spawn --cwd <dir> <cmd>
+                Some(format!("bash -c '{}'", full_cmd))
+            }
+            TerminalApp::Alacritty => {
+                // Alacritty: requires alacritty msg or --new-tab (newer versions)
+                Some(format!("bash -c '{}'", full_cmd))
+            }
+            TerminalApp::Kitty => {
+                // Kitty: kitty @ launch --type=tab --cwd <dir> <cmd>
+                Some(full_cmd)
+            }
+            TerminalApp::Unknown => None,
+        }
     }
 }
 
@@ -111,17 +306,15 @@ impl TerminalLaunch {
             .unwrap_or(false)
     }
 
-    fn find_terminal_launcher() -> Option<(&'static str, &'static str)> {
-        if cfg!(target_os = "macos") {
-            if Self::command_exists("osascript") {
-                Some(("osascript", "-e"))
-            } else {
-                None
-            }
+    fn find_terminal_launcher() -> Option<TerminalApp> {
+        let detected = TerminalApp::detect();
+        if detected.launcher().is_some() {
+            Some(detected)
         } else {
+            // Fallback to generic terminals
             for cmd in &["x-terminal-emulator", "gnome-terminal", "xterm"] {
                 if Self::command_exists(cmd) {
-                    return Some((cmd, ""));
+                    return Some(TerminalApp::Unknown);
                 }
             }
             None
@@ -133,7 +326,7 @@ impl TerminalLaunch {
     }
 
     fn shell_escape(s: &str) -> String {
-        s.replace('\'', "'\\'\'")
+        s.replace('\'', "'\\''")
     }
 }
 
@@ -160,10 +353,10 @@ impl Dispatcher for TerminalLaunch {
             }
         };
 
-        let (launcher, arg) = match Self::find_terminal_launcher() {
-            Some(l) => l,
+        let terminal_app = match Self::find_terminal_launcher() {
+            Some(app) => app,
             None => {
-                return DispatchResult::err("No terminal emulator found".to_string());
+                return DispatchResult::err("No supported terminal emulator found".to_string());
             }
         };
 
@@ -174,7 +367,7 @@ impl Dispatcher for TerminalLaunch {
             return DispatchResult::err("Invalid task ID: contains unsafe characters".to_string());
         }
 
-        let cwd = std::env::current_dir()
+        let cwd = env::current_dir()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
 
@@ -185,24 +378,45 @@ impl Dispatcher for TerminalLaunch {
 
         let command = format!("cd '{}' && loom workflow show '{}' && exec {}", Self::shell_escape(&cwd), Self::shell_escape(task_id), agent);
 
+        let script = match terminal_app.build_command(&command, &cwd) {
+            Some(s) => s,
+            None => {
+                return DispatchResult::err(format!("Unsupported terminal app: {:?}", terminal_app));
+            }
+        };
+
+        let (launcher, args) = match terminal_app.launcher() {
+            Some((l, a)) => (l, a),
+            None => {
+                return DispatchResult::err("Terminal launcher not available".to_string());
+            }
+        };
+
         let mut cmd = std::process::Command::new(launcher);
-        if cfg!(target_os = "macos") {
-            let script = format!(
-                r#"tell application "Terminal" to do script "{}""#,
-                command.replace('"', r#"\""#)
-            );
-            cmd.arg(arg).arg(&script);
-        } else {
-            cmd.arg(arg).arg(format!("bash -c '{}'", Self::shell_escape(&command)));
+        for arg in args {
+            cmd.arg(arg);
         }
+        cmd.arg(&script);
 
         match cmd.spawn() {
             Ok(child) => DispatchResult::ok(
-                format!("Opened {} in terminal (pid {})", agent, child.id()),
+                format!("Opened {} in {} tab (pid {})", agent, terminal_app_name(&terminal_app), child.id()),
                 None,
             ),
             Err(e) => DispatchResult::err(format!("Failed to launch terminal: {e}")),
         }
+    }
+}
+
+fn terminal_app_name(app: &TerminalApp) -> &'static str {
+    match app {
+        TerminalApp::Terminal => "Terminal.app",
+        TerminalApp::Iterm2 => "iTerm2",
+        TerminalApp::Ghostty => "Ghostty",
+        TerminalApp::Wezterm => "WezTerm",
+        TerminalApp::Alacritty => "Alacritty",
+        TerminalApp::Kitty => "Kitty",
+        TerminalApp::Unknown => "terminal",
     }
 }
 

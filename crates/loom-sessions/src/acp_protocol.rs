@@ -212,7 +212,7 @@ impl AcpProtocolClient {
             .args(&config.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| anyhow::anyhow!("failed to spawn ACP agent '{}': {e}", config.program))?;
 
@@ -228,7 +228,7 @@ impl AcpProtocolClient {
         timeout: Duration,
         child: &mut std::process::Child,
     ) -> anyhow::Result<AcpTranscript> {
-        let stdin = child
+        let mut stdin = child
             .stdin
             .take()
             .ok_or_else(|| anyhow::anyhow!("ACP agent has no stdin"))?;
@@ -236,6 +236,21 @@ impl AcpProtocolClient {
             .stdout
             .take()
             .ok_or_else(|| anyhow::anyhow!("ACP agent has no stdout"))?;
+        let stderr = child
+            .stderr
+            .take();
+        if let Some(stderr) = stderr {
+            // Spawn a thread to read stderr
+            let _stderr_thread = std::thread::spawn(move || {
+                let reader = BufReader::new(stderr);
+                for line in reader.lines() {
+                    match line {
+                        Ok(line) => eprintln!("[STDERR] {}", line),
+                        Err(e) => eprintln!("[STDERR ERROR] {}", e),
+                    }
+                }
+            });
+        }
         let stdin = Arc::new(Mutex::new(stdin));
         let shared = Arc::new(Shared {
             responses: Mutex::new(HashMap::new()),
@@ -247,52 +262,61 @@ impl AcpProtocolClient {
         let reader_stdin = stdin.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
-            for line in reader.lines().map_while(Result::ok) {
-                if line.trim().is_empty() {
-                    continue;
-                }
-                match parse_message(&line) {
-                    AcpIncoming::Response { id, result, error } => {
-                        reader_shared
-                            .responses
-                            .lock()
-                            .unwrap()
-                            .insert(id_key(&id), (result, error));
-                        reader_shared.arrived.notify_all();
-                    }
-                    AcpIncoming::Notification { method, params } => {
-                        if method == "session/update" {
-                            if let Ok(mut acc) = reader_shared.transcript.lock() {
-                                accumulate(&mut acc, &params);
+            let mut line_count = 0;
+            for line in reader.lines() {
+                match line {
+                    Ok(line) => {
+                        line_count += 1;
+                        if line.trim().is_empty() {
+                            continue;
+                        }
+                        match parse_message(&line) {
+                            AcpIncoming::Response { id, result, error } => {
+                                reader_shared
+                                    .responses
+                                    .lock()
+                                    .unwrap()
+                                    .insert(id_key(&id), (result, error));
+                                reader_shared.arrived.notify_all();
                             }
+                            AcpIncoming::Notification { method, params } => {
+                                if method == "session/update" {
+                                    if let Ok(mut acc) = reader_shared.transcript.lock() {
+                                        accumulate(&mut acc, &params);
+                                    }
+                                }
+                            }
+                            AcpIncoming::Request { id, method, params } => {
+                                if method == "session/request_permission" {
+                                    let response = serde_json::json!({
+                                        "jsonrpc": "2.0",
+                                        "id": id,
+                                        "result": { "outcome": permission_outcome(&params) },
+                                    });
+                                    if let Ok(mut stdin) = reader_stdin.lock() {
+                                        let _ = writeln!(stdin, "{response}");
+                                        let _ = stdin.flush();
+                                    }
+                                }
+                            }
+                            AcpIncoming::Invalid => {}
                         }
                     }
-                    AcpIncoming::Request { id, method, params } => {
-                        if method == "session/request_permission" {
-                            let response = serde_json::json!({
-                                "jsonrpc": "2.0",
-                                "id": id,
-                                "result": { "outcome": permission_outcome(&params) },
-                            });
-                            if let Ok(mut stdin) = reader_stdin.lock() {
-                                let _ = writeln!(stdin, "{response}");
-                                let _ = stdin.flush();
-                            }
-                        }
+                    Err(e) => {
+                        break;
                     }
-                    AcpIncoming::Invalid => {}
                 }
             }
         });
 
         let send = |id: u64, method: &str, params: Value| -> anyhow::Result<()> {
             let line = build_request(id, method, params);
-            let mut stdin = stdin
+            let mut stdin_guard = stdin
                 .lock()
                 .map_err(|_| anyhow::anyhow!("ACP stdin lock poisoned"))?;
-            writeln!(stdin, "{line}")
+            writeln!(stdin_guard, "{line}")
                 .map_err(|e| anyhow::anyhow!("failed to write ACP request: {e}"))?;
-            stdin
+            stdin_guard
                 .flush()
                 .map_err(|e| anyhow::anyhow!("failed to flush ACP request: {e}"))?;
             Ok(())
