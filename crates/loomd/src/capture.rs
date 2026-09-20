@@ -9,6 +9,7 @@
 //! the CLI `workflow dispatch` path provides.
 
 use loom_core::{Message, MessageRole, SessionManifest};
+use loom_sessions::acp_protocol::{AcpClientConfig, AcpProtocolClient};
 use loom_sessions::store::SessionStore;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -204,18 +205,27 @@ pub fn resolve_agent_launch(
                 .get("package")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
+            let args: Vec<String> = entry
+                .get("args")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(str::to_string).collect())
+                .unwrap_or_default();
             if runner == "npm" && !package.is_empty() {
+                let mut full_args = vec![package.to_string()];
+                full_args.extend(args);
                 return Ok(AgentLaunch {
                     program: "npx".to_string(),
-                    args: vec![package.to_string()],
+                    args: full_args,
                     envs: base_envs(loom_dir, task_id),
                     description: format!("npx {package}"),
                 });
             }
             if runner == "pip" && !package.is_empty() {
+                let mut full_args = vec!["run".to_string(), package.to_string()];
+                full_args.extend(args);
                 return Ok(AgentLaunch {
                     program: "pipx".to_string(),
-                    args: vec!["run".to_string(), package.to_string()],
+                    args: full_args,
                     envs: base_envs(loom_dir, task_id),
                     description: format!("pipx run {package}"),
                 });
@@ -438,6 +448,199 @@ pub fn prior_sessions_from_params(params: &serde_json::Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Dispatch an ACP agent using the canonical ACP protocol client.
+/// This runs the initialize → session/new → session/prompt flow
+/// and captures the transcript as a Loom session.
+pub fn dispatch_acp_protocol(
+    loom_dir: &str,
+    manager: &std::sync::Arc<std::sync::Mutex<crate::run_manager::RunManager>>,
+    agent_id: &str,
+    task_id: &str,
+    prompt: &str,
+    timeout_secs: u64,
+) -> anyhow::Result<serde_json::Value> {
+    if task_id.is_empty() || agent_id.is_empty() {
+        anyhow::bail!("task_id and agent_id required");
+    }
+    let run_id = uuid::Uuid::new_v4().to_string();
+    // Fall back to the workflow task brief (title — description, or the
+    // "ACP task {id}" placeholder) when no explicit prompt was supplied.
+    // Callers like the TUI dispatch menu only send task_id/agent_id.
+    let (topic, prompt) = if prompt.trim().is_empty() {
+        let (topic, prompt) = load_task_brief(loom_dir, task_id);
+        (topic, prompt)
+    } else {
+        (prompt.chars().take(80).collect::<String>(), prompt.to_string())
+    };
+    
+    // Record run in registry
+    if let Ok(mut registry) = manager.lock() {
+        registry.record_external_run(&run_id, task_id, agent_id);
+    }
+    
+    let search_dirs: Vec<PathBuf> = std::env::var("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    
+    // Resolve agent launch to get program and args
+    let launch = resolve_agent_launch(loom_dir, agent_id, task_id, &search_dirs)?;
+    
+    // Build AcpClientConfig - inject --acp flag for cline
+    let mut args = launch.args;
+    if launch.program == "cline" || launch.program.ends_with("/cline") {
+        args.insert(0, "--acp".to_string());
+    }
+    let config = AcpClientConfig {
+        program: launch.program,
+        args,
+        cwd: None,
+        timeout_secs,
+    };
+    
+    // Run ACP prompt
+    let transcript = AcpProtocolClient::run_prompt(&config, &prompt)?;
+    
+    // Build session using same logic as CLI
+    let agent_name = std::path::Path::new(&config.program)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(agent_id)
+        .to_string();
+    
+    let session_id = format!(
+        "acp-{}",
+        &uuid::Uuid::new_v4().to_string()[..8]
+    );
+    let now = chrono::Utc::now().to_rfc3339();
+    
+    let mut assistant = if transcript.agent_text.trim().is_empty() {
+        "(agent produced no text output)".to_string()
+    } else {
+        transcript.agent_text.trim().to_string()
+    };
+    if !transcript.tool_calls.is_empty() {
+        assistant.push_str("\n\nTools:\n");
+        for tool in &transcript.tool_calls {
+            assistant.push_str(&format!("- {tool}\n"));
+        }
+    }
+    assistant.push_str(&format!("\n[stop reason: {}]", transcript.stop_reason));
+    
+    let messages = vec![
+        Message {
+            id: uuid::Uuid::new_v4().to_string(),
+            role: MessageRole::System,
+            content: format!(
+                "ACP protocol run\n  agent: {}\n  agent_session: {}\n  stop_reason: {}",
+                agent_id, transcript.session_id, transcript.stop_reason,
+            ),
+            tool_calls: None,
+            timestamp: now.clone(),
+            metadata: Default::default(),
+        },
+        Message {
+            id: uuid::Uuid::new_v4().to_string(),
+            role: MessageRole::User,
+            content: prompt.to_string(),
+            tool_calls: None,
+            timestamp: now.clone(),
+            metadata: Default::default(),
+        },
+        Message {
+            id: uuid::Uuid::new_v4().to_string(),
+            role: MessageRole::Assistant,
+            content: assistant,
+            tool_calls: None,
+            timestamp: now.clone(),
+            metadata: Default::default(),
+        },
+    ];
+    
+    let tags = vec![
+        "acp".to_string(),
+        "acp-protocol".to_string(),
+        format!("agent:{}", agent_name),
+    ];
+    let manifest = SessionManifest {
+        session_id: session_id.clone(),
+        source_tool: format!("loom-acp/{agent_name}"),
+        source_version: env!("CARGO_PKG_VERSION").to_string(),
+        exported_at: now,
+        topic,
+        message_count: messages.len() as u32,
+        active_skills: vec![],
+        active_mcp_servers: vec![],
+        working_directory: std::env::current_dir()
+            .ok()
+            .and_then(|p| p.to_str().map(String::from))
+            .unwrap_or_default(),
+        model_provider: agent_name,
+        files_modified: vec![],
+        compatibility_note: Some(format!(
+            "Canonical ACP run against '{}' (stop={})",
+            agent_id, transcript.stop_reason
+        )),
+        tags: tags.clone(),
+        summarized_at: None,
+        summarized_message_count: None,
+    };
+    
+    // Save session
+    let loom_dir_str = loom_dir;
+    let store = SessionStore::new(loom_dir_str);
+    store.save_manifest(&manifest)?;
+    store.replace_messages(&manifest.session_id, &messages)?;
+    
+    // Index into memory
+    if let Ok(memory) = loom_sessions::memory::CrossSessionMemory::new(loom_dir_str) {
+        if let Err(e) = memory.index_session_with_tags(
+            &manifest.session_id,
+            &messages,
+            &manifest.topic,
+            &manifest.tags,
+        ) {
+            tracing::warn!("ACP dispatch: memory index failed for '{}': {}", manifest.session_id, e);
+        }
+    }
+    
+    // Extract into knowledge graph
+    if let Ok(kg) = loom_knowledge::KnowledgeGraph::new(loom_dir_str) {
+        if let Err(e) = kg.extract_from_messages(&messages, &manifest.session_id) {
+            tracing::warn!("ACP dispatch: knowledge extraction failed for '{}': {}", manifest.session_id, e);
+        }
+    }
+    
+    // Update run registry with completion
+    if let Ok(mut registry) = manager.lock() {
+        registry.complete_run(&run_id, 0, Some(session_id.clone()));
+    }
+    
+    Ok(serde_json::json!({
+        "dispatched": true,
+        "session_id": manifest.session_id,
+        "agent_session_id": transcript.session_id,
+        "stop_reason": transcript.stop_reason,
+        "tool_calls": transcript.tool_calls,
+        "run_id": run_id,
+    }))
+
+}
+
+/// Update the run registry for a completed ACP protocol dispatch.
+/// This records the run as succeeded with the linked session.
+pub fn record_acp_protocol_run(
+    manager: &std::sync::Arc<std::sync::Mutex<crate::run_manager::RunManager>>,
+    run_id: &str,
+    task_id: &str,
+    agent_id: &str,
+    session_id: &str,
+) {
+    if let Ok(mut registry) = manager.lock() {
+        registry.record_external_run(run_id, task_id, agent_id);
+        registry.complete_run(run_id, 0, Some(session_id.to_string()));
+    }
 }
 
 /// The single tracked-dispatch flow used by every daemon entry point:

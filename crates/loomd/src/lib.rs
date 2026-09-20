@@ -189,25 +189,21 @@ impl Loomd {
             Ok(server) => {
                 let server_arc = Arc::new(server);
 
-                // Register a default dispatch handler. Agent-to-agent
-                // dispatches go through the same tracked flow as IPC
-                // dispatches (headless spawn, per-run logs, session
-                // capture on completion); the TCP payload may carry
-                // `prior_sessions` and `run_id` overrides.
+                // Register a default dispatch handler using ACP protocol.
+                // Runs initialize → session/new → session/prompt and captures
+                // the transcript as a Loom session.
                 let loom_dir = self.loom_dir.clone();
                 let run_manager = self.run_manager.clone();
                 let default_handler: loom_sessions::DispatchFn = Arc::new(move |req: &loom_sessions::DispatchRequest| {
-                    let prior_sessions =
-                        crate::capture::prior_sessions_from_params(&req.payload);
-                    let requested_run_id =
-                        req.payload.get("run_id").and_then(|v| v.as_str());
-                    crate::capture::dispatch_tracked(
+                    let prompt = req.payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+                    let timeout_secs = req.payload.get("timeout_secs").and_then(|v| v.as_u64()).unwrap_or(120);
+                    crate::capture::dispatch_acp_protocol(
                         &loom_dir,
                         &run_manager,
-                        &req.task_id,
                         &req.agent_id,
-                        requested_run_id,
-                        prior_sessions,
+                        &req.task_id,
+                        prompt,
+                        timeout_secs,
                     )
                     .map_err(|e| anyhow::anyhow!("Dispatch failed: {e}"))
                 });
@@ -244,13 +240,9 @@ impl Loomd {
                     }
                 });
 
-                // Store the server reference
-                let lock = acp_server_lock.clone();
-                let ss = server_arc.clone();
-                tokio::spawn(async move {
-                    let mut guard = lock.write().await;
-                    *guard = Some(ss);
-                });
+                // Store the server reference (synchronously, before IPC handler starts)
+                let mut guard = acp_server_lock.write().await;
+                *guard = Some(server_arc.clone());
             }
             Err(e) => {
                 tracing::warn!("  ⚠️  ACP dispatch server creation failed: {e}");

@@ -438,22 +438,17 @@ impl IpcHandler for LoomdIpcHandler {
             "acp.dispatch" => {
                 let task_id = req.params.get("task_id").and_then(|v| v.as_str()).unwrap_or("");
                 let agent_id = req.params.get("agent_id").and_then(|v| v.as_str()).unwrap_or("");
-                let requested_run_id = req.params.get("run_id").and_then(|v| v.as_str());
-                // Prior sessions to resume from (linked `{task}.{phase}`
-                // sessions or any explicit list).
-                let prior_sessions =
-                    crate::capture::prior_sessions_from_params(&req.params);
-                // Tracked dispatch: the agent runs headlessly with stdio
-                // captured to per-run log files, and a background thread
-                // records completion plus a Loom session when it exits.
-                // This is the same flow the TCP dispatch server uses.
-                match crate::capture::dispatch_tracked(
+                let prompt = req.params.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+                let timeout_secs = req.params.get("timeout_secs").and_then(|v| v.as_u64()).unwrap_or(120);
+                // ACP protocol dispatch: runs initialize → session/new → session/prompt
+                // and captures the transcript as a Loom session.
+                match crate::capture::dispatch_acp_protocol(
                     &self.loom_dir,
                     &self.run_manager,
-                    task_id,
                     agent_id,
-                    requested_run_id,
-                    prior_sessions,
+                    task_id,
+                    prompt,
+                    timeout_secs,
                 ) {
                     Ok(data) => IpcResponse::ok(req.request_id, data),
                     Err(e) => IpcResponse::error(req.request_id, format!("ACP dispatch failed: {e}")),
