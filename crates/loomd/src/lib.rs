@@ -25,6 +25,7 @@ pub struct Loomd {
     memory_mgr: Arc<loom_mcp::AgentMemoryManager>,
     acp_server: Arc<RwLock<Option<Arc<loom_sessions::AcpDispatchServer>>>>,
     run_manager: Arc<Mutex<run_manager::RunManager>>,
+    runtime_registry: Arc<loom_runtime::RuntimeRegistry>,
     shutdown_tx: broadcast::Sender<()>,
 }
 
@@ -60,6 +61,23 @@ impl Loomd {
             run_manager: Arc::new(Mutex::new(run_manager::RunManager::with_dir(
                 std::path::Path::new(loom_dir).join("runs"),
             ))),
+            runtime_registry: {
+                let mut registry = loom_runtime::RuntimeRegistry::new();
+                let _ = registry.register(Box::new(loom_runtime::ProcessRuntime::new()));
+                #[cfg(feature = "docker")]
+                {
+                    let _ = registry.register(Box::new(loom_runtime::ContainerRuntime::docker()));
+                }
+                #[cfg(feature = "podman")]
+                {
+                    let _ = registry.register(Box::new(loom_runtime::ContainerRuntime::podman()));
+                }
+                #[cfg(feature = "kubernetes")]
+                {
+                    let _ = registry.register(Box::new(loom_runtime::ContainerRuntime::kubernetes()));
+                }
+                Arc::new(registry)
+            },
             shutdown_tx,
         })
     }
@@ -107,6 +125,10 @@ impl Loomd {
 
     pub fn run_manager(&self) -> &Arc<Mutex<run_manager::RunManager>> {
         &self.run_manager
+    }
+
+    pub fn runtime_registry(&self) -> &Arc<loom_runtime::RuntimeRegistry> {
+        &self.runtime_registry
     }
 
     pub async fn run(&self) -> anyhow::Result<()> {

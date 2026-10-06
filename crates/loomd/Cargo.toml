@@ -17,6 +17,7 @@ loom-ipc = { path = "../loom-ipc" }
 loom-adapters = { path = "../loom-adapters" }
 loom-generic-adapter = { path = "../loom-generic-adapter" }
 loom-knowledge = { path = "../loom-knowledge" }
+loom-runtime = { path = "../loom-runtime", features = ["docker", "podman", "kubernetes"] }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

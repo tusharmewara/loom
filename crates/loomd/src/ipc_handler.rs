@@ -20,6 +20,7 @@ pub struct LoomdIpcHandler {
     memory_mgr: Arc<loom_mcp::AgentMemoryManager>,
     acp_server: Arc<RwLock<Option<Arc<loom_sessions::AcpDispatchServer>>>>,
     run_manager: Arc<std::sync::Mutex<crate::run_manager::RunManager>>,
+    runtime_registry: Arc<loom_runtime::RuntimeRegistry>,
 }
 
 impl LoomdIpcHandler {
@@ -28,14 +29,15 @@ impl LoomdIpcHandler {
             version: env!("CARGO_PKG_VERSION"),
             loom_dir: loomd.loom_dir().to_string(),
             discovery: loomd.discovery().clone(),
-            mcp: loomd.mcp().clone(),
             skills: loomd.skills().clone(),
             sessions: loomd.sessions().clone(),
             auth: loomd.auth().clone(),
             hooks: loomd.hooks().clone(),
+            mcp: loomd.mcp().clone(),
             memory_mgr: loomd.memory_mgr().clone(),
             acp_server: loomd.acp_server_inner().clone(),
             run_manager: loomd.run_manager().clone(),
+            runtime_registry: loomd.runtime_registry().clone(),
         }
     }
 }
@@ -379,6 +381,47 @@ impl IpcHandler for LoomdIpcHandler {
                 )
             }
             "touch" => IpcResponse::ok(req.request_id, json!({ "ok": true })),
+            "runtime.list" => {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                let runtimes: Vec<serde_json::Value> = self
+                    .runtime_registry
+                    .list()
+                    .into_iter()
+                    .map(|name| {
+                        let runtime = self.runtime_registry.get(&name);
+                        let available = runtime.map(|r| rt.block_on(r.is_available())).unwrap_or(false);
+                        json!({
+                            "name": name,
+                            "available": available,
+                        })
+                    })
+                    .collect();
+                IpcResponse::ok(req.request_id, json!({ "runtimes": runtimes }))
+            }
+            "runtime.status" => {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                let default_runtime = self.runtime_registry.default().map(|r| r.name());
+                let runtimes: Vec<serde_json::Value> = self
+                    .runtime_registry
+                    .list()
+                    .into_iter()
+                    .map(|name| {
+                        let runtime = self.runtime_registry.get(&name);
+                        let available = runtime.map(|r| rt.block_on(r.is_available())).unwrap_or(false);
+                        json!({
+                            "name": name,
+                            "available": available,
+                        })
+                    })
+                    .collect();
+                IpcResponse::ok(
+                    req.request_id,
+                    json!({
+                        "default": default_runtime,
+                        "runtimes": runtimes,
+                    }),
+                )
+            }
             "memory.status" => {
                 let running = self.memory_mgr.is_running();
                 IpcResponse::ok(

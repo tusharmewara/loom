@@ -2944,6 +2944,7 @@ dependencies = [
  "loom-ipc",
  "loom-knowledge",
  "loom-mcp",
+ "loom-runtime",
  "loom-sessions",
  "loom-skills",
  "loom-telemetry",
