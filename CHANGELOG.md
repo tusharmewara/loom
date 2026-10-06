@@ -5,6 +5,41 @@ All notable changes to the Loom project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-09-16
+
+### Added
+
+- feat(loom-runtime): new crate with pluggable Runtime trait and ProcessRuntime
+- feat(loom-runtime): Docker backend via bollard (Docker API)
+- feat(loom-runtime): Podman backend via CLI
+- feat(loom-runtime): Kubernetes backend via kube-rs 0.95 (batch/v1 Jobs, no kubectl)
+- feat(loom-runtime): RuntimeRegistry with feature-gated registration (docker, podman, kubernetes, containers)
+- feat(loom-runtime): Feature priority logic: docker > podman > kubernetes
+- feat(loom-generic-adapter): launch_config() — reads [launch] TOML section → LaunchConfig
+- feat(loom-tui): RuntimeDispatch dispatcher (shortcut 'r') in dispatch menu
+- feat(loom-cli): loom exec sequential mode uses Runtime abstraction (prepare/run/cleanup)
+- feat(loom-cli): loom exec run_parallel preserved (not yet using Runtime)
+- feat: Feature flags docker, podman, kubernetes, containers propagated to loom-cli and loom-tui
+
+### Changed
+
+- fix(loom-runtime): Fixed lib.rs corruption (duplicate modules, format strings, missing braces)
+- fix(loom-runtime): Docker client for bollard 0.18 (HostConfig import, StartContainerOptions<String>, LogsOptions wrap)
+- fix(loom-runtime): Cleaned up warnings (unused imports, dead code, unused variables)
+- fix(loom-runtime): RuntimeRegistry::Default registers kubernetes when feature enabled
+- chore: Version bump to 0.9.0
+
+### Fixed
+
+- ContainerClient::is_available trait method removed (no callers)
+- execute_via_runtime consolidated (was duplicated in loom-runtime and loom-cli)
+- PodmanClient dead code under narrow feature gate
+
+### Security
+
+- Kubernetes uses kube-rs with proper kubeconfig/in-cluster authentication
+- No kubectl CLI dependency (eliminates command injection surface)
+
 ## [0.8.0] - 2026-09-16
 
 ### Added
