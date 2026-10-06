@@ -63,6 +63,13 @@ impl MetricsCollector {
             .map(|(k, v)| (*k, v.load(Ordering::Relaxed)))
             .collect()
     }
+
+    /// Reset all counters to zero.
+    pub fn reset(&self) {
+        for v in self.counters.values() {
+            v.store(0, Ordering::Relaxed);
+        }
+    }
 }
 
 impl Default for MetricsCollector {

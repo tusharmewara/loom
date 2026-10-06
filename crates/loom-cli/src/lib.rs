@@ -10,6 +10,7 @@ pub use cli::{
     AcpAction, AstAction, AuthAction, Cli, Command, DaemonAction, HooksAction, IssuesAction, McpAction, MemoryAction,
     RoutingAction, RulesAction, SessionsAction, SkillsAction, WorkflowAction,
 };
+pub use commands::telemetry::TelemetryAction;
 
 /// Resolve the default ecosystem directory (~/.loom/).
 pub fn loom_dir() -> String {

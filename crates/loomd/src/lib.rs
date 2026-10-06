@@ -55,7 +55,7 @@ impl Loomd {
             sessions: Arc::new(loom_sessions::SessionManager::new(loom_dir)),
             auth: Arc::new(loom_auth::AuthManager::new(loom_dir)),
             hooks: Arc::new(loom_hooks::HooksEngine::new(loom_dir)),
-            telemetry: telemetry.clone(),
+            telemetry: Arc::new(loom_telemetry::TelemetryCollector::new(loom_dir)),
             memory_mgr,
             acp_server: Arc::new(RwLock::new(None)),
             run_manager: Arc::new(Mutex::new(run_manager::RunManager::with_dir(
@@ -129,6 +129,10 @@ impl Loomd {
 
     pub fn runtime_registry(&self) -> &Arc<loom_runtime::RuntimeRegistry> {
         &self.runtime_registry
+    }
+
+    pub fn telemetry(&self) -> &Arc<loom_telemetry::TelemetryCollector> {
+        &self.telemetry
     }
 
     pub async fn run(&self) -> anyhow::Result<()> {

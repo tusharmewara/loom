@@ -33,3 +33,4 @@ pub mod acp_run;
 pub mod edit;
 pub mod conflict;
 pub mod ast;
+pub mod telemetry;

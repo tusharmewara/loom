@@ -21,6 +21,7 @@ pub struct LoomdIpcHandler {
     acp_server: Arc<RwLock<Option<Arc<loom_sessions::AcpDispatchServer>>>>,
     run_manager: Arc<std::sync::Mutex<crate::run_manager::RunManager>>,
     runtime_registry: Arc<loom_runtime::RuntimeRegistry>,
+    telemetry: Arc<loom_telemetry::TelemetryCollector>,
 }
 
 impl LoomdIpcHandler {
@@ -38,6 +39,7 @@ impl LoomdIpcHandler {
             acp_server: loomd.acp_server_inner().clone(),
             run_manager: loomd.run_manager().clone(),
             runtime_registry: loomd.runtime_registry().clone(),
+            telemetry: loomd.telemetry().clone(),
         }
     }
 }
@@ -381,6 +383,14 @@ impl IpcHandler for LoomdIpcHandler {
                 )
             }
             "touch" => IpcResponse::ok(req.request_id, json!({ "ok": true })),
+            "telemetry.metrics" => {
+                let metrics = self.telemetry.snapshot();
+                IpcResponse::ok(req.request_id, json!({ "metrics": metrics }))
+            }
+            "telemetry.reset" => {
+                self.telemetry.metrics().reset();
+                IpcResponse::ok(req.request_id, json!({ "ok": true }))
+            }
             "runtime.list" => {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 let runtimes: Vec<serde_json::Value> = self

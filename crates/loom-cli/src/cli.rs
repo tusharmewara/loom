@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+use crate::commands::telemetry::TelemetryAction;
+
 /// Loom — The Shared Agentic Ecosystem
 #[derive(Parser)]
 #[command(name = "loom", version, about, long_about = None)]
@@ -241,6 +243,11 @@ pub enum Command {
         /// Release source: "github" (default) or "releases.loom.sh"
         #[arg(long, default_value = "github")]
         source: String,
+    },
+    /// Telemetry metrics and counters
+    Telemetry {
+        #[command(subcommand)]
+        action: TelemetryAction,
     },
 }
 
@@ -1917,6 +1924,9 @@ impl Cli {
             }
             Command::Ast { action } => {
                 crate::commands::ast::run(&action).await
+            }
+            Command::Telemetry { action } => {
+                crate::commands::telemetry::run(&loom_dir, &action).await
             }
             Command::Conflict { action } => {
                 crate::commands::conflict::run(&loom_dir, &action).await
