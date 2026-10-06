@@ -93,6 +93,25 @@ impl TelemetryCollector {
         h.insert("method_count".into(), self.histograms.method_count() as u64);
         h
     }
+
+    /// Record a container runtime execution.
+    pub fn record_container_run(&self, runtime: &str, success: bool, duration_us: f64) {
+        self.metrics.increment("container_runs_total");
+        if success {
+            self.metrics.increment("container_runs_success");
+        } else {
+            self.metrics.increment("container_runs_failure");
+        }
+        self.histograms.observe(&format!("container_run_{}", runtime), duration_us);
+    }
+
+    /// Record a container image pull.
+    pub fn record_container_pull(&self, success: bool) {
+        self.metrics.increment("container_pull_total");
+        if !success {
+            self.metrics.increment("container_pull_failure");
+        }
+    }
 }
 
 impl HealthCheck for TelemetryCollector {

@@ -9,9 +9,12 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use loom_core::types::{Task};
+use loom_core::HealthCheck;
+use loom_telemetry::TelemetryCollector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 /// Re-export LaunchConfig for consumers.
@@ -151,6 +154,27 @@ impl Default for RuntimeRegistry {
             let _ = registry.register(Box::new(ContainerRuntime::podman()));
         }
         registry
+    }
+}
+
+impl HealthCheck for RuntimeRegistry {
+    fn health(&self) -> anyhow::Result<loom_core::HealthStatus> {
+        let uptime = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        Ok(loom_core::HealthStatus {
+            crate_name: "loom-runtime",
+            version: env!("CARGO_PKG_VERSION"),
+            uptime_seconds: uptime,
+            last_error: None,
+            performance_counters: {
+                let mut h = std::collections::HashMap::new();
+                h.insert("runtimes_registered".into(), self.runtimes.len() as u64);
+                h.insert("default_runtime".into(), 0);
+                h
+            },
+        })
     }
 }
 
@@ -599,6 +623,9 @@ impl Runtime for ContainerRuntime {
     }
 
     async fn run(&self, config: &LaunchConfig, task: &Task) -> Result<RunResult> {
+        let start = std::time::Instant::now();
+        let telemetry = TelemetryCollector::new("");
+        
         let mut runtime = self.clone();
         runtime.init_client().await?;
 
@@ -610,6 +637,7 @@ impl Runtime for ContainerRuntime {
 
         // Pull image if needed
         client.pull_image(&spec.image).await?;
+        telemetry.record_container_pull(true);
 
         // Create and start container
         let container_id = client.create_container(&spec).await?;
@@ -623,6 +651,15 @@ impl Runtime for ContainerRuntime {
         if self.auto_remove {
             client.remove_container(&container_id, true).await?;
         }
+
+        let duration_us = start.elapsed().as_micros() as f64;
+        let runtime_name = match config.runtime.as_str() {
+            "docker" => "docker",
+            "podman" => "podman",
+            "kubernetes" => "kubernetes",
+            _ => "container",
+        };
+        telemetry.record_container_run(runtime_name, result.success, duration_us);
 
         Ok(result)
     }

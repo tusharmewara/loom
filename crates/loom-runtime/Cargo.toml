@@ -6,6 +6,7 @@ description = "Pluggable runtime backends for Loom task execution (process, Dock
 
 [dependencies]
 loom-core = { path = "../loom-core" }
+loom-telemetry = { path = "../loom-telemetry" }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

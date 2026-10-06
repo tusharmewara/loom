@@ -1,5 +1,12 @@
 use crate::cli::{TemplateAction, WorkflowAction};
 use loom_core::WorkflowTemplate;
+use loom_runtime::{LaunchConfig, RuntimeRegistry, ProcessRuntime};
+#[cfg(feature = "docker")]
+use loom_runtime::ContainerRuntime;
+#[cfg(feature = "podman")]
+use loom_runtime::ContainerRuntime;
+#[cfg(feature = "kubernetes")]
+use loom_runtime::ContainerRuntime;
 use loom_trackers::IssueTracker;
 use loom_workflow::WorkflowEngine;
 use std::collections::HashMap;
@@ -301,6 +308,7 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
             link_issue,
             create_branch,
             mode,
+            runtime,
             tool_args,
             dry_run,
             auto_advance,
@@ -427,6 +435,7 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                     current_tool_args,
                     *dry_run,
                     &prior_sessions,
+                    runtime.clone(),
                 )
                 .await?;
                 if *dry_run {
@@ -677,6 +686,82 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
     Ok(())
 }
 
+
+
+/// Execute a workflow task via the Runtime abstraction with logging.
+///
+/// This function is designed for `loom workflow dispatch` to execute tasks
+/// using the Runtime abstraction (process, docker, podman, kubernetes)
+/// while capturing stdout/stderr to log files.
+///
+/// Returns the exit code for the auto-advance loop.
+async fn execute_workflow_task(
+    loom_dir: &str,
+    agent_id: &str,
+    launch_config: Option<loom_runtime::LaunchConfig>,
+    task: &loom_core::Task,
+    stdout_log: &std::path::Path,
+    stderr_log: &std::path::Path,
+) -> anyhow::Result<i32> {
+    use std::fs::File;
+    use std::io::Write;
+
+    // Get launch config from tool's TOML if not provided
+    let config = if let Some(cfg) = launch_config {
+        cfg
+    } else {
+        loom_generic_adapter::GenericAdapter::new(loom_dir, agent_id)
+            .ok()
+            .and_then(|adapter| adapter.build().launch_config())
+            .unwrap_or_else(|| loom_runtime::LaunchConfig {
+                runtime: "process".to_string(),
+                command: agent_id.to_string(),
+                args: vec![],
+                env: HashMap::new(),
+                working_dir: None,
+                image: None,
+                network: None,
+                auto_remove: true,
+            })
+    };
+
+    // Create runtime registry with all available runtimes
+    let mut registry = loom_runtime::RuntimeRegistry::new();
+    let _ = registry.register(Box::new(loom_runtime::ProcessRuntime::new()));
+    #[cfg(feature = "docker")]
+    {
+        let _ = registry.register(Box::new(loom_runtime::ContainerRuntime::docker()));
+    }
+    #[cfg(feature = "podman")]
+    {
+        let _ = registry.register(Box::new(loom_runtime::ContainerRuntime::podman()));
+    }
+    #[cfg(feature = "kubernetes")]
+    {
+        let _ = registry.register(Box::new(loom_runtime::ContainerRuntime::kubernetes()));
+    }
+
+    // Get the runtime
+    let runtime = registry
+        .get(&config.runtime)
+        .ok_or_else(|| anyhow::anyhow!("Runtime '{}' not available", config.runtime))?;
+
+    // Prepare, run, cleanup
+    runtime.prepare(&config).await?;
+    let result = runtime.run(&config, task).await?;
+    runtime.cleanup(&result).await?;
+
+    // Write stdout/stderr to log files
+    if let Ok(mut f) = File::create(stdout_log) {
+        let _ = f.write_all(result.stdout.as_bytes());
+    }
+    if let Ok(mut f) = File::create(stderr_log) {
+        let _ = f.write_all(result.stderr.as_bytes());
+    }
+
+    Ok(result.exit_code.unwrap_or(-1))
+}
+
 async fn launch_agent_with_task_context(
     loom_dir: &str,
     task: &loom_core::Task,
@@ -684,7 +769,40 @@ async fn launch_agent_with_task_context(
     tool_args: &[String],
     dry_run: bool,
     prior_sessions: &[String],
+    runtime: Option<String>,
 ) -> anyhow::Result<i32> {
+    // If runtime is specified, use the Runtime abstraction
+    if let Some(ref rt) = runtime {
+        let phase_name = task.phase.name();
+        let stdout_log = capture_log_path(loom_dir, &task.task_id, phase_name, "stdout");
+        let stderr_log = capture_log_path(loom_dir, &task.task_id, phase_name, "stderr");
+        
+        // Build launch config from tool's TOML and CLI args
+        let launch_config = if runtime.is_some() {
+            Some(loom_runtime::LaunchConfig {
+                runtime: rt.clone(),
+                command: agent.to_string(),
+                args: tool_args.to_vec(),
+                env: HashMap::new(),
+                working_dir: None,
+                image: None,
+                network: None,
+                auto_remove: true,
+            })
+        } else {
+            None
+        };
+        
+        return execute_workflow_task(
+            loom_dir,
+            agent,
+            launch_config,
+            task,
+            &stdout_log,
+            &stderr_log,
+        ).await;
+    }
+
     let home = std::env::var("HOME").expect("HOME not set");
 
     let mut env_vars: HashMap<String, String> = HashMap::new();

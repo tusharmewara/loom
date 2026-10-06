@@ -2793,6 +2793,7 @@ dependencies = [
  "kube-derive",
  "kube-runtime",
  "loom-core",
+ "loom-telemetry",
  "serde",
  "serde_json",
  "tempfile",

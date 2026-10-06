@@ -23,6 +23,12 @@ impl MetricsCollector {
         counters.insert("rpc_calls", AtomicU64::new(0));
         counters.insert("queue_depth", AtomicU64::new(0));
         counters.insert("subscriber_lag_events", AtomicU64::new(0));
+        // Container runtime metrics
+        counters.insert("container_runs_total", AtomicU64::new(0));
+        counters.insert("container_runs_success", AtomicU64::new(0));
+        counters.insert("container_runs_failure", AtomicU64::new(0));
+        counters.insert("container_pull_total", AtomicU64::new(0));
+        counters.insert("container_pull_failure", AtomicU64::new(0));
         Self { counters: Arc::new(counters) }
     }
 

@@ -967,6 +967,9 @@ pub enum WorkflowAction {
         /// Dispatch mode: single (default) or sub-agents
         #[arg(long, default_value = "single")]
         mode: String,
+        /// Runtime backend: process, docker, podman, kubernetes
+        #[arg(long)]
+        runtime: Option<String>,
         /// Additional args to pass to the agent tool
         #[arg(last = true)]
         tool_args: Vec<String>,
