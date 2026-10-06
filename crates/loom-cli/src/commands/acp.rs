@@ -19,6 +19,7 @@ pub async fn run(loom_dir: &Path, action: &AcpAction) -> anyhow::Result<()> {
             prompt,
             cwd,
             timeout_secs,
+            runtime,
             args,
             json: json_output,
         } => {
@@ -30,6 +31,7 @@ pub async fn run(loom_dir: &Path, action: &AcpAction) -> anyhow::Result<()> {
                 cwd.as_deref(),
                 *timeout_secs,
                 *json_output,
+                runtime.clone(),
             )
             .await
         }

@@ -1803,6 +1803,9 @@ pub enum AcpAction {
         /// Per-request timeout in seconds
         #[arg(long, default_value = "120")]
         timeout_secs: u64,
+        /// Runtime backend: process, docker, podman, kubernetes
+        #[arg(long)]
+        runtime: Option<String>,
         /// Extra args for the agent program (after --)
         #[arg(last = true)]
         args: Vec<String>,
