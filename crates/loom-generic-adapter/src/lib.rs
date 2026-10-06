@@ -62,13 +62,9 @@ impl GenericAdapter {
         })
     }
 
-    /// Build a TraitSet that vends conditional trait implementations.
-    pub fn build(&self) -> TraitSet {
-        TraitSet {
-            config: self.config.clone(),
-            loom_dir: self.loom_dir.clone(),
-            tool_name: self.tool_name.clone(),
-        }
+    /// Build a TraitBuilder that can construct trait implementations.
+    pub fn builder(&self) -> crate::traits::TraitBuilder {
+        crate::traits::TraitBuilder::new(&self.config, &self.loom_dir)
     }
 
     /// The tool's display name from the TOML.
@@ -80,21 +76,7 @@ impl GenericAdapter {
     pub fn tool_version(&self) -> &str {
         &self.config.tool.version
     }
-}
 
-/// A complete set of possible trait implementations for one tool.
-///
-/// All 6 traits are available (as `ImplSwitch<T>`); use `.is_present()` to check
-/// if the TOML had the relevant section before calling into the implementation.
-pub struct TraitSet {
-    config: ToolToml,
-    #[allow(dead_code)]
-    loom_dir: PathBuf,
-    #[allow(dead_code)]
-    tool_name: String,
-}
-
-impl TraitSet {
     /// Whether this tool has a `[skills]` section.
     pub fn has_skills(&self) -> bool {
         self.config.skills.is_some()
@@ -144,26 +126,6 @@ impl TraitSet {
         f
     }
 
-    /// Get the runtime configured for this tool from the `[launch]` section.
-    pub fn runtime(&self) -> Option<String> {
-        self.config.launch.as_ref().and_then(|l| Some(l.runtime.clone()))
-    }
-
-    /// Get the full LaunchConfig for this tool from the `[launch]` section.
-    /// Returns None if no `[launch]` section is present.
-    pub fn launch_config(&self) -> Option<loom_runtime::LaunchConfig> {
-        self.config.launch.as_ref().map(|l| loom_runtime::LaunchConfig {
-            runtime: l.runtime.clone(),
-            image: l.image.clone(),
-            command: l.command.clone(),
-            args: l.args.clone(),
-            env: l.env.clone(),
-            working_dir: l.working_dir.clone(),
-            network: l.network.clone(),
-            auto_remove: l.auto_remove,
-        })
-    }
-
     /// List of absent (no-op) feature names.
     pub fn absent_features(&self) -> Vec<&'static str> {
         let mut f = Vec::new();
@@ -187,13 +149,32 @@ impl TraitSet {
         }
         f
     }
+
+    /// Get the runtime configured for this tool from the `[launch]` section.
+    pub fn runtime(&self) -> Option<String> {
+        self.config.launch.as_ref().and_then(|l| Some(l.runtime.clone()))
+    }
+
+    /// Get the full LaunchConfig for this tool from the `[launch]` section.
+    /// Returns None if no `[launch]` section is present.
+    pub fn launch_config(&self) -> Option<loom_runtime::LaunchConfig> {
+        self.config.launch.as_ref().map(|l| loom_runtime::LaunchConfig {
+            runtime: l.runtime.clone(),
+            image: l.image.clone(),
+            command: l.command.clone(),
+            args: l.args.clone(),
+            env: l.env.clone(),
+            working_dir: l.working_dir.clone(),
+            network: l.network.clone(),
+            auto_remove: l.auto_remove,
+        })
+    }
 }
 
 // ─── HealthCheck ────────────────────────────────────────────────────
 
 impl HealthCheck for GenericAdapter {
     fn health(&self) -> anyhow::Result<loom_core::HealthStatus> {
-        let ts = self.build();
         Ok(loom_core::HealthStatus {
             crate_name: "loom-generic-adapter",
             version: env!("CARGO_PKG_VERSION"),
@@ -204,7 +185,7 @@ impl HealthCheck for GenericAdapter {
                 h.insert("tool_name".into(), 0);
                 h.insert(
                     "features_present".into(),
-                    ts.present_features().len() as u64,
+                    self.present_features().len() as u64,
                 );
                 h
             },

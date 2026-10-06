@@ -16,37 +16,6 @@ use std::path::{Path, PathBuf};
 
 use crate::config::ToolToml;
 
-/// Wraps a concrete implementation or provides a no-op fallback.
-///
-/// This is the core of the GenericAdapter pattern: check `is_present()` to
-/// determine if the TOML had a matching section before relying on an impl.
-#[derive(Debug)]
-pub struct ImplSwitch<T: Send + Sync> {
-    inner: Option<T>,
-}
-
-impl<T: Send + Sync> ImplSwitch<T> {
-    /// Create a new switch with a concrete implementation.
-    pub fn some(inner: T) -> Self {
-        Self { inner: Some(inner) }
-    }
-
-    /// Create a new switch with no implementation (no-op).
-    pub fn none() -> Self {
-        Self { inner: None }
-    }
-
-    /// Whether a real implementation is present.
-    pub fn is_present(&self) -> bool {
-        self.inner.is_some()
-    }
-
-    /// Access the inner implementation, if present.
-    pub fn as_ref(&self) -> Option<&T> {
-        self.inner.as_ref()
-    }
-}
-
 // ─── SkillProvider ───────────────────────────────────────────────────
 
 /// Generic SkillProvider backed by a tool's native skills directory.
@@ -99,21 +68,7 @@ impl SkillProvider for GenericSkillProvider {
 }
 
 fn chrono_now() -> String {
-    // Simple UTC timestamp without pulling in chrono
-    let dur = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = dur.as_secs();
-    let micros = dur.subsec_micros();
-    // ISO-8601-like
-    format!("2025-{:02}-{:02}T{:02}:{:02}:{:02}.{:06}Z",
-        (secs / 86400 / 30) % 12 + 1, // approximate month
-        (secs / 86400) % 30 + 1,       // approximate day
-        (secs / 3600) % 24,
-        (secs / 60) % 60,
-        secs % 60,
-        micros,
-    )
+    chrono::Utc::now().to_rfc3339()
 }
 
 // ─── McpConsumer ─────────────────────────────────────────────────────
@@ -214,68 +169,63 @@ impl TraitBuilder {
         }
     }
 
-    /// Build SkillProvider if `[skills]` is present, else no-op.
-    pub fn build_skill_provider(&self) -> ImplSwitch<GenericSkillProvider> {
-        match self.config.skills.as_ref() {
-            Some(skills) => {
-                let native_dir = skills
-                    .native_dir
-                    .as_ref()
-                    .map(|d| PathBuf::from(shellexpand::tilde(d).as_ref()))
-                    .unwrap_or_else(|| self.loom_dir.join("skills"));
-                ImplSwitch::some(GenericSkillProvider { native_dir })
-            }
-            None => ImplSwitch::none(),
-        }
+    /// Build SkillProvider if `[skills]` is present, else None.
+    pub fn build_skill_provider(&self) -> Option<GenericSkillProvider> {
+        self.config.skills.as_ref().map(|skills| {
+            let native_dir = skills
+                .native_dir
+                .as_ref()
+                .map(|d| PathBuf::from(shellexpand::tilde(d).as_ref()))
+                .unwrap_or_else(|| self.loom_dir.join("skills"));
+            GenericSkillProvider { native_dir }
+        })
     }
 
-    /// Build McpConsumer (always available, no-op by default).
-    pub fn build_mcp_consumer(&self) -> ImplSwitch<GenericMcpConsumer> {
+    /// Build McpConsumer if `[mcp]` is present, else None.
+    pub fn build_mcp_consumer(&self) -> Option<GenericMcpConsumer> {
         if self.config.mcp.is_some() {
-            ImplSwitch::some(GenericMcpConsumer)
+            Some(GenericMcpConsumer)
         } else {
-            ImplSwitch::none()
+            None
         }
     }
 
-    /// Build AuthProviderTrait.
-    pub fn build_auth_provider(&self) -> ImplSwitch<GenericAuthProvider> {
+    /// Build AuthProviderTrait if `[auth]` is present, else None.
+    pub fn build_auth_provider(&self) -> Option<GenericAuthProvider> {
         if self.config.auth.is_some() {
-            ImplSwitch::some(GenericAuthProvider)
+            Some(GenericAuthProvider)
         } else {
-            ImplSwitch::none()
+            None
         }
     }
 
-    /// Build HookExecutor.
-    pub fn build_hook_executor(&self) -> ImplSwitch<GenericHookExecutor> {
+    /// Build HookExecutor if `[hooks]` is present, else None.
+    pub fn build_hook_executor(&self) -> Option<GenericHookExecutor> {
         if self.config.hooks.is_some() {
-            ImplSwitch::some(GenericHookExecutor)
+            Some(GenericHookExecutor)
         } else {
-            ImplSwitch::none()
+            None
         }
     }
 
-    /// Build RoutingTarget.
-    pub fn build_routing_target(&self) -> ImplSwitch<GenericRoutingTarget> {
-        if self.config.routing.is_some() {
-            let tier = match self.config.routing.as_ref().map(|r| r.default_tier.as_str()) {
-                Some("flagship") => ModelTier::Flagship,
-                Some("slm") => ModelTier::Slm,
+    /// Build RoutingTarget if `[routing]` is present, else None.
+    pub fn build_routing_target(&self) -> Option<GenericRoutingTarget> {
+        self.config.routing.as_ref().map(|r| {
+            let tier = match r.default_tier.as_str() {
+                "flagship" => ModelTier::Flagship,
+                "slm" => ModelTier::Slm,
                 _ => ModelTier::Mid,
             };
-            ImplSwitch::some(GenericRoutingTarget { tier })
-        } else {
-            ImplSwitch::none()
-        }
+            GenericRoutingTarget { tier }
+        })
     }
 
-    /// Build SessionExportable.
-    pub fn build_session_exportable(&self) -> ImplSwitch<GenericSessionExportable> {
+    /// Build SessionExportable if `[sessions]` is present, else None.
+    pub fn build_session_exportable(&self) -> Option<GenericSessionExportable> {
         if self.config.sessions.is_some() {
-            ImplSwitch::some(GenericSessionExportable)
+            Some(GenericSessionExportable)
         } else {
-            ImplSwitch::none()
+            None
         }
     }
 
@@ -284,12 +234,12 @@ impl TraitBuilder {
     pub fn build_all(
         &self,
     ) -> (
-        ImplSwitch<GenericSkillProvider>,
-        ImplSwitch<GenericMcpConsumer>,
-        ImplSwitch<GenericAuthProvider>,
-        ImplSwitch<GenericHookExecutor>,
-        ImplSwitch<GenericRoutingTarget>,
-        ImplSwitch<GenericSessionExportable>,
+        Option<GenericSkillProvider>,
+        Option<GenericMcpConsumer>,
+        Option<GenericAuthProvider>,
+        Option<GenericHookExecutor>,
+        Option<GenericRoutingTarget>,
+        Option<GenericSessionExportable>,
     ) {
         (
             self.build_skill_provider(),

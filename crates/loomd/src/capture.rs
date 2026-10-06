@@ -9,6 +9,8 @@
 //! the CLI `workflow dispatch` path provides.
 
 use loom_core::{Message, MessageRole, SessionManifest};
+use loom_generic_adapter::GenericAdapter;
+use loom_runtime::LaunchConfig;
 use loom_sessions::acp_protocol::{AcpClientConfig, AcpProtocolClient};
 use loom_sessions::store::SessionStore;
 use std::collections::HashMap;
@@ -238,6 +240,34 @@ pub fn resolve_agent_launch(
          Register it first with: loom add-acp-agent <agent_id>, \
          or ensure the binary is on PATH"
     )
+}
+
+/// Resolve agent launch using GenericAdapter (tool TOML) first, then fall back
+/// to binary lookup via `resolve_agent_launch`.
+/// This enables using the tool's configured runtime (process, docker, podman, etc.)
+/// for ACP dispatch, while maintaining backward compatibility.
+pub fn resolve_agent_launch_with_adapter(
+    loom_dir: &str,
+    agent_id: &str,
+    task_id: &str,
+) -> anyhow::Result<AgentLaunch> {
+    // Try GenericAdapter first - reads tool TOML for launch config
+    if let Ok(adapter) = GenericAdapter::new(loom_dir, agent_id) {
+        if let Some(launch_config) = adapter.launch_config() {
+            return Ok(AgentLaunch {
+                program: launch_config.command,
+                args: launch_config.args,
+                envs: base_envs(loom_dir, task_id),
+                description: format!("tool TOML ({})", launch_config.runtime),
+            });
+        }
+    }
+    
+    // Fall back to binary lookup (PATH or config/agents.toml)
+    let search_dirs: Vec<PathBuf> = std::env::var("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    resolve_agent_launch(loom_dir, agent_id, task_id, &search_dirs)
 }
 
 /// Best-effort task title/description lookup from the workflow task
@@ -480,12 +510,9 @@ pub fn dispatch_acp_protocol(
         registry.record_external_run(&run_id, task_id, agent_id);
     }
     
-    let search_dirs: Vec<PathBuf> = std::env::var("PATH")
-        .map(|p| std::env::split_paths(&p).collect())
-        .unwrap_or_default();
-    
-    // Resolve agent launch to get program and args
-    let launch = resolve_agent_launch(loom_dir, agent_id, task_id, &search_dirs)?;
+    // Resolve agent launch: try GenericAdapter first (uses tool TOML launch config),
+    // then fall back to binary lookup (PATH or config/agents.toml).
+    let launch = resolve_agent_launch_with_adapter(loom_dir, agent_id, task_id)?;
     
     // Build AcpClientConfig - inject --acp flag for cline
     let mut args = launch.args;

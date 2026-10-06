@@ -2585,6 +2585,7 @@ name = "loom-generic-adapter"
 version = "0.9.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "loom-core",
  "loom-runtime",
  "notify",

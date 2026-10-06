@@ -712,7 +712,7 @@ async fn execute_workflow_task(
     } else {
         loom_generic_adapter::GenericAdapter::new(loom_dir, agent_id)
             .ok()
-            .and_then(|adapter| adapter.build().launch_config())
+            .and_then(|adapter| adapter.launch_config())
             .unwrap_or_else(|| loom_runtime::LaunchConfig {
                 runtime: "process".to_string(),
                 command: agent_id.to_string(),

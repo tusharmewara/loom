@@ -560,7 +560,7 @@ impl RuntimeDispatch {
     fn get_launch_config(&self, agent_id: &str) -> Option<loom_runtime::LaunchConfig> {
         loom_generic_adapter::GenericAdapter::new(&self.loom_dir, agent_id)
             .ok()
-            .and_then(|adapter| adapter.build().launch_config())
+            .and_then(|adapter| adapter.launch_config())
     }
 }
 

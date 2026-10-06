@@ -132,15 +132,14 @@ fn test_adapter_from_toml_full() {
     assert_eq!(adapter.tool_name(), "cursor");
     assert_eq!(adapter.tool_version(), "0.45.0");
 
-    let ts = adapter.build();
-    assert!(ts.has_skills());
-    assert!(ts.has_mcp());
-    assert!(ts.has_auth());
-    assert!(ts.has_hooks());
-    assert!(ts.has_routing());
-    assert!(ts.has_sessions());
-    assert_eq!(ts.present_features().len(), 6);
-    assert!(ts.absent_features().is_empty());
+    assert!(adapter.has_skills());
+    assert!(adapter.has_mcp());
+    assert!(adapter.has_auth());
+    assert!(adapter.has_hooks());
+    assert!(adapter.has_routing());
+    assert!(adapter.has_sessions());
+    assert_eq!(adapter.present_features().len(), 6);
+    assert!(adapter.absent_features().is_empty());
 }
 
 #[test]
@@ -148,15 +147,14 @@ fn test_adapter_from_toml_minimal() {
     let adapter = GenericAdapter::from_toml("/tmp/.loom", "minimal", MINIMAL_TOML).unwrap();
     assert_eq!(adapter.tool_name(), "minimal");
 
-    let ts = adapter.build();
-    assert!(!ts.has_skills());
-    assert!(!ts.has_mcp());
-    assert!(!ts.has_auth());
-    assert!(!ts.has_hooks());
-    assert!(!ts.has_routing());
-    assert!(!ts.has_sessions());
-    assert!(ts.present_features().is_empty());
-    assert_eq!(ts.absent_features().len(), 6);
+    assert!(!adapter.has_skills());
+    assert!(!adapter.has_mcp());
+    assert!(!adapter.has_auth());
+    assert!(!adapter.has_hooks());
+    assert!(!adapter.has_routing());
+    assert!(!adapter.has_sessions());
+    assert!(adapter.present_features().is_empty());
+    assert_eq!(adapter.absent_features().len(), 6);
 }
 
 #[test]
@@ -164,13 +162,12 @@ fn test_adapter_from_toml_skills_only() {
     let adapter =
         GenericAdapter::from_toml("/tmp/.loom", "skill-only", SKILLS_ONLY_TOML).unwrap();
 
-    let ts = adapter.build();
-    assert!(ts.has_skills());
-    assert!(!ts.has_mcp());
-    assert!(!ts.has_auth());
-    assert!(!ts.has_hooks());
-    assert!(!ts.has_routing());
-    assert!(!ts.has_sessions());
+    assert!(adapter.has_skills());
+    assert!(!adapter.has_mcp());
+    assert!(!adapter.has_auth());
+    assert!(!adapter.has_hooks());
+    assert!(!adapter.has_routing());
+    assert!(!adapter.has_sessions());
 }
 
 #[test]

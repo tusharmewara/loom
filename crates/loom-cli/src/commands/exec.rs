@@ -716,7 +716,7 @@ async fn execute_via_runtime(
     // Get launch config from tool's TOML
     let config = GenericAdapter::new(loom_dir, agent_id)
         .ok()
-        .and_then(|adapter| adapter.build().launch_config())
+        .and_then(|adapter| adapter.launch_config())
         .unwrap_or_else(|| LaunchConfig {
             runtime: "process".to_string(),
             command: agent_id.to_string(),

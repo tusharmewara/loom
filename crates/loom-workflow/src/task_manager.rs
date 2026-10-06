@@ -324,6 +324,7 @@ impl TaskManager {
             context_lines_count,
             phase_iteration_count,
             error_rate,
+            ..Default::default()
         };
 
         // Determine agent role based on phase (could be overridden by explicit agent assignment)

@@ -370,7 +370,6 @@ impl IpcHandler for LoomdIpcHandler {
                         loom_generic_adapter::GenericAdapter::new(&self.loom_dir, name)
                     {
                         features = ga
-                            .build()
                             .present_features()
                             .into_iter()
                             .map(str::to_string)
