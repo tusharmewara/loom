@@ -11,15 +11,25 @@ path = "src/lib.rs"
 name = "loom-tui"
 path = "src/main.rs"
 
+[features]
+docker = ["loom-runtime/docker"]
+podman = ["loom-runtime/podman"]
+kubernetes = ["loom-runtime/kubernetes"]
+containers = ["loom-runtime/containers"]
+
 [dependencies]
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 loom-ipc = { path = "../loom-ipc" }
+loom-core = { path = "../loom-core" }
+loom-runtime = { path = "../loom-runtime", features = ["docker", "podman", "kubernetes"] }
+loom-generic-adapter = { path = "../loom-generic-adapter" }
 ratatui = { version = "0.28", default-features = false, features = ["crossterm"] }
 crossterm = "0.28"
 nix = { version = "0.31", optional = true, features = ["process"] }
+chrono = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 nix = { version = "0.31", features = ["process"] }

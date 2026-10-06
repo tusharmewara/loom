@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env;
+use loom_runtime::{RuntimeRegistry, LaunchConfig};
+use loom_core::Task;
+use chrono;
 
-pub const DISPATCHER_COUNT: usize = 3;
+pub const DISPATCHER_COUNT: usize = 4;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DispatchResult {
@@ -524,6 +527,131 @@ impl Dispatcher for EmbeddedPane {
             return DispatchResult::err("task_id required".to_string());
         }
         DispatchResult::ok(format!("Opened task {task_id} in embedded pane"), None)
+    }
+}
+
+/// Runtime-aware dispatcher that uses the runtime registry.
+pub struct RuntimeDispatch {
+    pub runtime_registry: RuntimeRegistry,
+    pub default_runtime: String,
+    pub loom_dir: String,
+}
+
+impl RuntimeDispatch {
+    pub fn new(runtime_registry: RuntimeRegistry, default_runtime: String, loom_dir: String) -> Self {
+        Self {
+            runtime_registry,
+            default_runtime,
+            loom_dir,
+        }
+    }
+
+    /// Get the runtime to use, falling back to default.
+    fn get_runtime(&self, task: &serde_json::Value) -> Option<&dyn loom_runtime::Runtime> {
+        // Check if task has a runtime specified
+        if let Some(runtime_name) = task.pointer("/runtime").and_then(|v| v.as_str()) {
+            self.runtime_registry.get(runtime_name)
+        } else {
+            self.runtime_registry.get(&self.default_runtime)
+        }
+    }
+
+    /// Get launch config from the tool's GenericAdapter.
+    fn get_launch_config(&self, agent_id: &str) -> Option<loom_runtime::LaunchConfig> {
+        loom_generic_adapter::GenericAdapter::new(&self.loom_dir, agent_id)
+            .ok()
+            .and_then(|adapter| adapter.build().launch_config())
+    }
+}
+
+/// Create a default runtime registry with all available runtimes.
+pub fn default_runtime_registry() -> loom_runtime::RuntimeRegistry {
+    let mut registry = loom_runtime::RuntimeRegistry::new();
+    let _ = registry.register(Box::new(loom_runtime::ProcessRuntime::new()));
+    #[cfg(feature = "docker")]
+    {
+        let _ = registry.register(Box::new(loom_runtime::ContainerRuntime::docker()));
+    }
+    #[cfg(feature = "podman")]
+    {
+        let _ = registry.register(Box::new(loom_runtime::ContainerRuntime::podman()));
+    }
+    #[cfg(feature = "kubernetes")]
+    {
+        let _ = registry.register(Box::new(loom_runtime::ContainerRuntime::kubernetes()));
+    }
+    registry
+}
+
+
+impl Dispatcher for RuntimeDispatch {
+    fn name(&self) -> &'static str {
+        "Runtime Dispatch"
+    }
+
+    fn shortcut(&self) -> char {
+        'r'
+    }
+
+    fn available(&self) -> bool {
+        true
+    }
+
+    fn dispatch(&self, task: &serde_json::Value) -> DispatchResult {
+        let Some((task_id, agent_id, prior_sessions)) = dispatch_target(task) else {
+            return DispatchResult::err("task_id and agent_id required".to_string());
+        };
+
+        let Some(runtime) = self.get_runtime(task) else {
+            return DispatchResult::err("No runtime available".to_string());
+        };
+
+        // Get launch config from tool's TOML
+        let launch_config = self.get_launch_config(&agent_id).unwrap_or_else(|| loom_runtime::LaunchConfig {
+            runtime: runtime.name().to_string(),
+            command: agent_id.to_string(),
+            args: vec![],
+            env: std::collections::HashMap::new(),
+            working_dir: None,
+            image: None,
+            network: None,
+            auto_remove: true,
+        });
+
+        // Create a minimal task for runtime execution
+        let runtime_task = loom_core::Task {
+            task_id: task_id.clone(),
+            title: task.pointer("/title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            description: "".to_string(),
+            phase: loom_core::TaskPhase::Plan,
+            phase_history: vec![],
+            prd_path: None,
+            context_files: vec![],
+            routed_provider: None,
+            files_modified: vec![],
+            complexity_score: None,
+            routing_decision: None,
+            last_agent: None,
+            linked_issue: None,
+            sub_agents: None,
+            phase_results: vec![],
+            tags: vec![],
+            worktree_path: task.pointer("/worktree_path").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            runtime: None,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+            status: loom_core::TaskStatus::Pending,
+        };
+
+        // Execute via runtime
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        match rt.block_on(runtime.run(&launch_config, &runtime_task)) {
+            Ok(result) => DispatchResult::ok(
+                format!("Dispatched task {} via {} runtime", task_id, runtime.name()),
+                None,
+            ),
+            Err(e) => DispatchResult::err(format!("Runtime dispatch failed: {e}")),
+        }
     }
 }
 

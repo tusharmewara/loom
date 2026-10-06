@@ -21,10 +21,11 @@ pub fn draw_dispatch_menu(frame: &mut Frame, area: Rect, app: &App, theme: &Them
         .and_then(|t| t.pointer("/task_id").and_then(Value::as_str))
         .unwrap_or("?");
 
-    let dispatchers: [(&str, char, bool); 3] = [
+    let dispatchers: [(&str, char, bool); 4] = [
         ("Terminal Launch", 't', true),
         ("ACP Dispatch", 'a', app.status.pointer("/daemon/reachable").and_then(|v| v.as_bool()).unwrap_or(false)),
         ("Embedded Pane", 'e', true),
+        ("Runtime Dispatch", 'r', true),
     ];
 
     let items: Vec<ListItem> = dispatchers

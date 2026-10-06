@@ -21,6 +21,8 @@ pub struct LoomConfig {
     pub mcp: Option<McpGlobalConfig>,
     #[serde(default)]
     pub hooks: Option<HooksGlobalConfig>,
+    #[serde(default)]
+    pub workflow: Option<WorkflowConfig>,
 }
 
 // ... rest of file unchanged ...
@@ -150,14 +152,72 @@ fn default_health_interval() -> u64 {
     300
 }
 
+fn default_hook_timeout() -> u64 {
+    30
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HooksGlobalConfig {
     #[serde(default = "default_hook_timeout")]
     pub default_timeout_seconds: u64,
 }
 
-fn default_hook_timeout() -> u64 {
-    30
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowConfig {
+    #[serde(default = "default_workflow_worktree_auto")]
+    pub worktree_auto: bool,
+    #[serde(default)]
+    pub worktree_base: Option<String>,
+    #[serde(default = "default_runtime")]
+    pub runtime: String,
+}
+
+impl Default for WorkflowConfig {
+    fn default() -> Self {
+        Self {
+            worktree_auto: true,
+            worktree_base: None,
+            runtime: default_runtime(),
+        }
+    }
+}
+
+fn default_workflow_worktree_auto() -> bool {
+    true
+}
+
+fn default_runtime() -> String {
+    "process".to_string()
+}
+
+/// Launch configuration for tool execution.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LaunchConfig {
+    /// Runtime backend: "process" (default), "docker", "podman".
+    #[serde(default = "default_runtime")]
+    pub runtime: String,
+    /// Container image to use when runtime is "docker" or "podman".
+    pub image: Option<String>,
+    /// Command to execute (e.g. the agent binary).
+    pub command: String,
+    /// Arguments to pass to the command.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Environment variables to set.
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+    /// Working directory (defaults to current directory or worktree).
+    pub working_dir: Option<String>,
+    /// Container network mode (for docker/podman runtimes).
+    pub network: Option<String>,
+    /// Auto-remove container after execution (docker/podman).
+    #[serde(default = "default_auto_remove")]
+    pub auto_remove: bool,
+}
+
+
+fn default_auto_remove() -> bool {
+    true
 }
 
 // ─── Skill Registry ─────────────────────────────────────────────────
@@ -570,6 +630,12 @@ pub struct Task {
     /// `#[serde(default)]` keeps older task files loadable.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Path to git worktree for this task, if auto-created.
+    #[serde(default)]
+    pub worktree_path: Option<String>,
+    /// Runtime backend to use for this task (process, docker, etc.).
+    #[serde(default)]
+    pub runtime: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub status: TaskStatus,

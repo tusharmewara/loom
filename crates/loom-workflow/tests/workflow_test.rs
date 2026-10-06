@@ -9,7 +9,7 @@ fn test_create_and_advance_task() {
     let orch = engine.orchestrator();
 
     let task = orch
-        .create_task("Auth refactor", "Refactor distributed security middleware")
+        .create_task("Auth refactor", "Refactor distributed security middleware", true, None)
         .unwrap();
     assert!(task.complexity_score.is_some());
     assert!(task.routing_decision.is_some());
@@ -28,7 +28,7 @@ fn test_sub_agents_resolution() {
     let orch = engine.orchestrator();
 
     let task = orch
-        .create_task("Sub-agent test", "Test per-phase agent resolution")
+        .create_task("Sub-agent test", "Test per-phase agent resolution", true, None)
         .unwrap();
 
     // Set sub-agents
@@ -73,7 +73,7 @@ fn test_phase_result_capture_and_replace() {
     let orch = engine.orchestrator();
 
     let task = orch
-        .create_task("Phase result test", "Capture and replace per phase")
+        .create_task("Phase result test", "Capture and replace per phase", true, None)
         .unwrap();
 
     // No results yet

@@ -1,5 +1,6 @@
 mod activity;
 mod capture;
+mod grpc_server;
 mod ipc_handler;
 mod run_manager;
 use activity::{now_ms, ActivityHandler};
@@ -328,6 +329,24 @@ impl Loomd {
         let serve_fut = async move { serve(&s, ipc_handler, shutdown).await.unwrap() };
         let serve_handle = tokio::spawn(serve_fut);
 
+        // ── gRPC server ──────────────────────────────────────────────
+        let grpc_config = grpc_server::GrpcConfig {
+            listen_addr: std::env::var("LOOM_GRPC_ADDR").unwrap_or_else(|_| "127.0.0.1:50051".to_string()),
+            enable_tls: std::env::var("LOOM_GRPC_TLS").is_ok(),
+            cert_path: std::env::var("LOOM_GRPC_CERT").ok(),
+            key_path: std::env::var("LOOM_GRPC_KEY").ok(),
+        };
+        let grpc_service = grpc_server::LoomGrpcService::new(
+            &self.loom_dir,
+            self.event_bus.clone(),
+            self.shutdown_tx.clone(),
+        );
+        let grpc_handle = tokio::spawn(async move {
+            if let Err(e) = grpc_server::start_grpc_server(grpc_config, grpc_service).await {
+                tracing::error!("gRPC server error: {e}");
+            }
+        });
+
         tracing::info!("Loom daemon running on {}", self.loom_dir);
 
         let mut idle_shutdown_rx = self.shutdown_tx.subscribe();
@@ -345,6 +364,7 @@ impl Loomd {
         tracing::info!("Loom daemon shutting down.");
         self.shutdown_tx.send(()).ok();
         serve_handle.abort();
+        grpc_handle.abort();
         let _ = std::fs::remove_file(&socket_path);
         Ok(())
     }

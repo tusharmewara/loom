@@ -2,8 +2,15 @@ use crate::phases::{default_model_tier, next_phase};
 use crate::routing::{Classifier, DecisionEngine};
 use anyhow::{Context, Result};
 use loom_core::{
-    config::ConfigReader, ComplexityLevel, ModelTier, PhaseHistoryEntry, RoutingDecision, Task,
-    TaskPhase, TaskStatus,
+    config::ConfigReader,
+    ComplexityLevel,
+    ModelTier,
+    PhaseHistoryEntry,
+    RoutingDecision,
+    Task,
+    TaskPhase,
+    TaskStatus,
+    types::WorkflowConfig,
 };
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -12,29 +19,129 @@ pub struct TaskManager {
     tasks_dir: PathBuf,
     classifier: Classifier,
     router: DecisionEngine,
+    loom_dir: PathBuf,
 }
 
 impl TaskManager {
     pub fn new(loom_dir: &str) -> Self {
-        let tasks_dir = Path::new(loom_dir).join("workflow").join("tasks");
+        let loom_dir = PathBuf::from(loom_dir);
+        let tasks_dir = loom_dir.join("workflow").join("tasks");
         let _ = std::fs::create_dir_all(&tasks_dir);
 
         // Load routing config from ~/.loom/config.toml (or overlays)
-        let config_reader = ConfigReader::new(loom_dir);
+        let config_reader = ConfigReader::new(loom_dir.to_str().unwrap());
         let routing_config = config_reader.load().ok().and_then(|cfg| cfg.routing);
 
-        let router = DecisionEngine::with_loom_dir(loom_dir, routing_config)
+        let router = DecisionEngine::with_loom_dir(loom_dir.to_str().unwrap(), routing_config)
             .unwrap_or_else(|_| DecisionEngine::new());
 
         Self {
             tasks_dir,
             classifier: Classifier::new(),
             router,
+            loom_dir,
         }
     }
 
     fn task_path(&self, task_id: &str) -> PathBuf {
         self.tasks_dir.join(format!("{task_id}.json"))
+    }
+
+    fn workflow_config(&self) -> WorkflowConfig {
+        let config_reader = ConfigReader::new(self.loom_dir.to_str().unwrap());
+        config_reader
+            .load()
+            .ok()
+            .and_then(|cfg| cfg.workflow)
+            .unwrap_or_default()
+    }
+
+    fn worktree_base(&self) -> PathBuf {
+        let config = self.workflow_config();
+        if let Some(base) = config.worktree_base {
+            // Expand tilde
+            let expanded = shellexpand::tilde(&base).to_string();
+            PathBuf::from(expanded)
+        } else {
+            // Default: ~/.loom/worktrees
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".loom")
+                .join("worktrees")
+        }
+    }
+
+    fn create_worktree(&self, task_id: &str, title: &str) -> Result<PathBuf> {
+        // Ensure git is available
+        let output = std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .map_err(|e| anyhow::anyhow!("Git not found: {e}"))?;
+        if !output.status.success() {
+            anyhow::bail!("Git is not available");
+        }
+
+        // Find repo root from current working directory
+        let cwd = std::env::current_dir()?;
+        let repo_root = Self::find_repo_root(&cwd)
+            .ok_or_else(|| anyhow::anyhow!("Not in a git repository"))?;
+
+        // Create base directory
+        let base = self.worktree_base();
+        std::fs::create_dir_all(&base)?;
+
+        // Generate worktree name: UUID + sanitized title slug
+        let slug = Self::sanitise_title(title);
+        let worktree_name = format!("{}-{}", task_id, slug);
+        let worktree_path = base.join(&worktree_name);
+
+        // Create git worktree (detached HEAD at current branch)
+        let output = std::process::Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "--detach",
+                worktree_path.to_str().unwrap(),
+            ])
+            .current_dir(&repo_root)
+            .output()
+            .context("Failed to create git worktree")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("git worktree add failed: {}", stderr.trim());
+        }
+
+        tracing::info!("Created worktree '{}' at {}", worktree_name, worktree_path.display());
+
+        Ok(worktree_path)
+    }
+
+    fn find_repo_root(path: &Path) -> Option<PathBuf> {
+        let output = std::process::Command::new("git")
+            .args(["rev-parse", "--show-toplevel"])
+            .current_dir(path)
+            .output()
+            .ok()?;
+        if output.status.success() {
+            let root = String::from_utf8_lossy(&output.stdout);
+            Some(PathBuf::from(root.trim()))
+        } else {
+            None
+        }
+    }
+
+    fn sanitise_title(title: &str) -> String {
+        title
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+            .collect::<String>()
+            .trim_matches('-')
+            .to_string()
+            .chars()
+            .take(40)
+            .collect()
     }
 
     pub fn list(&self) -> Result<Vec<Task>> {
@@ -73,7 +180,7 @@ impl TaskManager {
         Ok(())
     }
 
-    pub fn create_task(&self, title: &str, description: &str) -> Result<Task> {
+    pub fn create_task(&self, title: &str, description: &str, worktree: bool, runtime: Option<String>) -> Result<Task> {
         let now = rfc3339_now();
         let task_id = Uuid::new_v4().to_string();
 
@@ -107,6 +214,16 @@ impl TaskManager {
 
         let routing_decision = self.router.decide(complexity.clone());
 
+        // Determine if worktree should be created
+        let config = self.workflow_config();
+        let create_worktree = worktree && config.worktree_auto;
+
+        let worktree_path = if create_worktree {
+            Some(self.create_worktree(&task_id, title)?)
+        } else {
+            None
+        };
+
         let task = Task {
             task_id: task_id.clone(),
             title: title.to_string(),
@@ -130,6 +247,8 @@ impl TaskManager {
             sub_agents: None,
             phase_results: Vec::new(),
             tags: Vec::new(),
+            worktree_path: worktree_path.map(|p| p.to_string_lossy().to_string()),
+            runtime,
             created_at: now.clone(),
             updated_at: now,
             status: TaskStatus::Pending,
@@ -496,7 +615,7 @@ mod tests {
     #[test]
     fn set_tags_replaces_the_tag_set() {
         let (_tmp, manager) = manager();
-        let task = manager.create_task("title", "description").unwrap();
+        let task = manager.create_task("title", "description", true, None).unwrap();
         assert!(task.tags.is_empty());
 
         let updated = manager
@@ -514,7 +633,7 @@ mod tests {
     fn remove_task_deletes_manifest_and_sidecars() {
         use std::io::Write;
         let (_tmp, manager) = manager();
-        let task = manager.create_task("title", "description").unwrap();
+        let task = manager.create_task("title", "description", true, None).unwrap();
 
         let tasks_dir = _tmp.path().join("loom").join("workflow").join("tasks");
         let sidecar = tasks_dir.join(format!("{}.Plan.result.json", task.task_id));
@@ -528,5 +647,35 @@ mod tests {
         assert!(!sidecar.exists());
         assert!(!priors.exists());
         assert!(manager.remove_task(&task.task_id).is_err());
+    }
+
+    #[test]
+    fn test_sanitise_title() {
+        assert_eq!(TaskManager::sanitise_title("Hello World"), "hello-world");
+        assert_eq!(TaskManager::sanitise_title("My_Task-Name"), "my_task-name");
+        assert_eq!(TaskManager::sanitise_title("---test---"), "test");
+        let long = "A".repeat(50);
+        assert_eq!(TaskManager::sanitise_title(&long), "a".repeat(40));
+    }
+
+    #[test]
+    fn test_find_repo_root() {
+        // Should return None for non-git directory
+        assert!(TaskManager::find_repo_root(std::path::Path::new("/tmp")).is_none());
+    }
+
+    #[test]
+    fn test_workflow_config_defaults() {
+        use loom_core::types::WorkflowConfig;
+        let config = WorkflowConfig::default();
+        assert!(config.worktree_auto);
+        assert!(config.worktree_base.is_none());
+    }
+
+    #[test]
+    fn test_create_task_worktree_field_when_disabled() {
+        let (_tmp, manager) = manager();
+        let task = manager.create_task("Test task", "Test description", false, None).unwrap();
+        assert!(task.worktree_path.is_none());
     }
 }

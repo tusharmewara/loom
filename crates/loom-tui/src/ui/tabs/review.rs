@@ -231,7 +231,7 @@ mod tests {
     }
 
     fn app_with_tasks() -> App {
-        let mut app = App::new(LoomCliAdapter::new("loom"));
+        let mut app = App::new(LoomCliAdapter::new("loom", crate::loom_dir()));
         app.workflow = serde_json::json!({
             "tasks": [
                 {"task_id": "t1", "title": "First task", "phase": "Plan", "status": "Pending"},
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn draw_review_empty_state_renders() {
-        let mut app = App::new(LoomCliAdapter::new("loom"));
+        let mut app = App::new(LoomCliAdapter::new("loom", crate::loom_dir()));
         app.tab_index = app.review_tab_index().unwrap_or(0);
         let screen = rendered(&app);
         assert!(screen.contains("No workflow tasks yet"), "got: {screen}");

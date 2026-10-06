@@ -4,10 +4,21 @@
 //! Parallel mode (--parallel): runs ALL tools concurrently with worktree isolation.
 
 use anyhow::{Context, Result};
+use chrono;
+use loom_core::Task;
+use loom_runtime::{LaunchConfig, ProcessRuntime, RuntimeRegistry, RunResult};
+#[cfg(feature = "docker")]
+use loom_runtime::ContainerRuntime;
+#[cfg(feature = "podman")]
+use loom_runtime::ContainerRuntime;
+#[cfg(feature = "kubernetes")]
+use loom_runtime::ContainerRuntime;
 use loom_parallel::{AgentPool, AgentTask, WorktreeManager};
+use loom_generic_adapter::GenericAdapter;
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
+use uuid;
 
 pub async fn run(
     tools: &[String],
@@ -92,24 +103,17 @@ async fn run_sequential(
     // Inject shared ecosystem resources
     inject_shared_resources(loom_dir, &native_mcp_config, &native_skills_dir);
 
-    // Build and execute command
-    let mut cmd = Command::new(&binary_path);
-    cmd.args(tool_args);
-    cmd.envs(&env_vars);
+    // Execute via Runtime abstraction
+    let result = execute_via_runtime(
+        loom_dir,
+        launch_tool,
+        tool_args,
+        &env_vars,
+        dry_run,
+    ).await?;
 
-    println!("🚀 Launching '{}' with loom ecosystem...", launch_tool);
-    if !tool_args.is_empty() {
-        println!("   Args: {:?}", tool_args);
-    }
-
-    let status = cmd
-        .spawn()
-        .context(format!("Failed to spawn '{}'", tool_binary))?
-        .wait()
-        .context(format!("Failed to wait for '{}'", tool_binary))?;
-
-    if !status.success() {
-        anyhow::bail!("'{}' exited with status: {}", launch_tool, status);
+    if !result.success {
+        anyhow::bail!("Runtime execution failed: {}", result.stderr);
     }
 
     // Extract sessions after completion
@@ -694,6 +698,103 @@ fn is_executable(path: &std::path::Path) -> bool {
 #[cfg(not(unix))]
 fn is_executable(_path: &std::path::Path) -> bool {
     true
+}
+
+/// Execute a task via the Runtime abstraction.
+///
+/// This function:
+/// 1. Creates a GenericAdapter for the tool to get its launch config
+/// 2. Creates the appropriate Runtime from the registry
+/// 3. Calls Runtime::prepare, Runtime::run, and Runtime::cleanup
+async fn execute_via_runtime(
+    loom_dir: &str,
+    agent_id: &str,
+    tool_args: &[String],
+    env_vars: &HashMap<String, String>,
+    dry_run: bool,
+) -> Result<RunResult> {
+    // Get launch config from tool's TOML
+    let config = GenericAdapter::new(loom_dir, agent_id)
+        .ok()
+        .and_then(|adapter| adapter.build().launch_config())
+        .unwrap_or_else(|| LaunchConfig {
+            runtime: "process".to_string(),
+            command: agent_id.to_string(),
+            args: tool_args.to_vec(),
+            env: env_vars.clone(),
+            working_dir: None,
+            image: None,
+            network: None,
+            auto_remove: true,
+        });
+
+    if dry_run {
+        println!("=== Dry Run: execute via {} runtime ===", config.runtime);
+        println!("Command: {}", config.command);
+        println!("Args: {:?}", config.args);
+        println!("Image: {:?}", config.image);
+        println!("Network: {:?}", config.network);
+        println!("Auto-remove: {}", config.auto_remove);
+        return Ok(RunResult {
+            success: true,
+            stdout: "".to_string(),
+            stderr: "".to_string(),
+            exit_code: Some(0),
+            container_id: None,
+        });
+    }
+
+    // Create runtime registry with all available runtimes
+    let mut registry = RuntimeRegistry::new();
+    let _ = registry.register(Box::new(ProcessRuntime::new()));
+    #[cfg(feature = "docker")]
+    {
+        let _ = registry.register(Box::new(ContainerRuntime::docker()));
+    }
+    #[cfg(feature = "podman")]
+    {
+        let _ = registry.register(Box::new(ContainerRuntime::podman()));
+    }
+    #[cfg(feature = "kubernetes")]
+    {
+        let _ = registry.register(Box::new(ContainerRuntime::kubernetes()));
+    }
+
+    // Get the runtime
+    let runtime = registry
+        .get(&config.runtime)
+        .ok_or_else(|| anyhow::anyhow!("Runtime '{}' not available", config.runtime))?;
+
+    // Create a minimal task for runtime execution
+    let task = Task {
+        task_id: uuid::Uuid::new_v4().to_string(),
+        title: format!("exec {}", agent_id),
+        description: "".to_string(),
+        phase: loom_core::TaskPhase::Plan,
+        phase_history: vec![],
+        prd_path: None,
+        context_files: vec![],
+        routed_provider: None,
+        files_modified: vec![],
+        complexity_score: None,
+        routing_decision: None,
+        last_agent: None,
+        linked_issue: None,
+        sub_agents: None,
+        phase_results: vec![],
+        tags: vec![],
+        worktree_path: None,
+        runtime: None,
+        created_at: chrono::Utc::now().to_rfc3339(),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+        status: loom_core::TaskStatus::Pending,
+    };
+
+    // Prepare, run, cleanup
+    runtime.prepare(&config).await?;
+    let result = runtime.run(&config, &task).await?;
+    runtime.cleanup(&result).await?;
+    Ok(result)
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────

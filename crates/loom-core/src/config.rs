@@ -116,6 +116,15 @@ impl ConfigReader {
         Ok(ConfigDiagnostics { config, steps })
     }
 
+    /// Save the config to the local config.toml file.
+    /// This writes only the local layer (not extends or overlays).
+    pub fn save(&self, config: &LoomConfig) -> Result<()> {
+        let config_path = Path::new(&self.loom_dir).join("config.toml");
+        let toml_str = toml::to_string_pretty(config)?;
+        std::fs::write(config_path, toml_str)?;
+        Ok(())
+    }
+
     fn load_inner(
         &self,
         options: ConfigOptions,
@@ -539,6 +548,7 @@ impl Default for LoomConfig {
             routing: None,
             mcp: None,
             hooks: None,
+            workflow: None,
         }
     }
 }

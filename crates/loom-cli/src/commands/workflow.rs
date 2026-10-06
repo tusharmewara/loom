@@ -79,7 +79,10 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
             token,
             template,
             from_plan,
+            worktree,
+            no_worktree,
         } => {
+            let use_worktree = *worktree && !*no_worktree;
             // If --from-ticket is given, fetch from any supported tracker.
             if let Some(ticket_ref) = from_ticket {
                 let parsed = parse_ticket_ref(ticket_ref).ok_or_else(|| {
@@ -91,7 +94,7 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                 })?;
                 let (t_title, t_description, linked) =
                     fetch_ticket(&parsed, repo, token).await?;
-                let task = orchestrator.create_task(&t_title, &t_description)?;
+                let task = orchestrator.create_task(&t_title, &t_description, use_worktree, None)?;
                 orchestrator.set_linked_issue(&task.task_id, &linked)?;
                 let task = orchestrator.get_task(&task.task_id)?.unwrap();
                 println!(
@@ -135,7 +138,7 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                     .ok_or_else(|| anyhow::anyhow!("Template '{template_name}' not found"))?;
                 let t_title = tpl.default_title.as_deref().unwrap_or("Untitled task");
                 let t_description = tpl.default_description.as_deref().unwrap_or("Created from template");
-                let task = orchestrator.create_task(t_title, t_description)?;
+                let task = orchestrator.create_task(t_title, t_description, use_worktree, None)?;
                 // Apply template overrides
                 if let Some(agent) = &tpl.default_agent {
                     orchestrator.set_last_agent(&task.task_id, agent)?;
@@ -165,7 +168,7 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                 let issue = tracker.get_issue(&issue_id).await?;
                 let t_title = issue.title.clone();
                 let t_description = issue.body.clone().unwrap_or_default();
-                let task = orchestrator.create_task(&t_title, &t_description)?;
+                let task = orchestrator.create_task(&t_title, &t_description, use_worktree, None)?;
                 orchestrator.set_linked_issue(&task.task_id, &issue_id)?;
                 let task = orchestrator.get_task(&task.task_id)?.unwrap();
                 println!(
@@ -180,7 +183,7 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                 let t_description = description
                     .clone()
                     .unwrap_or_else(|| "New workflow task".to_string());
-                let task = orchestrator.create_task(&t_title, &t_description)?;
+                let task = orchestrator.create_task(&t_title, &t_description, use_worktree, None)?;
                 println!("Created task {}", task.task_id);
                 println!("{}", serde_json::to_string_pretty(&task)?);
             }
@@ -1467,7 +1470,7 @@ pub fn parse_ticket_ref(input: &str) -> Option<TicketRef> {
     if text.is_empty() {
         return None;
     }
-    let mut prefixed = |prefix: &str| {
+    let prefixed = |prefix: &str| {
         text.strip_prefix(prefix)
             .map(str::trim)
             .filter(|rest| !rest.is_empty())

@@ -9,6 +9,7 @@ pub mod memory;
 pub mod routing;
 pub mod rules;
 pub mod scan;
+pub mod runtime;
 pub mod resume;
 pub mod sessions;
 pub mod skills;

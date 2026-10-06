@@ -103,6 +103,11 @@ pub enum Command {
         #[command(subcommand)]
         action: RoutingAction,
     },
+    /// Runtime management
+    Runtime {
+        #[command(subcommand)]
+        action: RuntimeAction,
+    },
     /// Event stream rules management
     Rules {
         #[command(subcommand)]
@@ -838,6 +843,23 @@ pub enum RulesAction {
 }
 
 #[derive(Subcommand)]
+pub enum RuntimeAction {
+    /// List available runtimes
+    List {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Set default runtime
+    SetDefault {
+        /// Runtime name (process, docker)
+        name: String,
+    },
+    /// Show runtime status
+    Status,
+}
+
+#[derive(Subcommand)]
 pub enum WorkflowAction {
     /// List workflow tasks
     List {
@@ -866,7 +888,8 @@ pub enum WorkflowAction {
         /// Create task from any ticket (github:owner/repo#123,
         /// linear:TEAM-1, gitlab:owner/repo#1, jira:PROJ-1)
         #[arg(long)]
-        from_ticket: Option<String>,        /// Repo for the issue (needed if from_issue is just a number)
+        from_ticket: Option<String>,
+        /// Repo for the issue (needed if from_issue is just a number)
         #[arg(long, default_value = "")]
         repo: String,
         /// GitHub token (defaults to GITHUB_TOKEN env)
@@ -878,6 +901,12 @@ pub enum WorkflowAction {
         /// Create tasks from a chief plan JSON file
         #[arg(long)]
         from_plan: Option<String>,
+        /// Auto-create git worktree for this task
+        #[arg(long, default_value_t = true)]
+        worktree: bool,
+        /// Explicitly disable git worktree creation
+        #[arg(long)]
+        no_worktree: bool,
     },
     /// Remove a workflow task and its per-phase sidecars
     Remove {
@@ -1812,6 +1841,7 @@ impl Cli {
             Command::Hooks { action } => crate::commands::hooks::run(&agents_path, &action).await,
             Command::Workflow { action } => crate::commands::workflow::run(&agents_path, &action).await,
             Command::Routing { action } => crate::commands::routing::run(&agents_path, &action).await,
+            Command::Runtime { action } => crate::commands::runtime::run(&agents_path.to_string_lossy(), &action).await,
             Command::Rules { action } => crate::commands::rules::run(&agents_path, &action).await,
             Command::Exec {
                 tools,

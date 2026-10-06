@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 loom-core = { path = "../loom-core" }
+loom-runtime = { path = "../loom-runtime" }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true

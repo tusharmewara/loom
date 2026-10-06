@@ -17,8 +17,8 @@ impl TaskOrchestrator {
         &self.manager
     }
 
-    pub fn create_task(&self, title: &str, description: &str) -> Result<Task> {
-        self.manager.create_task(title, description)
+    pub fn create_task(&self, title: &str, description: &str, worktree: bool, runtime: Option<String>) -> Result<Task> {
+        self.manager.create_task(title, description, worktree, runtime)
     }
 
     pub fn advance_phase(&self, task_id: &str) -> Result<Task> {

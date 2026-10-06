@@ -175,7 +175,7 @@ fn workflow_preserves_routing_across_phases() {
     let engine = loom_workflow::WorkflowEngine::new(dir.path().to_str().unwrap());
     let orch = engine.orchestrator();
     let task = orch
-        .create_task("Migrate API", "Refactor distributed auth layer")
+        .create_task("Migrate API", "Refactor distributed auth layer", true, None)
         .unwrap();
     assert!(task.routing_decision.is_some());
     let advanced = orch.advance_phase(&task.task_id).unwrap();

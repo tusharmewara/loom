@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 #[derive(Clone)]
 pub struct LoomCliAdapter {
     bin: String,
+    pub loom_dir: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -18,8 +19,11 @@ pub struct CommandResult {
 }
 
 impl LoomCliAdapter {
-    pub fn new(bin: impl Into<String>) -> Self {
-        Self { bin: bin.into() }
+    pub fn new(bin: impl Into<String>, loom_dir: impl Into<String>) -> Self {
+        Self {
+            bin: bin.into(),
+            loom_dir: loom_dir.into(),
+        }
     }
 
     pub async fn fetch_status(&self) -> Result<Value> {
@@ -174,6 +178,10 @@ impl LoomCliAdapter {
 
     pub async fn fetch_hooks_list(&self) -> Result<Value> {
         self.run_json(&["hooks", "list"]).await
+    }
+
+    pub async fn fetch_config(&self) -> Result<Value> {
+        self.run_json(&["config", "show", "--json"]).await
     }
 
     pub async fn fetch_knowledge_stats(&self) -> Result<Value> {

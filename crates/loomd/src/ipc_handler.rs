@@ -405,17 +405,40 @@ impl IpcHandler for LoomdIpcHandler {
                 }
             }
             "acp.status" => {
-                let runtime = tokio::runtime::Runtime::new().unwrap();
-                let server = runtime.block_on(self.acp_server.read());
-                match server.as_ref() {
-                    Some(srv) => {
-                        let status = runtime.block_on(srv.status());
-                        IpcResponse::ok(req.request_id, status)
+                tracing::debug!("acp.status: entering handler");
+                let req_id = req.request_id.clone();
+                // Use current runtime handle instead of creating new runtime
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let handle = tokio::runtime::Handle::try_current()
+                        .unwrap_or_else(|_| {
+                            tracing::debug!("acp.status: no current runtime, creating new");
+                            tokio::runtime::Runtime::new().unwrap().handle().clone()
+                        });
+                    tracing::debug!("acp.status: got handle, attempting to acquire lock");
+                    let server = handle.block_on(self.acp_server.read());
+                    tracing::debug!("acp.status: got server lock, server is_some={}", server.is_some());
+                    match server.as_ref() {
+                        Some(srv) => {
+                            tracing::debug!("acp.status: calling srv.status()");
+                            let status = handle.block_on(srv.status());
+                            tracing::debug!("acp.status: got status={:?}", status);
+                            IpcResponse::ok(req_id.clone(), status)
+                        }
+                        None => {
+                            tracing::debug!("acp.status: server is None");
+                            IpcResponse::ok(req_id.clone(), json!({
+                                "running": false,
+                                "message": "ACP dispatch server not initialized"
+                            }))
+                        }
                     }
-                    None => IpcResponse::ok(req.request_id, json!({
-                        "running": false,
-                        "message": "ACP dispatch server not initialized"
-                    })),
+                }));
+                match result {
+                    Ok(resp) => resp,
+                    Err(e) => {
+                        tracing::error!("acp.status: handler panicked: {:?}", e);
+                        IpcResponse::error(req_id, "Internal server error: handler panicked".to_string())
+                    }
                 }
             }
             "acp.start" => {

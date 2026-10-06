@@ -31,10 +31,11 @@ members = [
     "crates/loom-conflict",
     "crates/loom-rules",
     "crates/loom-ast",
+    "crates/loom-runtime",
 ]
 
 [workspace.package]
-version = "0.8.2"
+version = "0.9.0"
 edition = "2021"
 license = "MIT"
 description = "Loom — The Shared Agentic Ecosystem"
@@ -72,3 +73,18 @@ reqwest = { version = "0.12", features = ["json"] }
 shellexpand = "3"
 ureq = "2.12"
 semver = "1"
+tonic = "0.10"
+prost = "0.12"
+prost-types = "0.12"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+axum = "0.7"
+http = "1"
+tonic-build = "0.10"
+async-stream = "0.3"
+tokio-stream = { version = "0.1" }
+bollard = { version = "0.18", features = ["tokio-stream"] }
+async-trait = "0.1"
+futures-util = "0.3"
+urlencoding = "2.1"
+

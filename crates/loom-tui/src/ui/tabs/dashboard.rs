@@ -43,6 +43,19 @@ pub fn draw_dashboard(frame: &mut Frame, area: ratatui::layout::Rect, app: &App,
         Span::styled(format!(" {} ", daemon_status), theme.text),
     ]));
 
+    // Runtime status
+    let workflow = &app.workflow;
+    let current_runtime = workflow.pointer("/runtime").and_then(Value::as_str).unwrap_or("process");
+    lines.push(Line::from(vec![
+        Span::styled("Runtime: ", Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            current_runtime.to_string(),
+            Style::default()
+                .fg(theme.primary)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+
     let doctor_pass = app.doctor.pointer("/summary/pass").and_then(Value::as_u64).unwrap_or(0);
     let doctor_warn = app.doctor.pointer("/summary/warn").and_then(Value::as_u64).unwrap_or(0);
     let doctor_fail = app.doctor.pointer("/summary/fail").and_then(Value::as_u64).unwrap_or(0);

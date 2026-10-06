@@ -41,6 +41,8 @@ fn test_full_phase_chain_with_sub_agents() -> Result<()> {
     let task = orch.create_task(
         "Refactor auth middleware",
         "Move authn to a dedicated service with HSM-backed key storage",
+        true,
+        None,
     )?;
     assert!(matches!(task.phase, TaskPhase::Plan));
 
@@ -146,7 +148,7 @@ fn test_phase_result_file_path_convention() -> Result<()> {
     let agents = loom_dir(&dir);
     let engine = WorkflowEngine::new(&agents);
     let orch = engine.orchestrator();
-    let task = orch.create_task("Path test", "Verify path layout")?;
+    let task = orch.create_task("Path test", "Verify path layout", true, None)?;
 
     let p = phase_result_path(&agents, &task.task_id, "Plan");
     let expected = std::path::PathBuf::from(&agents)

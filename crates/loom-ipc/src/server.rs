@@ -3,6 +3,7 @@ use anyhow::Result;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::sync::broadcast;
+use tracing::{debug, info, warn};
 
 /// IPC command handler — implement this to handle requests
 pub trait IpcHandler: Send + Sync + 'static {
@@ -15,7 +16,7 @@ pub async fn serve(socket_path: &str, handler: impl IpcHandler, shutdown: broadc
     let _ = std::fs::remove_file(socket_path);
 
     let listener = UnixListener::bind(socket_path)?;
-    tracing::info!("IPC server listening on {}", socket_path);
+    info!("IPC server listening on {}", socket_path);
 
     let handler = std::sync::Arc::new(handler);
     let mut shutdown = shutdown;
@@ -23,7 +24,7 @@ pub async fn serve(socket_path: &str, handler: impl IpcHandler, shutdown: broadc
     loop {
         tokio::select! {
             _ = shutdown.recv() => {
-                tracing::info!("IPC server shutting down");
+                info!("IPC server shutting down");
                 let _ = std::fs::remove_file(socket_path);
                 break;
             }
@@ -40,14 +41,16 @@ pub async fn serve(socket_path: &str, handler: impl IpcHandler, shutdown: broadc
                         match buf_reader.read_line(&mut line).await {
                             Ok(0) => break, // EOF
                             Ok(_) => {
+                                debug!("IPC received request: {}", line.trim());
                                 if let Ok(req) = serde_json::from_str::<IpcRequest>(line.trim()) {
                                     let resp = handler.handle(req);
                                     let resp_line = resp.to_json_line();
+                                    debug!("IPC sending response: {}", resp_line.trim());
                                     let _ = writer.write_all(resp_line.as_bytes()).await;
                                 }
                             }
                             Err(e) => {
-                                tracing::warn!("IPC read error: {}", e);
+                                warn!("IPC read error: {}", e);
                                 break;
                             }
                         }

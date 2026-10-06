@@ -40,7 +40,7 @@ pub fn import_plan(manager: &TaskManager, plan: &TaskPlan) -> Result<Vec<Task>> 
                     plan_task.depends_on.join(", ")
                 ));
             }
-            let mut task = manager.create_task(&plan_task.title, &description)?;
+            let mut task = manager.create_task(&plan_task.title, &description, true, None)?;
             if let Some(agent) = plan_task.agent.as_deref() {
                 task = manager.set_last_agent(&task.task_id, agent)?;
             }

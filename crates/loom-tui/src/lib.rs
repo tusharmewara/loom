@@ -16,9 +16,16 @@ use serde_json::Value;
 use std::io;
 use std::time::{Duration, Instant};
 
+/// Resolve the default ecosystem directory (~/.loom/).
+pub fn loom_dir() -> String {
+    let home = std::env::var("HOME").expect("HOME environment variable not set");
+    format!("{}/.loom", home)
+}
+
 pub async fn run() -> Result<()> {
     let mut terminal = setup_terminal()?;
-    let adapter = LoomCliAdapter::new("loom");
+    let loom_dir = loom_dir();
+    let adapter = LoomCliAdapter::new("loom", &loom_dir);
     let mut app = App::new(adapter);
     // Detect the current git repo so the PR/CI/diff view targets a real
     // repository instead of remaining dead code.
@@ -76,6 +83,15 @@ async fn run_loop(
                     match key.code {
                         KeyCode::Esc => app.close_dispatch_menu(),
                         KeyCode::Enter => {
+                            // Get default runtime from config
+                            let default_runtime = app
+                                .adapter
+                                .fetch_config()
+                                .await
+                                .ok()
+                                .and_then(|v| v.pointer("/workflow/runtime").and_then(|s| s.as_str().map(String::from)))
+                                .unwrap_or_else(|| "process".to_string());
+
                             let dispatchers: Vec<Box<dyn crate::dispatch::Dispatcher>> = vec![
                                 Box::new(crate::dispatch::TerminalLaunch),
                                 Box::new(crate::dispatch::ACPDispatch::new(
@@ -89,6 +105,11 @@ async fn run_loop(
                                         .map(String::from),
                                 )),
                                 Box::new(crate::dispatch::EmbeddedPane),
+                                Box::new(crate::dispatch::RuntimeDispatch::new(
+                                    crate::dispatch::default_runtime_registry(),
+                                    default_runtime,
+                                    app.adapter.loom_dir.clone(),
+                                )),
                             ];
                             if app.dispatch_menu_selected < dispatchers.len() {
                                 let task = app.selected_task().cloned();
@@ -169,6 +190,31 @@ async fn run_loop(
                                     app.embedded_child = child;
                                     app.embedded_stdin = stdin;
                                 }
+                            }
+                            app.close_dispatch_menu();
+                        }
+                        KeyCode::Char('r') => {
+                            app.dispatch_menu_selected = 3;
+                            let task = app.selected_task().cloned();
+                            if let Some(task) = task {
+                                let default_runtime = app
+                                    .adapter
+                                    .fetch_config()
+                                    .await
+                                    .ok()
+                                    .and_then(|v| v.pointer("/workflow/runtime").and_then(|s| s.as_str().map(String::from)))
+                                    .unwrap_or_else(|| "process".to_string());
+                                let dispatcher = crate::dispatch::RuntimeDispatch::new(
+                                    crate::dispatch::default_runtime_registry(),
+                                    default_runtime,
+                                    app.adapter.loom_dir.clone(),
+                                );
+                                let result = dispatcher.dispatch(&task);
+                                app.last_action_result = Some(crate::adapter::CommandResult {
+                                    action: dispatcher.name().to_string(),
+                                    success: result.success,
+                                    message: result.message,
+                                });
                             }
                             app.close_dispatch_menu();
                         }
@@ -372,6 +418,9 @@ async fn run_loop(
                     KeyCode::Char('8') => app.set_tab_from_digit(7),
                     KeyCode::Char('9') => app.set_tab_from_digit(8),
                     KeyCode::Char('0') => app.set_tab_from_digit(9),
+                    KeyCode::Char('!') => app.set_tab_from_digit(10),
+                    KeyCode::Char('@') => app.set_tab_from_digit(11),
+                    KeyCode::Char('#') => app.set_tab_from_digit(12),
                     KeyCode::Char('c')
                         if app.tab_index == 8 && app.embedded_task.is_none() =>
                     {

@@ -144,6 +144,26 @@ impl TraitSet {
         f
     }
 
+    /// Get the runtime configured for this tool from the `[launch]` section.
+    pub fn runtime(&self) -> Option<String> {
+        self.config.launch.as_ref().and_then(|l| Some(l.runtime.clone()))
+    }
+
+    /// Get the full LaunchConfig for this tool from the `[launch]` section.
+    /// Returns None if no `[launch]` section is present.
+    pub fn launch_config(&self) -> Option<loom_runtime::LaunchConfig> {
+        self.config.launch.as_ref().map(|l| loom_runtime::LaunchConfig {
+            runtime: l.runtime.clone(),
+            image: l.image.clone(),
+            command: l.command.clone(),
+            args: l.args.clone(),
+            env: l.env.clone(),
+            working_dir: l.working_dir.clone(),
+            network: l.network.clone(),
+            auto_remove: l.auto_remove,
+        })
+    }
+
     /// List of absent (no-op) feature names.
     pub fn absent_features(&self) -> Vec<&'static str> {
         let mut f = Vec::new();

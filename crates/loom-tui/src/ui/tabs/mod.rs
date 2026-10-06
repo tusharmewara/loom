@@ -9,6 +9,10 @@ mod sessions;
 mod logs;
 mod orchestrator;
 mod review;
+mod kanban;
+mod graph;
+mod cost;
+mod runtime;
 
 pub use dashboard::*;
 pub use daemon::*;
@@ -21,3 +25,7 @@ pub use sessions::*;
 pub use logs::*;
 pub use orchestrator::*;
 pub use review::*;
+pub use kanban::*;
+pub use graph::*;
+pub use cost::*;
+pub use runtime::*;

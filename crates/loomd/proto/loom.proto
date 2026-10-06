@@ -1,0 +1,191 @@
+syntax = "proto3";
+
+package loom;
+
+// LoomService provides remote control over the Loom daemon.
+service LoomService {
+  // Health check
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+
+  // Task management
+  rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+  rpc AdvancePhase(AdvancePhaseRequest) returns (AdvancePhaseResponse);
+  rpc RemoveTask(RemoveTaskRequest) returns (RemoveTaskResponse);
+  rpc AssignRouting(AssignRoutingRequest) returns (AssignRoutingResponse);
+
+  // Skill management
+  rpc ListSkills(ListSkillsRequest) returns (ListSkillsResponse);
+  rpc GetSkill(GetSkillRequest) returns (GetSkillResponse);
+
+  // MCP management
+  rpc ListMcp(ListMcpRequest) returns (ListMcpResponse);
+  rpc McpHealth(McpHealthRequest) returns (McpHealthResponse);
+
+  // Session management
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  rpc ExportSession(ExportSessionRequest) returns (ExportSessionResponse);
+
+  // Config
+  rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
+
+  // Event streaming (server-streaming RPC)
+  rpc WatchEvents(WatchEventsRequest) returns (stream Event);
+}
+
+// === Health ===
+message HealthCheckRequest {}
+message HealthCheckResponse {
+  string crate_name = 1;
+  string version = 2;
+  int64 uptime_seconds = 3;
+  string last_error = 4;
+  map<string, int64> performance_counters = 5;
+}
+
+// === Tasks ===
+message CreateTaskRequest {
+  string title = 1;
+  string description = 2;
+  bool worktree = 3;
+}
+message CreateTaskResponse {
+  string task_id = 1;
+  string title = 2;
+  string description = 3;
+  string phase = 4;
+  string status = 5;
+  string created_at = 6;
+  string updated_at = 7;
+  string worktree_path = 8;
+  string complexity_score = 9;
+  string routing_decision = 10;
+}
+
+message GetTaskRequest {
+  string task_id = 1;
+}
+message GetTaskResponse {
+  string task_json = 1;
+}
+
+message ListTasksRequest {}
+message ListTasksResponse {
+  repeated TaskSummary tasks = 1;
+}
+message TaskSummary {
+  string task_id = 1;
+  string title = 2;
+  string phase = 3;
+  string status = 4;
+  string worktree_path = 5;
+}
+
+message AdvancePhaseRequest {
+  string task_id = 1;
+}
+message AdvancePhaseResponse {
+  string task_json = 1;
+}
+
+message RemoveTaskRequest {
+  string task_id = 1;
+}
+message RemoveTaskResponse {
+  bool success = 1;
+}
+
+message AssignRoutingRequest {
+  string task_id = 1;
+  string provider = 2;
+  string model = 3;
+}
+message AssignRoutingResponse {
+  string task_json = 1;
+}
+
+// === Skills ===
+message ListSkillsRequest {}
+message ListSkillsResponse {
+  repeated SkillSummary skills = 1;
+}
+message SkillSummary {
+  string name = 1;
+  string description = 2;
+  string version = 3;
+  string path = 4;
+}
+
+message GetSkillRequest {
+  string name = 1;
+}
+message GetSkillResponse {
+  string skill_json = 1;
+}
+
+// === MCP ===
+message ListMcpRequest {}
+message ListMcpResponse {
+  repeated McpSummary mcps = 1;
+}
+message McpSummary {
+  string id = 1;
+  string name = 2;
+  string command = 3;
+  repeated string args = 4;
+  string status = 5;
+}
+
+message McpHealthRequest {}
+message McpHealthResponse {
+  repeated McpHealthEntry health = 1;
+}
+message McpHealthEntry {
+  string id = 1;
+  string status = 2;
+  string last_check = 3;
+  string error = 4;
+}
+
+// === Sessions ===
+message ListSessionsRequest {}
+message ListSessionsResponse {
+  repeated SessionSummary sessions = 1;
+}
+message SessionSummary {
+  string id = 1;
+  string title = 2;
+  string status = 3;
+  int64 message_count = 4;
+  string created_at = 5;
+}
+
+message GetSessionRequest {
+  string id = 1;
+}
+message GetSessionResponse {
+  string session_json = 1;
+}
+
+message ExportSessionRequest {
+  string id = 1;
+}
+message ExportSessionResponse {
+  string export_path = 1;
+}
+
+// === Config ===
+message GetConfigRequest {}
+message GetConfigResponse {
+  string config_json = 1;
+}
+
+// === Events ===
+message WatchEventsRequest {}
+message Event {
+  string event_type = 1;
+  string payload_json = 2;
+  int64 timestamp = 3;
+}

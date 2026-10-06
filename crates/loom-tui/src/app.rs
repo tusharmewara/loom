@@ -269,7 +269,7 @@ impl App {
         let theme_manager = crate::theme::ThemeManager::new();
         let theme = theme_manager.current();
         Self {
-            tabs: vec!["Dashboard", "Daemon", "Discovery", "MCP", "Skills", "Sessions", "Logs", "Knowledge", "PRs", "Orchestrator", "Review"],
+            tabs: vec!["Dashboard", "Daemon", "Discovery", "MCP", "Skills", "Sessions", "Logs", "Knowledge", "PRs", "Runtime", "Kanban", "Graph", "Cost", "Orchestrator", "Review"],
             tab_index: 0,
             last_refresh: Instant::now(),
             status: Value::Null,
@@ -297,7 +297,7 @@ impl App {
             last_action_result: None,
             action_in_progress: false,
             help_overlay_open: false,
-            scroll_offsets: vec![0; 11],
+            scroll_offsets: vec![0; 15],
             task_selection_index: 0,
             dispatch_menu_open: false,
             dispatch_menu_selected: 0,
@@ -1437,7 +1437,7 @@ mod tests {
     use serde_json::json;
 
     fn app() -> App {
-        App::new(LoomCliAdapter::new("loom"))
+        App::new(LoomCliAdapter::new("loom", crate::loom_dir()))
     }
 
     #[test]
@@ -1445,7 +1445,7 @@ mod tests {
         let app = app();
         let len = app.tabs.len();
         assert_eq!(app.tabs[len - 2], "Orchestrator");
-        assert_eq!(app.orchestrator_tab_index(), Some(len - 2));
+        eprintln!("len={}, orchestrator_index={}", len, app.orchestrator_tab_index().unwrap_or(999)); let idx = app.orchestrator_tab_index(); eprintln!("idx={:?}", idx); eprintln!("idx={:?}, len-2={:?}", idx, Some(len - 2)); assert_eq!(idx, Some(len - 2));
         assert_eq!(app.scroll_offsets.len(), app.tabs.len());
     }
 

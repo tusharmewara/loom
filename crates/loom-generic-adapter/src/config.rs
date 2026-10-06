@@ -4,6 +4,7 @@
 //! Sections map 1:1 to Loom traits; absent sections produce no-op implementations.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Root TOML document for a tool registration.
 ///
@@ -57,6 +58,9 @@ pub struct ToolToml {
     /// `[debug]` — Debug adapter configuration for the tool.
     #[serde(default)]
     pub debug: Option<DebugSection>,
+    /// `[launch]` — Runtime execution configuration.
+    #[serde(default)]
+    pub launch: Option<LaunchSection>,
 }
 
 /// The `[tool]` section — required metadata.
@@ -227,4 +231,39 @@ pub struct DebugAdapterConfig {
     pub args: Vec<String>,
     /// Display name.
     pub name: Option<String>,
+}
+
+/// The `[launch]` section — runtime execution configuration.
+///
+/// Controls how the tool is launched for task execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LaunchSection {
+    /// Runtime backend: "process" (default), "docker", "podman".
+    #[serde(default = "default_runtime")]
+    pub runtime: String,
+    /// Container image to use when runtime is "docker" or "podman".
+    pub image: Option<String>,
+    /// Command to execute (e.g. the agent binary).
+    pub command: String,
+    /// Arguments to pass to the command.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Environment variables to set.
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+    /// Working directory (defaults to current directory or worktree).
+    pub working_dir: Option<String>,
+    /// Container network mode (for docker/podman runtimes).
+    pub network: Option<String>,
+    /// Auto-remove container after execution (docker/podman).
+    #[serde(default = "default_auto_remove")]
+    pub auto_remove: bool,
+}
+
+fn default_runtime() -> String {
+    "process".to_string()
+}
+
+fn default_auto_remove() -> bool {
+    true
 }
