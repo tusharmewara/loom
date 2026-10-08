@@ -206,10 +206,22 @@ impl AuthProviderTrait for AuthManager {
         Ok(self.providers.list())
     }
 
-    fn export_credential(&self, provider_id: &str) -> Result<EncryptedCredential> {
+    fn export_credential(&self, provider_id: &str, requesting_tool: &str) -> Result<EncryptedCredential> {
         if self.vault.is_locked() {
             anyhow::bail!("vault is locked");
         }
+
+        // Check ACL before exporting any credential
+        if !self.acl.check_access(provider_id, requesting_tool) {
+            self.audit.log_denied_access(requesting_tool, provider_id, "export denied by ACL");
+            anyhow::bail!("access denied: tool '{}' not authorized to export credential for '{}'", requesting_tool, provider_id);
+        }
+
+        // Log the export attempt
+        if let Err(e) = self.audit.log_read(requesting_tool, provider_id, true) {
+            tracing::warn!(error = %e, "failed to audit credential export");
+        }
+
         let plaintext = self
             .vault
             .get_credential(provider_id)?
@@ -395,7 +407,7 @@ credential = "sk-imported"
             .set_credential("openai", "sk-secret-key")
             .unwrap();
 
-        let exported = manager.export_credential("openai").unwrap();
+        let exported = manager.export_credential("openai", "loom-cli").unwrap();
         assert_eq!(exported.provider_id, "openai");
         assert!(!exported.encrypted_data.is_empty());
         assert!(!exported.nonce.is_empty());
@@ -417,7 +429,7 @@ credential = "sk-imported"
         let mut manager = AuthManager::new(dir.path().to_str().unwrap());
         manager.unlock_vault("master-pass").unwrap();
 
-        let result = manager.export_credential("nonexistent");
+        let result = manager.export_credential("nonexistent", "test-tool");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("no credential found"));
     }
@@ -427,7 +439,7 @@ credential = "sk-imported"
         let dir = tempfile::TempDir::new().unwrap();
         let manager = AuthManager::new(dir.path().to_str().unwrap());
         // Vault starts locked
-        let result = manager.export_credential("openai");
+        let result = manager.export_credential("openai", "test-tool");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("vault is locked"));
     }

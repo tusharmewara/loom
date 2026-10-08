@@ -288,7 +288,7 @@ pub enum McpTransportType {
     Sse,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum HealthStatusStr {
     Unknown,
     Healthy,
@@ -432,6 +432,14 @@ pub struct AuditEntry {
     pub provider_id: String,
     pub access_type: String,
     pub result: String,
+    /// Hash of the previous entry's `entry_hash` (chain head marker for the
+    /// first entry). Absent in legacy logs written before integrity chaining.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev_hash: Option<String>,
+    /// SHA-256 over this entry's canonical fields plus `prev_hash`.
+    /// Absent in legacy logs written before integrity chaining.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_hash: Option<String>,
 }
 
 // ─── Routing ────────────────────────────────────────────────────────
@@ -838,7 +846,7 @@ pub trait SessionExportable: Send + Sync {
 /// Tool provides authentication providers
 pub trait AuthProviderTrait: Send + Sync {
     fn discover_providers(&self) -> anyhow::Result<Vec<ProviderEntry>>;
-    fn export_credential(&self, provider_id: &str) -> anyhow::Result<EncryptedCredential>;
+    fn export_credential(&self, provider_id: &str, requesting_tool: &str) -> anyhow::Result<EncryptedCredential>;
 }
 
 /// Tool can execute hooks from the shared hook registry

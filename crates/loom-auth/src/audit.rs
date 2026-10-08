@@ -33,6 +33,9 @@ struct AuditInner {
     log_path: String,
     /// Track file size for rotation decisions
     current_size: u64,
+    /// Hash of the most recently written entry (chain head). Recovered
+    /// from the last line of an existing log on startup.
+    last_hash: Option<String>,
 }
 
 impl AuditLogger {
@@ -49,10 +52,14 @@ impl AuditLogger {
         // Check current file size
         let current_size = fs::metadata(&log_path).map(|m| m.len()).unwrap_or(0);
 
+        // Recover the hash-chain head from the last entry of an existing log.
+        let last_hash = read_last_entry_hash(&log_path);
+
         Self {
             inner: Mutex::new(AuditInner {
                 log_path: log_path_str,
                 current_size,
+                last_hash,
             }),
         }
     }
@@ -95,11 +102,11 @@ impl AuditLogger {
         Ok(())
     }
 
-    /// Write an audit entry to the log.
+    /// Write an audit entry to the log, extending the integrity hash chain.
     fn write_entry(&self, entry: &AuditEntry) -> Result<()> {
         self.rotate_if_needed()?;
 
-        let inner = self.inner.lock().expect("audit mutex poisoned");
+        let mut inner = self.inner.lock().expect("audit mutex poisoned");
         let log_path = inner.log_path.clone();
 
         // Ensure parent directory exists
@@ -108,13 +115,20 @@ impl AuditLogger {
                 .with_context(|| format!("failed to create audit log dir: {:?}", parent))?;
         }
 
+        // Extend the hash chain: entry_hash = H(prev_hash || fields).
+        let mut entry = entry.clone();
+        let prev = inner.last_hash.clone();
+        entry.prev_hash = prev.clone();
+        entry.entry_hash = Some(compute_entry_hash(&entry, prev.as_deref()));
+        inner.last_hash = entry.entry_hash.clone();
+
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&log_path)
             .with_context(|| format!("failed to open audit log: {log_path}"))?;
 
-        let line = serde_json::to_string(entry)?;
+        let line = serde_json::to_string(&entry)?;
         writeln!(file, "{}", line).with_context(|| "failed to write audit log entry")?;
         file.flush()?;
 
@@ -137,6 +151,8 @@ impl AuditLogger {
             } else {
                 "denied".to_string()
             },
+            prev_hash: None,
+            entry_hash: None,
         };
         self.write_entry(&entry)
     }
@@ -153,6 +169,8 @@ impl AuditLogger {
             } else {
                 "denied".to_string()
             },
+            prev_hash: None,
+            entry_hash: None,
         };
         self.write_entry(&entry)
     }
@@ -165,6 +183,8 @@ impl AuditLogger {
             provider_id: provider_id.to_string(),
             access_type: "denied".to_string(),
             result: format!("denied: {reason}"),
+            prev_hash: None,
+            entry_hash: None,
         };
         if let Err(e) = self.write_entry(&entry) {
             error!(error = %e, "failed to log denied access");
@@ -278,9 +298,109 @@ impl AuditLogger {
         drop(inner);
         let mut inner = self.inner.lock().expect("audit mutex poisoned");
         inner.current_size = 0;
+        inner.last_hash = None;
 
         Ok(())
     }
+
+    /// Verify the integrity of the audit trail hash chain.
+    ///
+    /// Walks all entries (rotated logs in chronological order, then the
+    /// current log) and recomputes each entry's hash. Legacy entries
+    /// written before integrity chaining (no `entry_hash`) are skipped.
+    /// The first mismatch is reported; `intact == true` means the chain
+    /// is unbroken and untampered.
+    pub fn verify_integrity(&self) -> Result<IntegrityReport> {
+        let inner = self.inner.lock().expect("audit mutex poisoned");
+        let base = Path::new(&inner.log_path);
+        let dir = base.parent().unwrap_or_else(|| Path::new("."));
+
+        let mut entries: Vec<AuditEntry> = Vec::new();
+        // Chronological order: oldest rotated file first, current last.
+        for path in (1..=MAX_ROTATED_FILES)
+            .rev()
+            .map(|i| dir.join(format!("audit.log.{i}")))
+            .chain(std::iter::once(base.to_path_buf()))
+        {
+            if !path.exists() {
+                continue;
+            }
+            let content = fs::read_to_string(&path)?;
+            entries.extend(content.lines().filter_map(|l| {
+                let t = l.trim();
+                if t.is_empty() {
+                    None
+                } else {
+                    serde_json::from_str(t).ok()
+                }
+            }));
+        }
+        drop(inner);
+
+        let mut report = IntegrityReport {
+            total: entries.len(),
+            chained: 0,
+            tampered_at: None,
+            intact: true,
+        };
+
+        let mut prev: Option<String> = None;
+        for entry in &entries {
+            let Some(entry_hash) = &entry.entry_hash else {
+                continue; // legacy entry predating the hash chain
+            };
+            report.chained += 1;
+            let expected = compute_entry_hash(entry, entry.prev_hash.as_deref());
+            let chain_ok = entry.prev_hash.as_ref() == prev.as_ref();
+            if !chain_ok || &expected != entry_hash {
+                report.intact = false;
+                report.tampered_at = Some(entry.timestamp.clone());
+                return Ok(report);
+            }
+            prev = Some(entry_hash.clone());
+        }
+
+        Ok(report)
+    }
+}
+
+/// Result of [`AuditLogger::verify_integrity`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntegrityReport {
+    /// Total entries examined (including legacy unchained ones).
+    pub total: usize,
+    /// Entries that are part of the hash chain.
+    pub chained: usize,
+    /// Timestamp of the first entry that failed verification.
+    pub tampered_at: Option<String>,
+    /// True when the chain is unbroken and every hash matches.
+    pub intact: bool,
+}
+
+/// Compute the SHA-256 chain hash for an entry.
+///
+/// Hashes the canonical entry fields plus the previous entry's hash.
+/// The entry's own `entry_hash` field is intentionally excluded.
+fn compute_entry_hash(entry: &AuditEntry, prev_hash: Option<&str>) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(prev_hash.unwrap_or(""));
+    hasher.update(&entry.timestamp);
+    hasher.update(&entry.requesting_tool);
+    hasher.update(&entry.provider_id);
+    hasher.update(&entry.access_type);
+    hasher.update(&entry.result);
+    format!("{:x}", hasher.finalize())
+}
+
+/// Read the last chained entry's hash from an existing log file.
+fn read_last_entry_hash(log_path: &Path) -> Option<String> {
+    let content = fs::read_to_string(log_path).ok()?;
+    content
+        .lines()
+        .rev()
+        .find_map(|line| serde_json::from_str::<AuditEntry>(line.trim()).ok())
+        .and_then(|e| e.entry_hash)
 }
 
 fn iso_now() -> String {
@@ -320,6 +440,7 @@ fn days_to_date(z: i64) -> (i64, u32, u32) {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::path::PathBuf;
 
     fn test_entry(ts: &str, tool: &str, provider: &str, atype: &str, result: &str) -> AuditEntry {
         AuditEntry {
@@ -328,7 +449,106 @@ mod tests {
             provider_id: provider.to_string(),
             access_type: atype.to_string(),
             result: result.to_string(),
+            prev_hash: None,
+            entry_hash: None,
         }
+    }
+
+    #[test]
+    fn test_integrity_chain_verifies_untampered_log() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let logger = AuditLogger::new(dir.path().to_str().unwrap());
+        logger.log_read("tool-a", "provider-1", true).unwrap();
+        logger.log_write("tool-b", "provider-2", true).unwrap();
+        logger.log_denied_access("tool-c", "provider-3", "acl");
+
+        let report = logger.verify_integrity().unwrap();
+        assert_eq!(report.total, 3);
+        assert_eq!(report.chained, 3);
+        assert!(report.intact, "untampered chain should verify: {report:?}");
+    }
+
+    #[test]
+    fn test_integrity_chain_detects_field_tampering() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let logger = AuditLogger::new(dir.path().to_str().unwrap());
+        logger.log_read("tool-a", "provider-1", true).unwrap();
+        logger.log_read("tool-b", "provider-2", true).unwrap();
+
+        // Tamper with the second entry's result field in the log file.
+        let log_path = PathBuf::from(logger.log_path());
+        let raw = fs::read_to_string(&log_path).unwrap();
+        let tampered = raw.replace("granted", "revoked");
+        assert_ne!(raw, tampered, "tamper substitution must change content");
+        fs::write(&log_path, tampered).unwrap();
+
+        let report = logger.verify_integrity().unwrap();
+        assert!(!report.intact, "tampered entry must fail verification");
+        assert!(report.tampered_at.is_some());
+    }
+
+    #[test]
+    fn test_integrity_chain_detects_deleted_entry() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let logger = AuditLogger::new(dir.path().to_str().unwrap());
+        logger.log_read("tool-a", "provider-1", true).unwrap();
+        logger.log_read("tool-b", "provider-2", true).unwrap();
+        logger.log_read("tool-c", "provider-3", true).unwrap();
+
+        // Delete the middle entry — breaks the prev_hash linkage.
+        let log_path = PathBuf::from(logger.log_path());
+        let raw = fs::read_to_string(&log_path).unwrap();
+        let lines: Vec<&str> = raw.lines().collect();
+        let kept: Vec<&str> = lines
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != 1)
+            .map(|(_, l)| *l)
+            .collect();
+        fs::write(&log_path, kept.join("\n") + "\n").unwrap();
+
+        let report = logger.verify_integrity().unwrap();
+        assert!(!report.intact, "deleted middle entry must break the chain");
+    }
+
+    #[test]
+    fn test_integrity_chain_survives_logger_restart() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let loom = dir.path().to_str().unwrap();
+        {
+            let logger = AuditLogger::new(loom);
+            logger.log_read("tool-a", "provider-1", true).unwrap();
+        }
+        // New logger instance must recover the chain head and extend it.
+        let logger = AuditLogger::new(loom);
+        logger.log_write("tool-b", "provider-2", true).unwrap();
+        let report = logger.verify_integrity().unwrap();
+        assert!(report.intact, "chain must continue across restart: {report:?}");
+        assert_eq!(report.chained, 2);
+    }
+
+    #[test]
+    fn test_integrity_tolerates_legacy_unchained_entries() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let loom = dir.path().to_str().unwrap();
+        // Legacy log written before hash chaining: no hash fields at all.
+        let log_path = dir.path().join("auth").join("audit.log");
+        fs::create_dir_all(log_path.parent().unwrap()).unwrap();
+        fs::write(
+            &log_path,
+            concat!(
+                r#"{"timestamp":"2025-01-01T00:00:00Z","requesting_tool":"old","provider_id":"p","access_type":"read","result":"granted"}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+
+        let logger = AuditLogger::new(loom);
+        logger.log_read("tool-a", "provider-1", true).unwrap();
+        let report = logger.verify_integrity().unwrap();
+        assert_eq!(report.total, 2);
+        assert_eq!(report.chained, 1, "only the new entry is chained");
+        assert!(report.intact, "legacy entry must not break the chain");
     }
 
     #[test]

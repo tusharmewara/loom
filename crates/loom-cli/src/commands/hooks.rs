@@ -95,7 +95,8 @@ pub async fn run(loom_dir: &Path, action: &HooksAction) -> anyhow::Result<()> {
             let mut fail = 0;
             let hooks = engine.registry().list().await;
             for hook in hooks {
-                match verify_hook(&hook, &hook.signature.clone().unwrap_or_default()) {
+                let sig = hook.signature.clone().unwrap_or_default();
+                match verify_hook(&hook, &sig) {
                     Ok(true) => {
                         println!("✓ {}", hook.id);
                         ok += 1;

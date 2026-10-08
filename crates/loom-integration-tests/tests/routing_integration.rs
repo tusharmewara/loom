@@ -115,7 +115,7 @@ fn test_phase_transition_records_dynamic_signals() -> Result<()> {
         let task = manager.create_task(
             "Implement feature X",
             "Add a new endpoint /v1/feature that does something useful across modules.",
-            true,
+            false,
             None,
         )?;
         task.task_id
@@ -207,7 +207,7 @@ fn test_manual_override_persists() -> Result<()> {
     let manager = TaskManager::new(&agents);
 
     // Create a task
-    let task = manager.create_task("Override test", "A simple task", true, None)?;
+    let task = manager.create_task("Override test", "A simple task", false, None)?;
     let task_id = task.task_id;
 
     // Simulate manual override: directly set routing decision to Slm

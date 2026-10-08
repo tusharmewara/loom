@@ -100,7 +100,7 @@ impl AuthProviderTrait for GenericAuthProvider {
         Ok(vec![])
     }
 
-    fn export_credential(&self, _provider_id: &str) -> anyhow::Result<EncryptedCredential> {
+    fn export_credential(&self, _provider_id: &str, _requesting_tool: &str) -> anyhow::Result<EncryptedCredential> {
         Err(anyhow::anyhow!("GenericAdapter: no real credential store configured"))
     }
 }

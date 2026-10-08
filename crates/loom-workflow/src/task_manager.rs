@@ -609,6 +609,13 @@ mod tests {
     fn manager() -> (tempfile::TempDir, TaskManager) {
         let dir = tempfile::tempdir().unwrap();
         let loom = dir.path().join("loom");
+        std::fs::create_dir_all(&loom).unwrap();
+        // Hermetic: no git worktrees under the real ~/.loom in unit tests.
+        std::fs::write(
+            loom.join("config.toml"),
+            "[workflow]\nworktree_auto = false\n",
+        )
+        .unwrap();
         let manager = TaskManager::new(loom.to_str().unwrap());
         (dir, manager)
     }
