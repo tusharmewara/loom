@@ -5,6 +5,28 @@ All notable changes to the Loom project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-10-06
+
+### Added
+
+- feat(loom-auth): audit trail integrity verification — SHA-256 hash-chained audit log (`prev_hash`/`entry_hash` on `AuditEntry`) with `verify_integrity()` tamper detection; chain survives restarts and log rotation; legacy unchained entries are tolerated
+- test(loom-integration-tests): workflow template sharing suite (2 tests)
+- test(loom-integration-tests): hook signing edge cases suite (7 tests)
+- test(loom-integration-tests): MCP health monitoring suite (4 tests)
+- test(loom-integration-tests): session compression performance suite (5 tests)
+- docs: horizontal scaling investigation (`docs/horizontal-scaling-investigation.md`) — verdict: local-first by design, no scaling work warranted
+
+### Changed
+
+- ci: integration test step actually executes now (was gated on `test -f` against a directory, which is always false)
+- ci: integration and benchmark runner scripts are path-independent (no hardcoded checkout paths)
+
+### Fixed
+
+- fix(loom-cli): hooks `run` command reads correct `HookRunResult` fields (`blocked`/`stdout` instead of nonexistent `success`/`output`)
+- fix(loom-auth): credential export performs ACL authorization check, audit logging, and in-memory re-encryption with a fresh nonce — no plaintext exposure, `requesting_tool` parameter added to `AuthProviderTrait`
+- test: hermetic tests — no test writes to the real `~/.loom` anymore (worktree-creating tests use `worktree=false` or a tempdir `worktree_auto=false` config)
+
 ## [0.9.0] - 2026-09-16
 
 ### Added
