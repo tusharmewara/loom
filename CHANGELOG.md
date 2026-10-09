@@ -5,6 +5,17 @@ All notable changes to the Loom project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2026-10-09
+
+### Fixed
+
+- fix(loom-ipc): sync IPC handlers now run on a bare scoped thread instead of inside the async connection task — handlers that drive tokio runtimes internally (`Handle::block_on` / `Runtime::block_on`) panicked with "Cannot start a runtime from within a runtime", breaking `loom acp status/show/stop`, `loom hooks list`, and tool availability checks (the CLI surfaced this as `EOF while parsing a value at line 1 column 0`); a panicking handler now returns an error response instead of dropping the connection
+
+### Changed
+
+- chore: workspace clippy cleanup — `cargo clippy --workspace --all-targets` reports 0 warnings (was ~110): dead code removed (loomd capture.rs never-wired tracked-spawn chain, gRPC shutdown channel, loom-remote `default_key_paths`, `ForgeManager.loom_dir` field), lint fixes (`matches!`, `sort_by_key` + `Reverse`, `while let`, needless pass-by-value, complex type aliases), `#[allow(dead_code)]` on deserialized-but-unread serde response fields, `///!` → `//!` doc-comment headers, integration tests no longer drop `save_manifest` Results
+- chore(loomd, loom-tui): container runtime features (docker/podman/kubernetes) forwarded via `[features]` instead of forced on every dependent build
+
 ## [0.9.2] - 2026-10-06
 
 ### Added
