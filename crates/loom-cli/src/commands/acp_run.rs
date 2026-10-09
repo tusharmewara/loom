@@ -211,12 +211,6 @@ async fn run_acp_via_runtime(
 ) -> anyhow::Result<()> {
     use loom_runtime::{LaunchConfig, ProcessRuntime, RuntimeRegistry};
     use std::collections::HashMap;
-    #[cfg(feature = "docker")]
-    use loom_runtime::ContainerRuntime;
-    #[cfg(feature = "podman")]
-    use loom_runtime::ContainerRuntime;
-    #[cfg(feature = "kubernetes")]
-    use loom_runtime::ContainerRuntime;
 
     // Build launch config for the ACP agent
     let config = LaunchConfig {
@@ -235,15 +229,15 @@ async fn run_acp_via_runtime(
     let _ = registry.register(Box::new(ProcessRuntime::new()));
     #[cfg(feature = "docker")]
     {
-        let _ = registry.register(Box::new(ContainerRuntime::docker()));
+        let _ = registry.register(Box::new(loom_runtime::ContainerRuntime::docker()));
     }
     #[cfg(feature = "podman")]
     {
-        let _ = registry.register(Box::new(ContainerRuntime::podman()));
+        let _ = registry.register(Box::new(loom_runtime::ContainerRuntime::podman()));
     }
     #[cfg(feature = "kubernetes")]
     {
-        let _ = registry.register(Box::new(ContainerRuntime::kubernetes()));
+        let _ = registry.register(Box::new(loom_runtime::ContainerRuntime::kubernetes()));
     }
 
     // Get the runtime

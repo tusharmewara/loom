@@ -887,7 +887,9 @@ mod docker_client {
 }
 
 /// Podman client implementation using Podman CLI
-#[cfg(feature = "podman")]
+// ponytail: cfg mirrors the only call site (ContainerRuntime::connect picks docker when
+// both features are on, leaving this module dead under --all-features)
+#[cfg(all(feature = "podman", not(feature = "docker")))]
 mod podman_client {
     use super::*;
     use std::process::Command;

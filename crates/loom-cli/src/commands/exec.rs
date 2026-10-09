@@ -7,12 +7,6 @@ use anyhow::{Context, Result};
 use chrono;
 use loom_core::Task;
 use loom_runtime::{LaunchConfig, ProcessRuntime, RuntimeRegistry, RunResult};
-#[cfg(feature = "docker")]
-use loom_runtime::ContainerRuntime;
-#[cfg(feature = "podman")]
-use loom_runtime::ContainerRuntime;
-#[cfg(feature = "kubernetes")]
-use loom_runtime::ContainerRuntime;
 use loom_parallel::{AgentPool, AgentTask, WorktreeManager};
 use loom_generic_adapter::GenericAdapter;
 use std::collections::HashMap;
@@ -748,15 +742,15 @@ async fn execute_via_runtime(
     let _ = registry.register(Box::new(ProcessRuntime::new()));
     #[cfg(feature = "docker")]
     {
-        let _ = registry.register(Box::new(ContainerRuntime::docker()));
+        let _ = registry.register(Box::new(loom_runtime::ContainerRuntime::docker()));
     }
     #[cfg(feature = "podman")]
     {
-        let _ = registry.register(Box::new(ContainerRuntime::podman()));
+        let _ = registry.register(Box::new(loom_runtime::ContainerRuntime::podman()));
     }
     #[cfg(feature = "kubernetes")]
     {
-        let _ = registry.register(Box::new(ContainerRuntime::kubernetes()));
+        let _ = registry.register(Box::new(loom_runtime::ContainerRuntime::kubernetes()));
     }
 
     // Get the runtime
