@@ -49,6 +49,7 @@ jobs:
       - name: Run Tests
         if: matrix.feature == 'unit-tests'
         run: |
+          set -o pipefail
           cargo test --workspace --exclude loom-tui --all-features 2>&1 | tee test-output.log
           # Upload test summary for analysis
           if [ -f test-output.log ]; then
@@ -58,11 +59,13 @@ jobs:
       - name: Run Clippy
         if: matrix.feature == 'clippy'
         run: |
+          set -o pipefail
           cargo clippy --workspace --all-targets --all-features -- -D warnings 2>&1 | tee clippy-output.log
 
       - name: Run Doc Tests
         if: matrix.feature == 'doc-tests'
         run: |
+          set -o pipefail
           cargo test --workspace --doc --all-features 2>&1 | tee doc-output.log
 
       - name: Install cargo-tarpaulin (coverage)
