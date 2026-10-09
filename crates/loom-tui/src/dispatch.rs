@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env;
-use loom_runtime::{RuntimeRegistry, LaunchConfig};
-use loom_core::Task;
+use loom_runtime::RuntimeRegistry;
 use chrono;
 
 pub const DISPATCHER_COUNT: usize = 4;
@@ -598,7 +597,7 @@ impl Dispatcher for RuntimeDispatch {
     }
 
     fn dispatch(&self, task: &serde_json::Value) -> DispatchResult {
-        let Some((task_id, agent_id, prior_sessions)) = dispatch_target(task) else {
+        let Some((task_id, agent_id, _prior_sessions)) = dispatch_target(task) else {
             return DispatchResult::err("task_id and agent_id required".to_string());
         };
 
@@ -646,7 +645,7 @@ impl Dispatcher for RuntimeDispatch {
         // Execute via runtime
         let rt = tokio::runtime::Runtime::new().unwrap();
         match rt.block_on(runtime.run(&launch_config, &runtime_task)) {
-            Ok(result) => DispatchResult::ok(
+            Ok(_result) => DispatchResult::ok(
                 format!("Dispatched task {} via {} runtime", task_id, runtime.name()),
                 None,
             ),

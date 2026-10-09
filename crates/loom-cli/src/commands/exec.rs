@@ -17,7 +17,6 @@ use loom_parallel::{AgentPool, AgentTask, WorktreeManager};
 use loom_generic_adapter::GenericAdapter;
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::Command;
 use uuid;
 
 pub async fn run(

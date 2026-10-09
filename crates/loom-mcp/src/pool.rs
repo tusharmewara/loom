@@ -242,7 +242,7 @@ impl McpPool {
     pub fn is_running(&self, server_id: &str) -> bool {
         let map = self.process_map();
         let map = map.lock().unwrap();
-        map.get(server_id).map_or(false, |p| p.child.is_some())
+        map.get(server_id).is_some_and(|p| p.child.is_some())
     }
 
     /// Kill all running processes and clear the pool.

@@ -314,7 +314,7 @@ mod tests {
             "The Cross-Session Memory feature is very useful.",
         )];
 
-        let (entities, _) = kg.extract_from_messages(&msgs, "session-1").unwrap();
+        let (_entities, _) = kg.extract_from_messages(&msgs, "session-1").unwrap();
         // "Cross-Session Memory" feature — capitalize extraction may find entities
         // Not guaranteed to find a specific number, just check it runs
     }

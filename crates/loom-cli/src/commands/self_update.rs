@@ -100,7 +100,7 @@ async fn fetch_latest_release_from_github() -> anyhow::Result<Release> {
 
     let mut checksum = String::new();
     for a in assets {
-        if a["name"].as_str().map_or(false, |n| n.contains("sha256") || n.ends_with(".sha256")) {
+        if a["name"].as_str().is_some_and(|n| n.contains("sha256") || n.ends_with(".sha256")) {
             let url = a["browser_download_url"]
                 .as_str()
                 .ok_or_else(|| anyhow::anyhow!("Missing browser_download_url"))?;

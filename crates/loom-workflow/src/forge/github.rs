@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use hmac::{Hmac, Mac};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sha2::Sha256;
 use std::env;
 
@@ -13,6 +13,7 @@ use super::{Forge, PrInfo};
 /// GitHub webhook payload for pull request events.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct GitHubPrPayload {
     action: String,
     number: u64,
@@ -32,11 +33,13 @@ struct GitHubPullRequest {
     labels: Vec<GitHubLabel>,
     html_url: String,
     url: String,
+    #[allow(dead_code)]
     head_sha: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct GitHubBranchRef {
     sha: String,
     #[serde(rename = "ref")]
@@ -46,6 +49,7 @@ struct GitHubBranchRef {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct GitHubRepository {
     full_name: String,
     owner: GitHubUser,

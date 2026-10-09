@@ -257,6 +257,7 @@ pub struct CheckRun {
 
 /// Check runs response from GitHub API.
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 struct CheckRunsResponse {
     check_runs: Vec<CheckRun>,
     total_count: u64,
@@ -264,6 +265,7 @@ struct CheckRunsResponse {
 
 /// Combined status for a commit.
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 struct CombinedStatus {
     state: String,   // "success", "failure", "pending"
     statuses: Vec<StatusEntry>,
@@ -271,6 +273,7 @@ struct CombinedStatus {
 }
 
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 struct StatusEntry {
     context: String,
     state: String,
@@ -280,6 +283,7 @@ struct StatusEntry {
 
 /// Minimal GitHub API issue representation.
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 struct GitHubIssue {
     number: u64,
     title: String,
@@ -295,12 +299,14 @@ struct GitHubIssue {
 }
 
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 struct GitHubPRHead {
     sha: String,
     repo: Option<GitHubPRRepo>,
 }
 
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 struct GitHubPRRepo {
     full_name: Option<String>,
 }

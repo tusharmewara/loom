@@ -483,7 +483,7 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
             }
         }
         SessionsAction::Merge { dest, source, json } => {
-            cmd_merge(&loom_dir, &store, dest, source, *json)?
+            cmd_merge(loom_dir, store, dest, source, *json)?
         }
     }
     Ok(())

@@ -84,7 +84,7 @@ pub trait Runtime: Send + Sync {
 
     /// Get a unique identifier for this runtime instance.
     fn id(&self) -> String {
-        format!("{}-{}", self.name(), Uuid::new_v4().to_string()[..8].to_string())
+        format!("{}-{}", self.name(), &Uuid::new_v4().to_string()[..8])
     }
 }
 
@@ -447,7 +447,7 @@ pub mod kubernetes_client {
             let deadline = tokio::time::Instant::now() + WAIT_TIMEOUT;
             let mut job = None;
             while tokio::time::Instant::now() < deadline {
-                if let Some(j) = self.jobs().get(id).await.ok() {
+                if let Ok(j) = self.jobs().get(id).await {
                     if j.status.as_ref().map(|s| s.succeeded.is_some() || s.failed.is_some()).unwrap_or(false) {
                         job = Some(j);
                         break;
@@ -577,7 +577,7 @@ impl ContainerRuntime {
             use crate::docker_client::DockerClient;
             let client = DockerClient::new().await?;
             self.client = Some(Box::new(client));
-            return Ok(());
+            Ok(())
         }
 
         #[cfg(all(feature = "podman", not(feature = "docker")))]
@@ -808,7 +808,7 @@ mod docker_client {
             };
 
             let options = CreateContainerOptions {
-                name: format!("loom-{}", Uuid::new_v4().to_string()[..8].to_string()),
+                name: format!("loom-{}", &Uuid::new_v4().to_string()[..8]),
                 platform: None,
             };
 

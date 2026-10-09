@@ -176,7 +176,7 @@ fn check_npx() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+    
 
     #[test]
     fn test_new_returns_not_running() {

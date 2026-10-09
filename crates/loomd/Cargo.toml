@@ -3,6 +3,12 @@ name = "loomd"
 version.workspace = true
 edition.workspace = true
 
+[features]
+docker = ["loom-runtime/docker"]
+podman = ["loom-runtime/podman"]
+kubernetes = ["loom-runtime/kubernetes"]
+containers = ["loom-runtime/containers"]
+
 [dependencies]
 loom-core = { path = "../loom-core" }
 loom-discovery = { path = "../loom-discovery" }
@@ -17,7 +23,7 @@ loom-ipc = { path = "../loom-ipc" }
 loom-adapters = { path = "../loom-adapters" }
 loom-generic-adapter = { path = "../loom-generic-adapter" }
 loom-knowledge = { path = "../loom-knowledge" }
-loom-runtime = { path = "../loom-runtime", features = ["docker", "podman", "kubernetes"] }
+loom-runtime = { path = "../loom-runtime" }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

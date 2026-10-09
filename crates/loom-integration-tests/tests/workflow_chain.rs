@@ -163,7 +163,7 @@ fn test_phase_result_file_path_convention() -> Result<()> {
 fn test_post_phase_hook_event_is_registered() {
     // The PostPhase event type is exposed as the string "PostPhase" in the
     // existing Hook (string-based) API. Verify the helper recognises it.
-    assert_eq!(format!("{}", "PostPhase".to_string()), "PostPhase");
+    assert_eq!(format!("{}", "PostPhase"), "PostPhase");
 }
 
 #[test]

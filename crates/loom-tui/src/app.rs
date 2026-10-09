@@ -497,7 +497,7 @@ impl App {
             let pr_number = pr
                 .pointer("/id")
                 .and_then(Value::as_str)
-                .and_then(|s| s.split('#').last())
+                .and_then(|s| s.split('#').next_back())
                 .and_then(|s| s.parse::<u64>().ok())?;
             if repo.is_empty() || pr_number == 0 {
                 None

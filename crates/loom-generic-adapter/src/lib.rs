@@ -152,7 +152,7 @@ impl GenericAdapter {
 
     /// Get the runtime configured for this tool from the `[launch]` section.
     pub fn runtime(&self) -> Option<String> {
-        self.config.launch.as_ref().and_then(|l| Some(l.runtime.clone()))
+        self.config.launch.as_ref().map(|l| l.runtime.clone())
     }
 
     /// Get the full LaunchConfig for this tool from the `[launch]` section.

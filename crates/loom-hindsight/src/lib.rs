@@ -187,15 +187,13 @@ impl Hindsight {
             return Ok(Vec::new());
         }
 
-        let sql = format!(
-            "SELECT f.id, f.content, f.fact_type, f.source, f.importance, f.created_at,
+        let sql = "SELECT f.id, f.content, f.fact_type, f.source, f.importance, f.created_at,
                     bm25(facts_fts, 0.0, 10.0, 5.0) AS score
              FROM facts_fts
              JOIN facts f ON f.rowid = facts_fts.rowid
              WHERE facts_fts MATCH ?1
              ORDER BY score
-             LIMIT ?2"
-        );
+             LIMIT ?2".to_string();
 
         let mut stmt = db.prepare(&sql)?;
         let results = stmt
@@ -379,11 +377,11 @@ mod tests {
     #[test]
     fn test_importance_clamping() {
         let h = Hindsight::open_in_memory().unwrap();
-        let id = h.retain("important fact", "insight", "test", 1.5).unwrap();
+        let _id = h.retain("important fact", "insight", "test", 1.5).unwrap();
         let results = h.recall("important", 10).unwrap();
         assert!((results[0].fact.importance - 1.0).abs() < 0.01);
 
-        let id2 = h.retain("unimportant", "insight", "test", -0.5).unwrap();
+        let _id2 = h.retain("unimportant", "insight", "test", -0.5).unwrap();
         let results = h.recall("unimportant", 10).unwrap();
         assert!((results[0].fact.importance - 0.0).abs() < 0.01);
     }
@@ -476,7 +474,7 @@ mod tests {
     #[test]
     fn test_retain_with_custom_type() {
         let h = Hindsight::open_in_memory().unwrap();
-        let id = h.retain("custom typed fact", "my-custom-type", "my-tool", 0.5).unwrap();
+        let _id = h.retain("custom typed fact", "my-custom-type", "my-tool", 0.5).unwrap();
         let results = h.list_by_type("my-custom-type", 10).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].source, "my-tool");

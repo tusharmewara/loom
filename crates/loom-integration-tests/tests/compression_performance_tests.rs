@@ -1,9 +1,9 @@
-///! Integration test for session compression performance.
-///! Tests that session compression operates efficiently within performance budgets
-///! and handles edge cases correctly.
+//! Integration test for session compression performance.
+//! Tests that session compression operates efficiently within performance budgets
+//! and handles edge cases correctly.
 
 use loom_sessions::store::SessionStore;
-use loom_core::{Message, MessageRole, SESSION_COMPRESSION_THRESHOLD, SESSION_FULL_FIDELITY_COUNT};
+use loom_core::MessageRole;
 use std::time::Instant;
 use tempfile::tempdir;
 
@@ -31,7 +31,7 @@ async fn test_compression_performance_above_threshold() -> anyhow::Result<()> {
         tags: vec![],
         summarized_at: None,
         summarized_message_count: None,
-    });
+    }).unwrap();
     
     // Add messages - each message has some content
     let msgs: Vec<loom_core::Message> = (0..21)
@@ -102,7 +102,7 @@ async fn test_compression_performance_below_threshold_noop() -> anyhow::Result<(
         tags: vec![],
         summarized_at: None,
         summarized_message_count: None,
-    });
+    }).unwrap();
     
     // Add messages
     let msgs: Vec<loom_core::Message> = (0..5)
@@ -124,7 +124,7 @@ async fn test_compression_performance_below_threshold_noop() -> anyhow::Result<(
     
     // Compression should be a no-op below threshold
     let outcome = store.compress_session("perf-test-2");
-    let is_noop = outcome.as_ref().map_or(false, |opt| opt.is_none());
+    let is_noop = outcome.as_ref().is_ok_and(|opt| opt.is_none());
     assert!(
         is_noop,
         "Compression below threshold should be a no-op, got outcome: {:?}",
@@ -166,7 +166,7 @@ async fn test_compression_performance_at_threshold_boundary() -> anyhow::Result<
         tags: vec![],
         summarized_at: None,
         summarized_message_count: None,
-    });
+    }).unwrap();
     
     // Add messages
     let msgs: Vec<loom_core::Message> = (0..20)
@@ -188,7 +188,7 @@ async fn test_compression_performance_at_threshold_boundary() -> anyhow::Result<
     
     // At boundary (20 == threshold), should be no-op
     let outcome = store.compress_session("perf-test-3");
-    let is_noop = outcome.as_ref().map_or(false, |opt| opt.is_none());
+    let is_noop = outcome.as_ref().is_ok_and(|opt| opt.is_none());
     assert!(
         is_noop,
         "Compression at exact threshold should be no-op, got outcome: {:?}",
@@ -226,7 +226,7 @@ async fn test_compression_performance_append_auto_trigger() -> anyhow::Result<()
         tags: vec![],
         summarized_at: None,
         summarized_message_count: None,
-    });
+    }).unwrap();
     
     // Add messages
     let msgs: Vec<loom_core::Message> = (0..20)
@@ -304,7 +304,7 @@ async fn test_compression_idempotence() -> anyhow::Result<()> {
         tags: vec![],
         summarized_at: None,
         summarized_message_count: None,
-    });
+    }).unwrap();
     
     // Add messages
     let msgs: Vec<loom_core::Message> = (0..25)
@@ -331,7 +331,7 @@ async fn test_compression_idempotence() -> anyhow::Result<()> {
     let _second_time = second_elapsed.as_micros();
     
     let outcome = store.compress_session("perf-test-5");
-    let is_noop = outcome.as_ref().map_or(false, |opt| opt.is_none());
+    let is_noop = outcome.as_ref().is_ok_and(|opt| opt.is_none());
     assert!(
         is_noop,
         "Second compression above threshold should be no-op (idempotent), got: {:?}",

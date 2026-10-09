@@ -52,19 +52,13 @@ impl AcpPeer {
 pub struct PeerDiscovery {
     /// Known peers (id → peer).
     peers: Arc<RwLock<HashMap<String, AcpPeer>>>,
-    /// Local peer identity (for announcing ourselves).
-    local_id: String,
-    /// Health check interval.
-    check_interval: Duration,
 }
 
 impl PeerDiscovery {
     /// Create a new peer discovery manager.
-    pub fn new(local_id: &str) -> Self {
+    pub fn new(_local_id: &str) -> Self {
         Self {
             peers: Arc::new(RwLock::new(HashMap::new())),
-            local_id: local_id.to_string(),
-            check_interval: Duration::from_secs(60),
         }
     }
 
@@ -165,14 +159,13 @@ impl PeerDiscovery {
 
 /// Check if an HTTP endpoint is reachable.
 async fn check_http_endpoint(addr: &SocketAddr) -> bool {
-    match tokio::time::timeout(Duration::from_secs(3), async {
-        tokio::net::TcpStream::connect(addr).await
-    })
-    .await
-    {
-        Ok(Ok(_)) => true,
-        _ => false,
-    }
+    matches!(
+        tokio::time::timeout(Duration::from_secs(3), async {
+            tokio::net::TcpStream::connect(addr).await
+        })
+        .await,
+        Ok(Ok(_))
+    )
 }
 
 #[cfg(test)]

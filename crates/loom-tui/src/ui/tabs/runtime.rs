@@ -89,7 +89,7 @@ pub fn draw_runtime(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, t
     use ratatui::layout::{Layout, Direction, Constraint};
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length((area.height / 2) as u16), Constraint::Min(5)])
+        .constraints([Constraint::Length(area.height / 2), Constraint::Min(5)])
         .margin(1)
         .split(area);
     

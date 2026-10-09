@@ -216,7 +216,7 @@ mod tests {
     fn rendered(app: &App) -> String {
         let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).unwrap();
-        let theme = app.theme.clone();
+        let theme = app.theme;
         terminal
             .draw(|f| draw_review(f, f.area(), app, &theme))
             .unwrap();

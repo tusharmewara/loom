@@ -558,7 +558,7 @@ impl RuleEngine {
             let entry = entry?;
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("toml") {
-                let content = fs::read_to_string(&path).map_err(|e| RuleError::Io(e))?;
+                let content = fs::read_to_string(&path).map_err(RuleError::Io)?;
                 let rule: Rule = toml::from_str(&content).map_err(|e| RuleError::TomlParse {
                     path: path.to_string_lossy().to_string(),
                     source: e,
@@ -677,7 +677,7 @@ impl RuleEngine {
     pub async fn get_stats(&self) -> Vec<RuleStats> {
         let stats = self.stats.read().await;
         let mut list: Vec<RuleStats> = stats.values().cloned().collect();
-        list.sort_by(|a, b| b.matches.cmp(&a.matches));
+        list.sort_by_key(|r| std::cmp::Reverse(r.matches));
         list
     }
 
@@ -850,7 +850,7 @@ impl RuleEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use LoomEventExt;
+    
 
     #[test]
     fn test_rule_variant_name() {

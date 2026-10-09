@@ -242,6 +242,7 @@ struct JiraSearchResponse {
 }
 
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 struct JiraIssue {
     #[serde(default)]
     key: String,
@@ -264,6 +265,7 @@ struct JiraFields {
     #[serde(default)]
     created: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     project: Option<JiraProject>,
 }
 
@@ -280,6 +282,7 @@ struct JiraUser {
 }
 
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 struct JiraProject {
     #[serde(default)]
     key: String,

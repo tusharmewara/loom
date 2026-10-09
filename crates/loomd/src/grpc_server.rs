@@ -4,10 +4,9 @@ use anyhow::{Context, Result};
 use async_stream::stream;
 use loom_core::{HealthCheck, LoomEvent};
 use loom_event_bus::EventBus;
-use loom_workflow::{TaskManager, WorkflowEngine};
+use loom_workflow::WorkflowEngine;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::broadcast;
 use tonic::{Request, Response, Status};
 
 pub mod loom_grpc {
@@ -49,24 +48,18 @@ impl Default for GrpcConfig {
 pub struct LoomGrpcService {
     loom_dir: String,
     event_bus: Arc<EventBus>,
-    shutdown_tx: broadcast::Sender<()>,
 }
 
 impl LoomGrpcService {
-    pub fn new(loom_dir: &str, event_bus: Arc<EventBus>, shutdown_tx: broadcast::Sender<()>) -> Self {
+    pub fn new(loom_dir: &str, event_bus: Arc<EventBus>) -> Self {
         Self {
             loom_dir: loom_dir.to_string(),
             event_bus,
-            shutdown_tx,
         }
     }
 
     fn workflow_engine(&self) -> WorkflowEngine {
         WorkflowEngine::new(&self.loom_dir)
-    }
-
-    fn task_manager(&self) -> TaskManager {
-        TaskManager::new(&self.loom_dir)
     }
 }
 

@@ -119,8 +119,8 @@ impl DapTransport {
 
         let mut body = vec![0u8; content_length];
         reader.read_exact(&mut body)?;
-        Ok(serde_json::from_slice(&body)
-            .context("Failed to parse DAP response JSON")?)
+        serde_json::from_slice(&body)
+            .context("Failed to parse DAP response JSON")
     }
 }
 

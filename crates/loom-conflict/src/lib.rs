@@ -143,12 +143,11 @@ pub fn scan_directory(dir: &str) -> Result<Vec<Conflict>, ConflictError> {
     let mut all_conflicts = Vec::new();
     let skip_dirs = [".git", "node_modules", "target", ".venv", "vendor", ".build"];
 
-    scan_directory_recursive(dir, dir, &skip_dirs, &mut all_conflicts)?;
+    scan_directory_recursive(dir, &skip_dirs, &mut all_conflicts)?;
     Ok(all_conflicts)
 }
 
 fn scan_directory_recursive(
-    base: &str,
     current: &str,
     skip_dirs: &[&str],
     conflicts: &mut Vec<Conflict>,
@@ -169,7 +168,6 @@ fn scan_directory_recursive(
             let name = path.file_name().unwrap_or_default().to_string_lossy();
             if !skip_dirs.contains(&name.as_ref()) {
                 scan_directory_recursive(
-                    base,
                     &path.to_string_lossy(),
                     skip_dirs,
                     conflicts,

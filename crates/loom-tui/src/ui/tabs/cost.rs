@@ -153,7 +153,7 @@ pub fn draw_cost(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, them
         use ratatui::layout::{Layout, Direction, Constraint};
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length((area.height / 2) as u16), Constraint::Min(5)])
+            .constraints([Constraint::Length(area.height / 2), Constraint::Min(5)])
             .split(area);
 
         frame.render_widget(paragraph, chunks[0]);
@@ -169,8 +169,8 @@ pub fn draw_cost(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, them
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use serde_json::json;
+    
+    
 
     #[test]
     fn test_cost_tier_classification() {

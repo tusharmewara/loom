@@ -71,10 +71,10 @@ pub async fn run(loom_dir: &Path, action: &RulesAction) -> anyhow::Result<()> {
                     other => anyhow::bail!("Unknown operator: {other}"),
                 };
                 let v = value.as_deref().unwrap_or("");
-                builder = builder.condition(Condition::field(&f, op, v));
+                builder = builder.condition(Condition::field(f, op, v));
             }
             if let Some(msg) = action_log {
-                builder = builder.action(RuleAction::log(&msg));
+                builder = builder.action(RuleAction::log(msg));
             }
             if *action_suppress {
                 builder = builder.action(RuleAction::suppress());

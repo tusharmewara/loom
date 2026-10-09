@@ -1,6 +1,5 @@
 //! SSH connection management.
 
-use crate::auth::SshKeySource;
 use std::collections::HashMap;
 use std::process::Command as StdCommand;
 
@@ -115,5 +114,9 @@ impl SshConnectionManager {
 
     pub fn len(&self) -> usize {
         self.connections.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.connections.is_empty()
     }
 }

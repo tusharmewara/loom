@@ -16,7 +16,14 @@ pub struct DebugAdapter {
 }
 
 /// Known debug adapters and their commands.
-const KNOWN_ADAPTERS: &[(&str, &[&str], &[&str], &str, &[&str])] = &[
+type AdapterSpec = (
+    &'static str,
+    &'static [&'static str],
+    &'static [&'static str],
+    &'static str,
+    &'static [&'static str],
+);
+const KNOWN_ADAPTERS: &[AdapterSpec] = &[
     ("lldb-dap", &["c", "cpp", "rust", "swift"], &[], "lldb", &["lldb-dap"]),
     ("dlv", &["go"], &["dap"], "go", &["dlv"]),
     ("debugpy", &["python"], &["--listen", "0.0.0.0:5678"], "python", &["debugpy"]),

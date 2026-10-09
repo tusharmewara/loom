@@ -2,7 +2,6 @@
 
 use anyhow::Result;
 use loom_core::config::ConfigReader;
-use serde_json::Value;
 
 /// Telemetry actions.
 #[derive(clap::Subcommand, Debug)]

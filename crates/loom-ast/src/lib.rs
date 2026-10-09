@@ -264,7 +264,7 @@ impl From<&Node<'_>> for NodeInfo {
             start_byte: node.start_byte(),
             end_byte: node.end_byte(),
             text: text.to_string(),
-            child_count: node.child_count() as usize,
+            child_count: node.child_count(),
             named: node.is_named(),
             is_error: node.is_error(),
             children: None,
@@ -283,7 +283,7 @@ impl NodeInfo {
             start_byte: node.start_byte(),
             end_byte: node.end_byte(),
             text: text.to_string(),
-            child_count: node.child_count() as usize,
+            child_count: node.child_count(),
             named: node.is_named(),
             is_error: node.is_error(),
             children: None,
@@ -294,7 +294,7 @@ impl NodeInfo {
     pub fn from_node_recursive<'a>(node: &Node<'a>, source: &'a str, max_depth: usize) -> Self {
         let mut info = NodeInfo::from_node(node, source);
         if max_depth > 0 && node.child_count() > 0 {
-            let children: Vec<NodeInfo> = (0..node.child_count() as usize)
+            let children: Vec<NodeInfo> = (0..node.child_count())
                 .filter_map(|i| node.child(i as u32))
                 .map(|child| NodeInfo::from_node_recursive(&child, source, max_depth - 1))
                 .collect();
@@ -328,17 +328,12 @@ pub fn node_stack_at_position(result: &ParseResult, row: usize, column: usize) -
     if let Some(descendant) = root.descendant_for_point_range(point, point) {
         nodes.push(NodeInfo::from_node(&descendant, &result.source));
         let mut current = descendant;
-        loop {
-            match current.parent() {
-                Some(parent) => {
-                    nodes.push(NodeInfo::from_node(&parent, &result.source));
-                    if parent.id() == root.id() {
-                        break;
-                    }
-                    current = parent;
-                }
-                None => break,
+        while let Some(parent) = current.parent() {
+            nodes.push(NodeInfo::from_node(&parent, &result.source));
+            if parent.id() == root.id() {
+                break;
             }
+            current = parent;
         }
     }
     nodes.reverse(); // root first
@@ -362,7 +357,7 @@ pub fn siblings_at_position(result: &ParseResult, row: usize, column: usize) -> 
     let parent = loop {
         let parent = current
             .parent()
-            .ok_or_else(|| AstError::NoNodeAtPosition(row, column))?;
+            .ok_or(AstError::NoNodeAtPosition(row, column))?;
 
         if parent.named_child_count() >= 2 && current.is_named() {
             // Check grandparent — if it also has >= 2 named children and
@@ -378,7 +373,7 @@ pub fn siblings_at_position(result: &ParseResult, row: usize, column: usize) -> 
         current = parent;
     };
 
-    let siblings: Vec<NodeInfo> = (0..parent.child_count() as usize)
+    let siblings: Vec<NodeInfo> = (0..parent.child_count())
         .filter_map(|i| parent.child(i as u32))
         .filter(|c| c.is_named())
         .map(|child| NodeInfo::from_node(&child, &result.source))
@@ -519,7 +514,7 @@ fn resolve_to_sibling_tree<'a>(
     loop {
         let parent = current
             .parent()
-            .ok_or_else(|| AstError::NoNodeAtPosition(row, col))?;
+            .ok_or(AstError::NoNodeAtPosition(row, col))?;
 
         let n_children = parent.child_count();
         if n_children < 2
@@ -535,7 +530,7 @@ fn resolve_to_sibling_tree<'a>(
         let idx = (0..n_children as u32)
             .filter_map(|i| parent.child(i))
             .position(|c| c.start_byte() == byte_start)
-            .ok_or_else(|| AstError::NoNodeAtPosition(row, col))? as usize;
+            .ok_or(AstError::NoNodeAtPosition(row, col))?;
         return Ok((current, parent, idx));
     }
 }
@@ -589,7 +584,7 @@ pub fn move_node_up(source: &str, language: &str, position: &Position) -> AstRes
         .rev()
         .filter_map(|i| parent.child(i as u32))
         .find(|c| c.start_byte() != c.end_byte())
-        .ok_or_else(|| AstError::NoNodeAtPosition(row, col))?;
+        .ok_or(AstError::NoNodeAtPosition(row, col))?;
 
     let node_text = &source[node.start_byte()..node.end_byte()];
     let prev_text = &source[prev_sibling.start_byte()..prev_sibling.end_byte()];
@@ -1025,10 +1020,9 @@ pub fn replace_range(
 
 /// Convert row/column position to byte offset in source.
 fn position_to_byte_offset(source: &str, row: usize, col: usize) -> usize {
-    let mut current_row = 0;
     let mut byte_offset = 0;
 
-    for line in source.lines() {
+    for (current_row, line) in source.lines().enumerate() {
         if current_row == row {
             // Column is in bytes within the line (UTF-8 safe for ASCII-compatible)
             let line_bytes = line.len();
@@ -1037,7 +1031,6 @@ fn position_to_byte_offset(source: &str, row: usize, col: usize) -> usize {
         }
         // Add 1 for the newline character
         byte_offset += line.len() + 1;
-        current_row += 1;
     }
 
     source.len()

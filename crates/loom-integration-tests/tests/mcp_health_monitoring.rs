@@ -1,10 +1,7 @@
-///! Integration test for MCP health monitoring.
-///! Tests that MCP health monitoring works correctly, including status tracking.
+//! Integration test for MCP health monitoring.
+//! Tests that MCP health monitoring works correctly, including status tracking.
 
 use loom_core::{HealthStatusStr, McpServerEntry};
-use loom_mcp::McpHealthChecker;
-use std::time::Duration;
-use tokio::time::sleep;
 
 #[tokio::test]
 async fn test_mcp_health_monitor_tracks_status_changes() -> anyhow::Result<()> {
@@ -178,7 +175,7 @@ async fn test_mcp_health_monitor_status_snapshot() -> anyhow::Result<()> {
     // Status snapshot should contain the registered server
     let snapshot = checker.status_snapshot().await;
     assert_eq!(snapshot.len(), 1);
-    let snapshot_entry = snapshot.iter().next().unwrap();
+    let snapshot_entry = snapshot.first().unwrap();
     assert_eq!(snapshot_entry.0, "snapshot-test-server");
 
     println!("✅ MCP health monitoring status snapshot works correctly");

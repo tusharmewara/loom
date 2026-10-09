@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use hmac::{Hmac, Mac};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sha2::Sha256;
 use std::env;
 
@@ -13,6 +13,7 @@ use super::{Forge, PrInfo};
 /// GitLab webhook payload for merge request events.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 struct GitLabMrPayload {
     object_kind: String,
     event_type: Option<String>,
@@ -24,6 +25,7 @@ struct GitLabMrPayload {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 struct GitLabMrAttributes {
     iid: u64,
     title: String,
@@ -40,6 +42,7 @@ struct GitLabMrAttributes {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 struct GitLabProject {
     id: u64,
     name: String,
@@ -50,6 +53,7 @@ struct GitLabProject {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 struct GitLabNamespace {
     path: String,
     kind: String,

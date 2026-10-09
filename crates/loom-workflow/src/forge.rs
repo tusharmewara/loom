@@ -60,7 +60,6 @@ pub struct PrInfo {
 pub struct ForgeManager {
     forges: HashMap<String, Box<dyn Forge>>,
     task_manager: Arc<Mutex<TaskManager>>,
-    loom_dir: String,
 }
 
 impl ForgeManager {
@@ -81,7 +80,6 @@ impl ForgeManager {
         Ok(Self {
             forges,
             task_manager: Arc::new(Mutex::new(task_manager)),
-            loom_dir: loom_dir.to_string(),
         })
     }
 

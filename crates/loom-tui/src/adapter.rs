@@ -414,6 +414,7 @@ impl LoomCliAdapter {
 /// 1. a `Created task <id>` confirmation line (authoritative),
 /// 2. an embedded JSON payload containing `task_id`,
 /// 3. any bare UUID-shaped token (8-4-4-4-12 hex).
+///
 /// No `regex` dependency: the UUID scan is a small manual matcher.
 fn parse_created_task_id(output: &str) -> Option<String> {
     for line in output.lines().map(str::trim) {

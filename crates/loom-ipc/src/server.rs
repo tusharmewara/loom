@@ -43,7 +43,19 @@ pub async fn serve(socket_path: &str, handler: impl IpcHandler, shutdown: broadc
                             Ok(_) => {
                                 debug!("IPC received request: {}", line.trim());
                                 if let Ok(req) = serde_json::from_str::<IpcRequest>(line.trim()) {
-                                    let resp = handler.handle(req);
+                                    // Handlers are sync and drive their own tokio runtimes
+                                    // (Handle::block_on / Runtime::block_on), which panics
+                                    // if called with an ambient runtime context entered.
+                                    // Run on a bare thread so that context is absent.
+                                    // ponytail: one thread per request; IPC is a low-volume
+                                    // control channel — switch to spawn_blocking + channel
+                                    // if request volume ever matters.
+                                    let req_id = req.request_id.clone();
+                                    let handler = handler.clone();
+                                    let resp = std::thread::scope(|s| {
+                                        s.spawn(move || handler.handle(req)).join()
+                                            .unwrap_or_else(|_| IpcResponse::error(req_id, "Internal server error: handler panicked"))
+                                    });
                                     let resp_line = resp.to_json_line();
                                     debug!("IPC sending response: {}", resp_line.trim());
                                     let _ = writer.write_all(resp_line.as_bytes()).await;

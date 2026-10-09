@@ -1,7 +1,5 @@
 //! SSH authentication key loading.
 
-use std::path::Path;
-
 /// Source of an SSH private key.
 #[derive(Debug, Clone)]
 pub enum SshKeySource {
@@ -28,17 +26,3 @@ pub fn load_ssh_key(source: &SshKeySource) -> anyhow::Result<String> {
     }
 }
 
-/// Expand common SSH key paths if they exist.
-pub fn default_key_paths() -> Vec<String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    let candidates = [
-        format!("{home}/.ssh/id_rsa"),
-        format!("{home}/.ssh/id_ed25519"),
-        format!("{home}/.ssh/id_ecdsa"),
-        format!("{home}/.ssh/id_dsa"),
-    ];
-    candidates
-        .into_iter()
-        .filter(|p| Path::new(p).exists())
-        .collect()
-}

@@ -139,7 +139,7 @@ pub async fn run(action: &AstAction) -> anyhow::Result<()> {
                 println!("  Error nodes:  {}", s.error_nodes);
                 println!("  Node kinds:");
                 let mut kinds: Vec<_> = s.node_kinds.into_iter().collect();
-                kinds.sort_by(|a, b| b.1.cmp(&a.1));
+                kinds.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
                 for (kind, count) in kinds.iter().take(15) {
                     println!("    {}: {}", kind, count);
                 }

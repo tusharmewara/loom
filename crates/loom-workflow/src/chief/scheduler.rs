@@ -103,8 +103,8 @@ mod tests {
         assert_eq!(batches[1][0].task_id, "t3");
 
         let first: Vec<&str> = batches[0].iter().map(|e| e.harness.as_str()).collect();
-        assert!(first.iter().any(|h| *h == "goose"));
-        assert!(first.iter().any(|h| *h == "jcode"));
+        assert!(first.contains(&"goose"));
+        assert!(first.contains(&"jcode"));
         assert!(batches
             .iter()
             .flatten()

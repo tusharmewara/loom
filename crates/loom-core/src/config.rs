@@ -975,7 +975,7 @@ version = "0.2.0"
         let labels: Vec<&str> = diag.steps.iter().map(|s| s.label.as_str()).collect();
         assert!(labels.iter().any(|l| l.starts_with("defaults")), "steps: {labels:?}");
         assert!(labels.iter().any(|l| l.starts_with("extends:")), "steps: {labels:?}");
-        assert!(labels.iter().any(|l| *l == "local"), "steps: {labels:?}");
+        assert!(labels.contains(&"local"), "steps: {labels:?}");
 
         // The extends step should report a path.
         let extends_step = diag.steps.iter().find(|s| s.label.starts_with("extends:")).unwrap();

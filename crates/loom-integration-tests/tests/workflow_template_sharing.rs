@@ -1,10 +1,9 @@
-///! Integration test for workflow template sharing between tools.
-///! Tests that workflow templates can be shared and used across different tools in the Loom ecosystem.
+//! Integration test for workflow template sharing between tools.
+//! Tests that workflow templates can be shared and used across different tools in the Loom ecosystem.
 
 use loom_core::WorkflowTemplate;
 use loom_sessions::SessionManager;
 use loom_workflow::{TemplateManager, WorkflowEngine};
-use std::path::Path;
 use tempfile::tempdir;
 
 #[tokio::test]
@@ -14,7 +13,7 @@ async fn test_workflow_template_sharing_between_tools() -> anyhow::Result<()> {
     let agents_path = loom_dir.path().to_str().unwrap();
 
     // Initialize session manager and workflow engine
-    let session_manager = SessionManager::new(agents_path);
+    let _session_manager = SessionManager::new(agents_path);
     let workflow_engine = WorkflowEngine::new(agents_path);
     let template_manager = TemplateManager::new(agents_path);
 

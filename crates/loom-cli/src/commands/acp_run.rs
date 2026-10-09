@@ -3,11 +3,11 @@
 
 use loom_core::{Message, SessionManifest, Task};
 use loom_sessions::acp_protocol::{AcpClientConfig, AcpProtocolClient, AcpTranscript};
-use std::collections::HashMap;
 use std::path::Path;
 
 /// Run one prompt turn against a canonical ACP agent and persist the
 /// transcript as a Loom session (indexed into memory + knowledge).
+#[allow(clippy::too_many_arguments)]
 pub async fn run_acp_prompt(
     loom_dir: &Path,
     program: &str,
@@ -198,6 +198,7 @@ pub fn build_acp_session(
 ///
 /// This function runs the ACP agent inside a container runtime (docker, podman, kubernetes)
 /// while preserving the ACP protocol transcript and session persistence.
+#[allow(clippy::too_many_arguments)]
 async fn run_acp_via_runtime(
     loom_dir: &Path,
     program: &str,

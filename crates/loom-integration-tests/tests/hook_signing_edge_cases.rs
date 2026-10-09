@@ -24,7 +24,7 @@ async fn test_hook_signing_with_valid_key() -> anyhow::Result<()> {
     let signature = sign_hook(&hook);
     
     // Verify the signature
-    let verification = verify_hook(&hook, &signature)?;
+    let _verification = verify_hook(&hook, &signature)?;
     // sign_hook produces deterministic SHA-256 hash; verify compares it
     // Note: verify_hook returns Ok(true) if signature matches the expected hash
     

@@ -365,7 +365,6 @@ impl Loomd {
         let grpc_service = grpc_server::LoomGrpcService::new(
             &self.loom_dir,
             self.event_bus.clone(),
-            self.shutdown_tx.clone(),
         );
         let grpc_handle = tokio::spawn(async move {
             if let Err(e) = grpc_server::start_grpc_server(grpc_config, grpc_service).await {

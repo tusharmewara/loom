@@ -42,14 +42,14 @@ fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
 
     // inner = SHA256((key XOR ipad) || data)
     let mut inner_hasher = Sha256::new();
-    inner_hasher.update(&ipad);
+    inner_hasher.update(ipad);
     inner_hasher.update(data);
     let inner = inner_hasher.finalize();
 
     // outer = SHA256((key XOR opad) || inner)
     let mut outer_hasher = Sha256::new();
-    outer_hasher.update(&opad);
-    outer_hasher.update(&inner);
+    outer_hasher.update(opad);
+    outer_hasher.update(inner);
 
     outer_hasher.finalize().into()
 }
@@ -83,7 +83,7 @@ impl AcpKeyPair {
         let bytes: [u8; 32] = bytes
             .try_into()
             .map_err(|_| anyhow::anyhow!("Seed must be 32 bytes"))?;
-        let signing_key = SigningKey::from_bytes(&bytes.into());
+        let signing_key = SigningKey::from_bytes(&bytes);
         let verifying_key = signing_key.verifying_key();
         Ok(Self {
             signing_key,
@@ -227,7 +227,7 @@ pub fn initiate_handshake(
     keypair: &AcpKeyPair,
 ) -> Result<(AcpHandshake, String, String)> {
     let handshake = AcpHandshake::new(AcpKeyPair {
-        signing_key: SigningKey::from_bytes(&keypair.signing_key.to_bytes().into()),
+        signing_key: SigningKey::from_bytes(&keypair.signing_key.to_bytes()),
         verifying_key: keypair.verifying_key,
     });
 
@@ -274,7 +274,7 @@ pub fn perform_responder_handshake(
     initiator_public_key_hex: &str,
 ) -> Result<(AcpHandshake, String)> {
     let mut handshake = AcpHandshake::new(AcpKeyPair {
-        signing_key: SigningKey::from_bytes(&keypair.signing_key.to_bytes().into()),
+        signing_key: SigningKey::from_bytes(&keypair.signing_key.to_bytes()),
         verifying_key: keypair.verifying_key,
     });
 

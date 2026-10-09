@@ -4,7 +4,7 @@ use crate::app::App;
 use crate::theme::Theme;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Wrap, List, ListItem, ListState};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 use serde_json::Value;
 
@@ -138,7 +138,7 @@ pub fn draw_graph(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, the
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
     use serde_json::json;
 
     #[test]

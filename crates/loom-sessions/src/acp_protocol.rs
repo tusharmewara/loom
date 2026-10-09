@@ -114,8 +114,10 @@ struct TranscriptAcc {
     tools: Vec<(String, String, String)>,
 }
 
+type PendingResponse = (Option<Value>, Option<Value>);
+
 struct Shared {
-    responses: Mutex<HashMap<String, (Option<Value>, Option<Value>)>>,
+    responses: Mutex<HashMap<String, PendingResponse>>,
     arrived: Condvar,
     transcript: Mutex<TranscriptAcc>,
 }
@@ -228,7 +230,7 @@ impl AcpProtocolClient {
         timeout: Duration,
         child: &mut std::process::Child,
     ) -> anyhow::Result<AcpTranscript> {
-        let mut stdin = child
+        let stdin = child
             .stdin
             .take()
             .ok_or_else(|| anyhow::anyhow!("ACP agent has no stdin"))?;
@@ -262,11 +264,9 @@ impl AcpProtocolClient {
         let reader_stdin = stdin.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
-            let mut line_count = 0;
             for line in reader.lines() {
                 match line {
                     Ok(line) => {
-                        line_count += 1;
                         if line.trim().is_empty() {
                             continue;
                         }
@@ -302,7 +302,7 @@ impl AcpProtocolClient {
                             AcpIncoming::Invalid => {}
                         }
                     }
-                    Err(e) => {
+                    Err(_e) => {
                         break;
                     }
                 }
