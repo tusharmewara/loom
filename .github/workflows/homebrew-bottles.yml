@@ -31,6 +31,10 @@ jobs:
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
 
+      # loomd's build.rs (tonic/prost gRPC codegen) requires protoc
+      - name: Install protoc
+        run: brew install protobuf
+
       # No special linker needed - macOS system clang cross-compiles x86_64
       # natively on ARM64 runners when using CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER
 
@@ -120,7 +124,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq pkg-config libssl-dev
+          sudo apt-get install -y -qq pkg-config libssl-dev protobuf-compiler
 
       - name: Extract version
         id: extract_version
