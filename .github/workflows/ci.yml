@@ -32,6 +32,10 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # loomd's build.rs (tonic/prost gRPC codegen) requires protoc
+      - name: Install protoc
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq protobuf-compiler
+
       - name: Cache Cargo Registry
         uses: actions/cache@v4
         with:
