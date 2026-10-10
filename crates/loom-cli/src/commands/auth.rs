@@ -230,7 +230,7 @@ async fn do_validate(
         }
     };
 
-    println!("  Testing:     {}", &test_url);
+    println!("  Testing:     {}", test_url);
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))

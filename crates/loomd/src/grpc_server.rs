@@ -9,6 +9,9 @@ use std::path::Path;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
+// ponytail: tonic-generated signatures must return Result<_, Status> (trait-mandated);
+// clippy 1.99's result_large_err flags them — boxing would break the impl.
+#[allow(clippy::result_large_err)]
 pub mod loom_grpc {
     include!("grpc/loom.rs");
 }
