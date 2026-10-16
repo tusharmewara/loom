@@ -35,9 +35,7 @@ impl GitLabTracker {
         let token = token_override
             .or_else(|| std::env::var("GITLAB_TOKEN").ok())
             .ok_or_else(|| {
-                TrackerError::Config(
-                    "GITLAB_TOKEN must be set, or pass --token".into(),
-                )
+                TrackerError::Config("GITLAB_TOKEN must be set, or pass --token".into())
             })?;
 
         let base_url = host.trim_end_matches('/').to_string();
@@ -60,10 +58,7 @@ impl GitLabTracker {
     }
 
     /// Execute a GET request and deserialize the response.
-    async fn get<T: serde::de::DeserializeOwned>(
-        &self,
-        url: &str,
-    ) -> Result<T, TrackerError> {
+    async fn get<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, TrackerError> {
         let resp = self
             .client
             .get(url)
@@ -168,7 +163,10 @@ impl IssueTracker for GitLabTracker {
         }
 
         let issues: Vec<GitLabIssue> = self.get(&url).await?;
-        Ok(issues.into_iter().map(|i| i.into_issue(&query.repo)).collect())
+        Ok(issues
+            .into_iter()
+            .map(|i| i.into_issue(&query.repo))
+            .collect())
     }
 
     async fn add_comment(&self, id: &str, body: &str) -> Result<(), TrackerError> {

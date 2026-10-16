@@ -36,12 +36,15 @@ pub async fn run(loom_dir: &Path, action: &AuthAction) -> anyhow::Result<()> {
                 }
             }
             if *json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "schema_version": 1,
-                    "command": "auth.list",
-                    "count": providers.len(),
-                    "providers": providers
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "command": "auth.list",
+                        "count": providers.len(),
+                        "providers": providers
+                    }))?
+                );
             } else {
                 if providers.is_empty() {
                     println!("No auth entries found.");
@@ -63,19 +66,22 @@ pub async fn run(loom_dir: &Path, action: &AuthAction) -> anyhow::Result<()> {
             };
 
             if *json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "schema_version": 1,
-                    "command": "auth.providers",
-                    "count": entries.len(),
-                    "providers": entries.iter().map(|p| serde_json::json!({
-                        "provider_id": p.provider_id,
-                        "name": p.name,
-                        "status": p.status,
-                        "auth_method": p.auth_method,
-                        "api_base_url": p.api_base_url,
-                        "models_endpoint": p.models_endpoint,
-                    })).collect::<Vec<_>>()
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "command": "auth.providers",
+                        "count": entries.len(),
+                        "providers": entries.iter().map(|p| serde_json::json!({
+                            "provider_id": p.provider_id,
+                            "name": p.name,
+                            "status": p.status,
+                            "auth_method": p.auth_method,
+                            "api_base_url": p.api_base_url,
+                            "models_endpoint": p.models_endpoint,
+                        })).collect::<Vec<_>>()
+                    }))?
+                );
             } else {
                 if entries.is_empty() {
                     println!("No providers registered. Run `loom thread <tool>` to register a tool with providers.");
@@ -87,8 +93,16 @@ pub async fn run(loom_dir: &Path, action: &AuthAction) -> anyhow::Result<()> {
                             p.provider_id,
                             p.name,
                             p.status,
-                            if p.api_base_url.is_empty() { "-" } else { &p.api_base_url },
-                            if p.models_endpoint.is_empty() { "-" } else { &p.models_endpoint },
+                            if p.api_base_url.is_empty() {
+                                "-"
+                            } else {
+                                &p.api_base_url
+                            },
+                            if p.models_endpoint.is_empty() {
+                                "-"
+                            } else {
+                                &p.models_endpoint
+                            },
                         );
                     }
                 }
@@ -100,12 +114,15 @@ pub async fn run(loom_dir: &Path, action: &AuthAction) -> anyhow::Result<()> {
                 let content = std::fs::read_to_string(&path)?;
                 if *json {
                     let config: toml::Value = toml::from_str(&content)?;
-                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                        "schema_version": 1,
-                        "command": "auth.show",
-                        "provider_id": provider_id,
-                        "config": config
-                    }))?);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "schema_version": 1,
+                            "command": "auth.show",
+                            "provider_id": provider_id,
+                            "config": config
+                        }))?
+                    );
                 } else {
                     println!("{}", content);
                 }
@@ -150,10 +167,11 @@ async fn cmd_validate(loom_dir: &Path, provider_id: &str) -> anyhow::Result<()> 
     // Resolve the API key: env var first, then vault
     let api_key = resolve_api_key(provider_id);
 
-    let key_display = api_key.as_deref()
+    let key_display = api_key
+        .as_deref()
         .map(|k| {
             if k.len() > 8 {
-                format!("{}...{}", &k[..4], &k[k.len()-4..])
+                format!("{}...{}", &k[..4], &k[k.len() - 4..])
             } else {
                 "****".to_string()
             }
@@ -167,14 +185,21 @@ async fn cmd_validate(loom_dir: &Path, provider_id: &str) -> anyhow::Result<()> 
             match managers.vault().get_credential(provider_id) {
                 Ok(Some(key)) => {
                     let masked = if key.len() > 8 {
-                        format!("{}...{}", &key[..4], &key[key.len()-4..])
+                        format!("{}...{}", &key[..4], &key[key.len() - 4..])
                     } else {
                         "****".to_string()
                     };
                     println!("  API key:     {} (via vault)", masked);
                     // Re-wrap in Some for validation
                     let api_key = Some(key);
-                    return do_validate(provider_id, &api_key, &models_endpoint, &api_base_url, &managers).await;
+                    return do_validate(
+                        provider_id,
+                        &api_key,
+                        &models_endpoint,
+                        &api_base_url,
+                        &managers,
+                    )
+                    .await;
                 }
                 Ok(None) => {
                     println!("  API key:     none found");
@@ -189,12 +214,22 @@ async fn cmd_validate(loom_dir: &Path, provider_id: &str) -> anyhow::Result<()> 
     if api_key.is_none() {
         println!();
         println!("  ✗ No API key found for provider '{}'", provider_id);
-        println!("    Set {}_API_KEY environment variable", provider_id.to_uppercase());
+        println!(
+            "    Set {}_API_KEY environment variable",
+            provider_id.to_uppercase()
+        );
         println!("    Or add credential to vault via auth import");
         return Ok(());
     }
 
-    do_validate(provider_id, &api_key, &models_endpoint, &api_base_url, &managers).await
+    do_validate(
+        provider_id,
+        &api_key,
+        &models_endpoint,
+        &api_base_url,
+        &managers,
+    )
+    .await
 }
 
 async fn do_validate(
@@ -245,13 +280,7 @@ async fn do_validate(
                 .send()
                 .await
         }
-        _ => {
-            client
-                .get(&test_url)
-                .bearer_auth(key)
-                .send()
-                .await
-        }
+        _ => client.get(&test_url).bearer_auth(key).send().await,
     };
 
     println!();
@@ -263,10 +292,9 @@ async fn do_validate(
                 println!("  ✓ API key is valid");
                 // Try to update provider status
                 if managers.providers().get(provider_id).is_some() {
-                    let _ = managers.providers().update_status(
-                        provider_id,
-                        loom_core::ProviderStatus::Active,
-                    );
+                    let _ = managers
+                        .providers()
+                        .update_status(provider_id, loom_core::ProviderStatus::Active);
                     // Update last_validated
                     let now = chrono::Utc::now().to_rfc3339();
                     if let Some(mut entry) = managers.providers().get(provider_id) {

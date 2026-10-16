@@ -308,9 +308,14 @@ impl KnowledgeGraph {
         for row in rows {
             related.push(row?);
         }
-        related.sort_by(|a, b| a.depth.cmp(&b.depth).then_with(|| {
-            b.relationship.weight.partial_cmp(&a.relationship.weight).unwrap_or(std::cmp::Ordering::Equal)
-        }));
+        related.sort_by(|a, b| {
+            a.depth.cmp(&b.depth).then_with(|| {
+                b.relationship
+                    .weight
+                    .partial_cmp(&a.relationship.weight)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        });
         related.dedup_by(|a, b| a.entity.id == b.entity.id);
 
         Ok(SubgraphResult { entity, related })
@@ -386,10 +391,10 @@ impl KnowledgeGraph {
     pub fn stats(&self) -> Result<GraphStats> {
         let conn = self.conn()?;
 
-        let entity_count: u64 = conn
-            .query_row("SELECT COUNT(*) FROM entities", [], |row| row.get(0))?;
-        let rel_count: u64 = conn
-            .query_row("SELECT COUNT(*) FROM relationships", [], |row| row.get(0))?;
+        let entity_count: u64 =
+            conn.query_row("SELECT COUNT(*) FROM entities", [], |row| row.get(0))?;
+        let rel_count: u64 =
+            conn.query_row("SELECT COUNT(*) FROM relationships", [], |row| row.get(0))?;
 
         // Top entity types
         let mut type_counts = Vec::new();
@@ -571,9 +576,15 @@ mod tests {
         let dir = tempdir().unwrap();
         let kg = KnowledgeGraph::new(dir.path().to_str().unwrap()).unwrap();
 
-        let loom_id = kg.add_entity("Loom", "tool", None, serde_json::json!({})).unwrap();
-        let rust_id = kg.add_entity("Rust", "language", None, serde_json::json!({})).unwrap();
-        let sqlite_id = kg.add_entity("SQLite", "database", None, serde_json::json!({})).unwrap();
+        let loom_id = kg
+            .add_entity("Loom", "tool", None, serde_json::json!({}))
+            .unwrap();
+        let rust_id = kg
+            .add_entity("Rust", "language", None, serde_json::json!({}))
+            .unwrap();
+        let sqlite_id = kg
+            .add_entity("SQLite", "database", None, serde_json::json!({}))
+            .unwrap();
 
         kg.add_relationship(&loom_id, "built_with", &rust_id, 1.0, None)
             .unwrap();
@@ -610,8 +621,12 @@ mod tests {
         let dir = tempdir().unwrap();
         let kg = KnowledgeGraph::new(dir.path().to_str().unwrap()).unwrap();
 
-        let a = kg.add_entity("A", "test", None, serde_json::json!({})).unwrap();
-        let b = kg.add_entity("B", "test", None, serde_json::json!({})).unwrap();
+        let a = kg
+            .add_entity("A", "test", None, serde_json::json!({}))
+            .unwrap();
+        let b = kg
+            .add_entity("B", "test", None, serde_json::json!({}))
+            .unwrap();
         kg.add_relationship(&a, "connected", &b, 1.0, None).unwrap();
 
         let stats = kg.stats().unwrap();
@@ -647,9 +662,15 @@ mod tests {
         let dir = tempdir().unwrap();
         let kg = KnowledgeGraph::new(dir.path().to_str().unwrap()).unwrap();
 
-        let a = kg.add_entity("A", "test", None, serde_json::json!({})).unwrap();
-        let b = kg.add_entity("B", "test", None, serde_json::json!({})).unwrap();
-        let c = kg.add_entity("C", "test", None, serde_json::json!({})).unwrap();
+        let a = kg
+            .add_entity("A", "test", None, serde_json::json!({}))
+            .unwrap();
+        let b = kg
+            .add_entity("B", "test", None, serde_json::json!({}))
+            .unwrap();
+        let c = kg
+            .add_entity("C", "test", None, serde_json::json!({}))
+            .unwrap();
 
         kg.add_relationship(&a, "knows", &b, 1.0, None).unwrap();
         kg.add_relationship(&b, "knows", &c, 1.0, None).unwrap();
@@ -672,8 +693,12 @@ mod tests {
         let dir = tempdir().unwrap();
         let kg = KnowledgeGraph::new(dir.path().to_str().unwrap()).unwrap();
 
-        let a = kg.add_entity("A", "test", None, serde_json::json!({})).unwrap();
-        let b = kg.add_entity("B", "test", None, serde_json::json!({})).unwrap();
+        let a = kg
+            .add_entity("A", "test", None, serde_json::json!({}))
+            .unwrap();
+        let b = kg
+            .add_entity("B", "test", None, serde_json::json!({}))
+            .unwrap();
         kg.add_relationship(&a, "knows", &b, 1.0, None).unwrap();
 
         assert!(kg.delete_entity(&a).unwrap());

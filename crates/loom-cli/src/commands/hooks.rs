@@ -19,19 +19,25 @@ pub async fn run(loom_dir: &Path, action: &HooksAction) -> anyhow::Result<()> {
         HooksAction::List { json } => {
             let hooks = engine.registry().list().await;
             if *json {
-                let hook_entries: Vec<_> = hooks.iter().map(|h| {
-                    serde_json::json!({
-                        "id": h.id,
-                        "event_type": format!("{:?}", h.event_type),
-                        "script_path": h.script_path,
+                let hook_entries: Vec<_> = hooks
+                    .iter()
+                    .map(|h| {
+                        serde_json::json!({
+                            "id": h.id,
+                            "event_type": format!("{:?}", h.event_type),
+                            "script_path": h.script_path,
+                        })
                     })
-                }).collect();
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "schema_version": 1,
-                    "command": "hooks.list",
-                    "count": hook_entries.len(),
-                    "hooks": hook_entries
-                }))?);
+                    .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "command": "hooks.list",
+                        "count": hook_entries.len(),
+                        "hooks": hook_entries
+                    }))?
+                );
             } else {
                 for hook in &hooks {
                     println!("{}  {:?}  {}", hook.id, hook.event_type, hook.script_path);
@@ -48,11 +54,14 @@ pub async fn run(loom_dir: &Path, action: &HooksAction) -> anyhow::Result<()> {
                 .await
                 .ok_or_else(|| anyhow::anyhow!("Hook '{id}' not found"))?;
             if *json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "schema_version": 1,
-                    "command": "hooks.show",
-                    "hook": hook
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "command": "hooks.show",
+                        "hook": hook
+                    }))?
+                );
             } else {
                 println!("{}", toml::to_string_pretty(&hook)?);
             }

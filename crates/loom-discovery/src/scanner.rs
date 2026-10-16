@@ -1,7 +1,7 @@
+use crate::registry::SnapshotDb;
+use sha2::Digest;
 use std::path::Path;
 use std::sync::Arc;
-use sha2::Digest;
-use crate::registry::SnapshotDb;
 
 /// Phase 1 + Phase 2 scanner.
 ///
@@ -25,13 +25,27 @@ impl Scanner {
         let mut layers = Vec::new();
         let path = Path::new(&self.loom_dir);
 
-        if path.join("skills").exists() { layers.push("skills".into()); }
-        if path.join("mcp").exists() { layers.push("mcp".into()); }
-        if path.join("sessions").exists() { layers.push("sessions".into()); }
-        if path.join("auth").exists() { layers.push("auth".into()); }
-        if path.join("hooks").exists() { layers.push("hooks".into()); }
-        if path.join("tools").exists() { layers.push("tools".into()); }
-        if path.join(".cache").exists() { layers.push(".cache".into()); }
+        if path.join("skills").exists() {
+            layers.push("skills".into());
+        }
+        if path.join("mcp").exists() {
+            layers.push("mcp".into());
+        }
+        if path.join("sessions").exists() {
+            layers.push("sessions".into());
+        }
+        if path.join("auth").exists() {
+            layers.push("auth".into());
+        }
+        if path.join("hooks").exists() {
+            layers.push("hooks".into());
+        }
+        if path.join("tools").exists() {
+            layers.push("tools".into());
+        }
+        if path.join(".cache").exists() {
+            layers.push(".cache".into());
+        }
 
         Ok(layers)
     }
@@ -49,7 +63,9 @@ impl Scanner {
 
         let cache = path.join(".cache").join("snapshot.db");
         if !cache.exists() {
-            warnings.push("No SQLite snapshot found. Run 'loom init' or let the daemon build it.".into());
+            warnings.push(
+                "No SQLite snapshot found. Run 'loom init' or let the daemon build it.".into(),
+            );
         }
 
         Ok(warnings)
@@ -78,7 +94,10 @@ impl Scanner {
                 if let Ok(content) = std::fs::read_to_string(skill_path) {
                     let actual_hash = format!("{:x}", sha2::Sha256::digest(content.as_bytes()));
                     if actual_hash != skill.content_hash {
-                        tracing::info!("Updating hash for skill '{}' (content changed)", skill.name);
+                        tracing::info!(
+                            "Updating hash for skill '{}' (content changed)",
+                            skill.name
+                        );
                         updated += 1;
                     }
                 }
@@ -108,5 +127,3 @@ mod tests {
         let _scanner = super::Scanner::new(dir.to_str().unwrap(), snapshot);
     }
 }
-
-

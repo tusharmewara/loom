@@ -215,13 +215,19 @@ async fn execute_hook_script(script_path: &str, context: &HookContext) -> Result
     let loom_dir = loom_core::loom_dir();
     let script = Path::new(script_path);
     if !script.exists() {
-        return Ok((false, format!("hook script not found: {}", script.display())));
+        return Ok((
+            false,
+            format!("hook script not found: {}", script.display()),
+        ));
     }
 
     let mut cmd = Command::new(script);
     cmd.env("LOOM_HOOK_ID", "test")
         .env("LOOM_EVENT", &context.event_type)
-        .env("LOOM_TOOL", context.tool_name.as_deref().unwrap_or("unknown"))
+        .env(
+            "LOOM_TOOL",
+            context.tool_name.as_deref().unwrap_or("unknown"),
+        )
         .env("LOOM_AGENTS_DIR", loom_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

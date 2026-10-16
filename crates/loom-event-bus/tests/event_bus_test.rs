@@ -1,11 +1,11 @@
 //! EventBus tests: in-process delivery, conformance, metrics, backpressure, topics.
 
-use loom_event_bus::InProcessBus;
-use loom_event_bus::BusMetrics;
-use loom_event_bus::Topic;
-use loom_event_bus::EventBus;
-use loom_event_bus::LoomEvent;
 use loom_core::HealthCheck;
+use loom_event_bus::BusMetrics;
+use loom_event_bus::EventBus;
+use loom_event_bus::InProcessBus;
+use loom_event_bus::LoomEvent;
+use loom_event_bus::Topic;
 
 // ─── InProcessBus tests ──────────────────────────────────────────────
 
@@ -57,8 +57,14 @@ fn test_in_process_bus_backpressure_drops_oldest() {
 
     // Publish 3 events — channel cap is 2, so first event gets dropped
     bus.publish(&LoomEvent::RoutingUpdated).unwrap();
-    bus.publish(&LoomEvent::TaskCreated { task_id: "t1".into() }).unwrap();
-    bus.publish(&LoomEvent::TaskCreated { task_id: "t2".into() }).unwrap();
+    bus.publish(&LoomEvent::TaskCreated {
+        task_id: "t1".into(),
+    })
+    .unwrap();
+    bus.publish(&LoomEvent::TaskCreated {
+        task_id: "t2".into(),
+    })
+    .unwrap();
 
     // The first recv should be a Lagged error
     match rx.try_recv() {
@@ -122,7 +128,10 @@ fn test_metrics_topic_distribution() {
 fn test_topic_from_event() {
     let cases: Vec<(LoomEvent, &str)> = vec![
         (LoomEvent::SkillsAdded { count: 1 }, "skills:added"),
-        (LoomEvent::SkillsRemoved { name: "x".into() }, "skills:removed"),
+        (
+            LoomEvent::SkillsRemoved { name: "x".into() },
+            "skills:removed",
+        ),
         (
             LoomEvent::McpHealthChanged {
                 id: "x".into(),
@@ -137,7 +146,12 @@ fn test_topic_from_event() {
             },
             "mcp:server-added",
         ),
-        (LoomEvent::SessionExported { session_id: "s1".into() }, "session:exported"),
+        (
+            LoomEvent::SessionExported {
+                session_id: "s1".into(),
+            },
+            "session:exported",
+        ),
         (LoomEvent::RoutingUpdated, "routing:updated"),
         (
             LoomEvent::AuthProviderAdded {
@@ -158,7 +172,12 @@ fn test_topic_from_event() {
             },
             "task:phase-changed",
         ),
-        (LoomEvent::TaskCreated { task_id: "t1".into() }, "task:created"),
+        (
+            LoomEvent::TaskCreated {
+                task_id: "t1".into(),
+            },
+            "task:created",
+        ),
     ];
 
     for (event, expected) in cases {

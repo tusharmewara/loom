@@ -33,16 +33,38 @@ pub fn draw_knowledge(frame: &mut Frame, area: ratatui::layout::Rect, app: &App,
         )));
     } else {
         // Entity count
-        let entity_count = stats.pointer("/entity_count").and_then(Value::as_u64).unwrap_or(0);
-        let rel_count = stats.pointer("/relationship_count").and_then(Value::as_u64).unwrap_or(0);
+        let entity_count = stats
+            .pointer("/entity_count")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let rel_count = stats
+            .pointer("/relationship_count")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
 
         lines.push(Line::from(vec![
-            Span::styled("Entities:      ", Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("{}", entity_count), Style::default().fg(theme.text_bright).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Entities:      ",
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("{}", entity_count),
+                Style::default()
+                    .fg(theme.text_bright)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]));
         lines.push(Line::from(vec![
-            Span::styled("Relationships: ", Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("{}", rel_count), Style::default().fg(theme.text_bright).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Relationships: ",
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("{}", rel_count),
+                Style::default()
+                    .fg(theme.text_bright)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]));
 
         // Type breakdown — serialized as Vec<(String, u64)> = [[type, count], ...]
@@ -51,7 +73,9 @@ pub fn draw_knowledge(frame: &mut Frame, area: ratatui::layout::Rect, app: &App,
                 lines.push(Line::from(Span::styled("", Style::default())));
                 lines.push(Line::from(Span::styled(
                     "Entity types:",
-                    Style::default().fg(theme.text_dim).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(theme.text_dim)
+                        .add_modifier(Modifier::BOLD),
                 )));
                 for entry in types {
                     if let Some(arr) = entry.as_array() {
@@ -61,7 +85,10 @@ pub fn draw_knowledge(frame: &mut Frame, area: ratatui::layout::Rect, app: &App,
                             lines.push(Line::from(vec![
                                 Span::styled("  • ", theme.primary),
                                 Span::styled(format!("{}: ", type_name), theme.text),
-                                Span::styled(format!("{}", count), Style::default().fg(theme.text_bright)),
+                                Span::styled(
+                                    format!("{}", count),
+                                    Style::default().fg(theme.text_bright),
+                                ),
                             ]));
                         }
                     }
@@ -75,7 +102,9 @@ pub fn draw_knowledge(frame: &mut Frame, area: ratatui::layout::Rect, app: &App,
                 lines.push(Line::from(Span::styled("", Style::default())));
                 lines.push(Line::from(Span::styled(
                     "Top relationships:",
-                    Style::default().fg(theme.text_dim).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(theme.text_dim)
+                        .add_modifier(Modifier::BOLD),
                 )));
                 for entry in preds {
                     if let Some(arr) = entry.as_array() {
@@ -98,7 +127,9 @@ pub fn draw_knowledge(frame: &mut Frame, area: ratatui::layout::Rect, app: &App,
                 lines.push(Line::from(Span::styled("", Style::default())));
                 lines.push(Line::from(Span::styled(
                     "Most connected:",
-                    Style::default().fg(theme.text_dim).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(theme.text_dim)
+                        .add_modifier(Modifier::BOLD),
                 )));
                 for entry in connected {
                     if let Some(arr) = entry.as_array() {
@@ -109,8 +140,16 @@ pub fn draw_knowledge(frame: &mut Frame, area: ratatui::layout::Rect, app: &App,
                             if !name.is_empty() {
                                 lines.push(Line::from(vec![
                                     Span::styled("  • ", theme.primary),
-                                    Span::styled(name, Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
-                                    Span::styled(format!(" ({}, deg={})", etype, degree), Style::default().fg(theme.text_bright)),
+                                    Span::styled(
+                                        name,
+                                        Style::default()
+                                            .fg(theme.text)
+                                            .add_modifier(Modifier::BOLD),
+                                    ),
+                                    Span::styled(
+                                        format!(" ({}, deg={})", etype, degree),
+                                        Style::default().fg(theme.text_bright),
+                                    ),
                                 ]));
                             }
                         }
@@ -121,7 +160,9 @@ pub fn draw_knowledge(frame: &mut Frame, area: ratatui::layout::Rect, app: &App,
     }
 
     frame.render_widget(
-        Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
         area,
     );
 }

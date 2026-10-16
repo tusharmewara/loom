@@ -20,5 +20,5 @@ pub mod discover;
 pub mod transport;
 
 pub use client::LspClient;
-pub use discover::{LanguageServer, discover_servers};
+pub use discover::{discover_servers, LanguageServer};
 pub use transport::LspTransport;

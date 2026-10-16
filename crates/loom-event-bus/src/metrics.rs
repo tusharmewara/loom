@@ -65,7 +65,10 @@ impl BusMetrics {
 
     /// Topic distribution snapshot.
     pub fn topic_distribution(&self) -> std::collections::HashMap<String, u64> {
-        self.topic_counts.lock().map(|g| g.clone()).unwrap_or_default()
+        self.topic_counts
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default()
     }
 }
 

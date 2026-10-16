@@ -88,7 +88,10 @@ async fn run_loop(
                                 .fetch_config()
                                 .await
                                 .ok()
-                                .and_then(|v| v.pointer("/workflow/runtime").and_then(|s| s.as_str().map(String::from)))
+                                .and_then(|v| {
+                                    v.pointer("/workflow/runtime")
+                                        .and_then(|s| s.as_str().map(String::from))
+                                })
                                 .unwrap_or_else(|| "process".to_string());
 
                             let dispatchers: Vec<Box<dyn crate::dispatch::Dispatcher>> = vec![
@@ -182,9 +185,15 @@ async fn run_loop(
                                 app.embedded_task = Some(task.clone());
 
                                 // Spawn the agent in the background and stream output
-                                if let Some(agent) = task.pointer("/last_agent").and_then(Value::as_str) {
-                                    let task_id = task.pointer("/task_id").and_then(Value::as_str).unwrap_or("");
-                                    let (child, log_rx, stdin) = app.adapter.stream_background(agent, task_id);
+                                if let Some(agent) =
+                                    task.pointer("/last_agent").and_then(Value::as_str)
+                                {
+                                    let task_id = task
+                                        .pointer("/task_id")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("");
+                                    let (child, log_rx, stdin) =
+                                        app.adapter.stream_background(agent, task_id);
                                     app.embedded_log_rx = Some(log_rx);
                                     app.embedded_child = child;
                                     app.embedded_stdin = stdin;
@@ -201,7 +210,10 @@ async fn run_loop(
                                     .fetch_config()
                                     .await
                                     .ok()
-                                    .and_then(|v| v.pointer("/workflow/runtime").and_then(|s| s.as_str().map(String::from)))
+                                    .and_then(|v| {
+                                        v.pointer("/workflow/runtime")
+                                            .and_then(|s| s.as_str().map(String::from))
+                                    })
                                     .unwrap_or_else(|| "process".to_string());
                                 let dispatcher = crate::dispatch::RuntimeDispatch::new(
                                     crate::dispatch::default_runtime_registry(),
@@ -240,13 +252,15 @@ async fn run_loop(
                         }
                         KeyCode::Enter => {
                             // If embedded pane is active, send input to the child process
-                            if app.embedded_task.is_some() && !app.command_palette_query.is_empty() {
+                            if app.embedded_task.is_some() && !app.command_palette_query.is_empty()
+                            {
                                 if let Some(ref mut stdin) = app.embedded_stdin {
                                     use tokio::io::AsyncWriteExt;
                                     let mut line = app.command_palette_query.clone();
                                     line.push('\n');
                                     let _ = stdin.write_all(line.as_bytes()).await;
-                                    app.embedded_log.push(format!("> {}", app.command_palette_query));
+                                    app.embedded_log
+                                        .push(format!("> {}", app.command_palette_query));
                                     app.close_command_palette();
                                     continue;
                                 }
@@ -262,13 +276,15 @@ async fn run_loop(
                         KeyCode::Down | KeyCode::Char('j') => {
                             let max = app.command_palette_count();
                             if max > 0 {
-                                app.command_palette_selected = (app.command_palette_selected + 1) % max;
+                                app.command_palette_selected =
+                                    (app.command_palette_selected + 1) % max;
                             }
                         }
                         KeyCode::Up | KeyCode::Char('k') => {
                             let max = app.command_palette_count();
                             if max > 0 {
-                                app.command_palette_selected = if app.command_palette_selected == 0 {
+                                app.command_palette_selected = if app.command_palette_selected == 0
+                                {
                                     max - 1
                                 } else {
                                     app.command_palette_selected - 1
@@ -281,7 +297,9 @@ async fn run_loop(
                         KeyCode::Delete => {
                             app.command_palette_backspace();
                         }
-                        KeyCode::Char(c) if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' => {
+                        KeyCode::Char(c)
+                            if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' =>
+                        {
                             app.command_palette_append(c);
                         }
                         _ => {}
@@ -301,7 +319,13 @@ async fn run_loop(
                         KeyCode::Up | KeyCode::Left => app.orchestrator_agent_previous(),
                         KeyCode::Down | KeyCode::Right => app.orchestrator_agent_next(),
                         KeyCode::Backspace | KeyCode::Delete => app.orchestrator_backspace(),
-                        KeyCode::Char('c') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => break,
+                        KeyCode::Char('c')
+                            if key
+                                .modifiers
+                                .contains(crossterm::event::KeyModifiers::CONTROL) =>
+                        {
+                            break
+                        }
                         KeyCode::Char(c) if !c.is_control() => app.orchestrator_append(c),
                         _ => {}
                     }
@@ -341,7 +365,8 @@ async fn run_loop(
                 }
 
                 // Embedded pane: Esc to close, j/k to scroll log, i to send input, Ctrl-C to interrupt
-                if app.embedded_task.is_some() {                    match key.code {
+                if app.embedded_task.is_some() {
+                    match key.code {
                         KeyCode::Esc => {
                             app.close_embedded_pane();
                             continue;
@@ -354,11 +379,16 @@ async fn run_loop(
                             app.embedded_log_scroll_up();
                             continue;
                         }
-                        KeyCode::Char('c') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+                        KeyCode::Char('c')
+                            if key
+                                .modifiers
+                                .contains(crossterm::event::KeyModifiers::CONTROL) =>
+                        {
                             // Send interrupt (SIGINT) to the child process
                             if let Some(ref mut child) = app.embedded_child {
                                 let _ = child.start_kill();
-                                app.embedded_log.push("⏹  Process interrupted (SIGINT)".to_string());
+                                app.embedded_log
+                                    .push("⏹  Process interrupted (SIGINT)".to_string());
                             }
                             continue;
                         }
@@ -420,9 +450,7 @@ async fn run_loop(
                     KeyCode::Char('!') => app.set_tab_from_digit(10),
                     KeyCode::Char('@') => app.set_tab_from_digit(11),
                     KeyCode::Char('#') => app.set_tab_from_digit(12),
-                    KeyCode::Char('c')
-                        if app.tab_index == 8 && app.embedded_task.is_none() =>
-                    {
+                    KeyCode::Char('c') if app.tab_index == 8 && app.embedded_task.is_none() => {
                         app.create_pull_request().await
                     }
                     KeyCode::Char('D') => app.toggle_action_palette(),
@@ -430,7 +458,11 @@ async fn run_loop(
                     KeyCode::Char(']') => app.next_theme(),
                     KeyCode::Char('[') => app.prev_theme(),
                     KeyCode::Char('S') => app.toggle_sidebar(),
-                    KeyCode::Char('p') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+                    KeyCode::Char('p')
+                        if key
+                            .modifiers
+                            .contains(crossterm::event::KeyModifiers::CONTROL) =>
+                    {
                         app.toggle_command_palette();
                     }
                     _ => {}

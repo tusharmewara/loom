@@ -11,7 +11,11 @@ pub trait IpcHandler: Send + Sync + 'static {
 }
 
 /// Runs a Unix domain socket server, dispatching requests to the handler.
-pub async fn serve(socket_path: &str, handler: impl IpcHandler, shutdown: broadcast::Receiver<()>) -> Result<()> {
+pub async fn serve(
+    socket_path: &str,
+    handler: impl IpcHandler,
+    shutdown: broadcast::Receiver<()>,
+) -> Result<()> {
     // Remove stale socket
     let _ = std::fs::remove_file(socket_path);
 

@@ -6,9 +6,9 @@
 use anyhow::{Context, Result};
 use chrono;
 use loom_core::Task;
-use loom_runtime::{LaunchConfig, ProcessRuntime, RuntimeRegistry, RunResult};
-use loom_parallel::{AgentPool, AgentTask, WorktreeManager};
 use loom_generic_adapter::GenericAdapter;
+use loom_parallel::{AgentPool, AgentTask, WorktreeManager};
+use loom_runtime::{LaunchConfig, ProcessRuntime, RunResult, RuntimeRegistry};
 use std::collections::HashMap;
 use std::path::Path;
 use uuid;
@@ -97,13 +97,7 @@ async fn run_sequential(
     inject_shared_resources(loom_dir, &native_mcp_config, &native_skills_dir);
 
     // Execute via Runtime abstraction
-    let result = execute_via_runtime(
-        loom_dir,
-        launch_tool,
-        tool_args,
-        &env_vars,
-        dry_run,
-    ).await?;
+    let result = execute_via_runtime(loom_dir, launch_tool, tool_args, &env_vars, dry_run).await?;
 
     if !result.success {
         anyhow::bail!("Runtime execution failed: {}", result.stderr);
@@ -201,7 +195,14 @@ async fn run_parallel(
     if dry_run {
         println!("\n=== Dry Run (Parallel) ===");
         println!("Pool size: {}", pool_size);
-        println!("Tools: {}", tasks.iter().map(|t| t.name.as_str()).collect::<Vec<_>>().join(", "));
+        println!(
+            "Tools: {}",
+            tasks
+                .iter()
+                .map(|t| t.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
         if !no_isolation {
             println!("Worktree isolation: enabled");
         }
@@ -247,13 +248,7 @@ async fn run_parallel(
     println!("───────────────────────────────────────");
     println!(
         "  {ok_count} succeeded, {fail_count} failed in {}",
-        format_duration(
-            results
-                .iter()
-                .map(|r| r.duration)
-                .max()
-                .unwrap_or_default()
-        )
+        format_duration(results.iter().map(|r| r.duration).max().unwrap_or_default())
     );
 
     if fail_count > 0 {
@@ -302,17 +297,17 @@ fn setup_launch_tool(
 
         native_mcp_config = toml.mcp.as_ref().and_then(|m| m.config_path.clone());
         native_skills_dir = toml.skills.as_ref().and_then(|s| s.native_dir.clone());
-        native_sessions_dir = toml
-            .sessions
-            .as_ref()
-            .and_then(|s| s.store_path.clone());
+        native_sessions_dir = toml.sessions.as_ref().and_then(|s| s.store_path.clone());
 
         // Skills
         if let Some(ref skills) = toml.skills {
             if let Some(ref native_dir) = skills.native_dir {
                 env_vars.insert("LOOM_SKILLS_DIR".to_string(), format!("{loom_dir}/skills"));
                 env_vars.insert(
-                    format!("{}_SKILLS_DIR", launch_tool.to_uppercase().replace('-', "_")),
+                    format!(
+                        "{}_SKILLS_DIR",
+                        launch_tool.to_uppercase().replace('-', "_")
+                    ),
                     native_dir.clone(),
                 );
             }
@@ -323,7 +318,10 @@ fn setup_launch_tool(
             if let Some(ref config_path) = mcp.config_path {
                 env_vars.insert("LOOM_MCP_DIR".to_string(), format!("{loom_dir}/mcp"));
                 env_vars.insert(
-                    format!("{}_MCP_CONFIG", launch_tool.to_uppercase().replace('-', "_")),
+                    format!(
+                        "{}_MCP_CONFIG",
+                        launch_tool.to_uppercase().replace('-', "_")
+                    ),
                     config_path.clone(),
                 );
             }
@@ -332,9 +330,15 @@ fn setup_launch_tool(
         // Sessions
         if let Some(ref sessions) = toml.sessions {
             if let Some(ref store_path) = sessions.store_path {
-                env_vars.insert("LOOM_SESSIONS_DIR".to_string(), format!("{loom_dir}/sessions"));
                 env_vars.insert(
-                    format!("{}_SESSIONS_DIR", launch_tool.to_uppercase().replace('-', "_")),
+                    "LOOM_SESSIONS_DIR".to_string(),
+                    format!("{loom_dir}/sessions"),
+                );
+                env_vars.insert(
+                    format!(
+                        "{}_SESSIONS_DIR",
+                        launch_tool.to_uppercase().replace('-', "_")
+                    ),
                     store_path.clone(),
                 );
             }
@@ -368,12 +372,7 @@ fn setup_launch_tool(
         ))
     } else {
         println!("⚠ No preset adapter for '{launch_tool}', using generic config");
-        Ok((
-            launch_tool.to_string(),
-            None,
-            None,
-            None,
-        ))
+        Ok((launch_tool.to_string(), None, None, None))
     }
 }
 
@@ -409,7 +408,11 @@ fn create_session_manifest(
     session_id
 }
 
-fn inject_shared_resources(loom_dir: &str, mcp_config: &Option<String>, skills_dir: &Option<String>) {
+fn inject_shared_resources(
+    loom_dir: &str,
+    mcp_config: &Option<String>,
+    skills_dir: &Option<String>,
+) {
     if let Some(ref mcp_path) = mcp_config {
         if let Err(e) = inject_shared_mcp(loom_dir, mcp_path) {
             eprintln!("⚠ Failed to inject shared MCP servers: {e}");
@@ -538,7 +541,8 @@ fn inject_shared_skills(loom_dir: &str, native_skills_dir: &str) -> Result<()> {
         }
         #[cfg(unix)]
         {
-            std::os::unix::fs::symlink(&path, &target).or_else(|_| std::fs::copy(&path, &target).map(|_| ()))?;
+            std::os::unix::fs::symlink(&path, &target)
+                .or_else(|_| std::fs::copy(&path, &target).map(|_| ()))?;
         }
         #[cfg(not(unix))]
         {

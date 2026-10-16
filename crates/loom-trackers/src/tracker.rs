@@ -35,7 +35,13 @@ pub(crate) fn slugify(title: &str) -> String {
     title
         .to_lowercase()
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
         .filter(|&c| c != '\'' && c != '"')
         .collect::<String>()
         .trim_matches('-')

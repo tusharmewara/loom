@@ -26,7 +26,7 @@
 //!    {"type":"response","request_id":"...","status":"ok|error","data":{...},"error":null}
 //!    ```
 
-use crate::acp_handshake::{AcpKeyPair, perform_responder_handshake};
+use crate::acp_handshake::{perform_responder_handshake, AcpKeyPair};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -123,8 +123,8 @@ impl AcpDispatchServer {
         let key_pair = if !config.secret_key.is_empty() {
             AcpKeyPair::from_seed_hex(&config.secret_key)?
         } else if !config.key_path.is_empty() && Path::new(&config.key_path).exists() {
-            let hex = std::fs::read_to_string(&config.key_path)
-                .context("Failed to read key file")?;
+            let hex =
+                std::fs::read_to_string(&config.key_path).context("Failed to read key file")?;
             AcpKeyPair::from_seed_hex(hex.trim())?
         } else {
             let kp = AcpKeyPair::generate();
@@ -202,7 +202,8 @@ impl AcpDispatchServer {
     /// Start the server — binds to the configured address and begins accepting
     /// connections. Returns immediately; the server runs in background tasks.
     pub async fn start(&self) -> Result<SocketAddr> {
-        let listener = TcpListener::bind(&self.config.bind).await
+        let listener = TcpListener::bind(&self.config.bind)
+            .await
             .context("Failed to bind ACP dispatch server")?;
 
         let addr = listener.local_addr()?;
@@ -292,28 +293,26 @@ async fn handle_connection(
     // Expect: {"type":"handshake","challenge":"...","signature":"...","public_key":"..."}
     line.clear();
     reader.read_line(&mut line).await?;
-    let msg: Value = serde_json::from_str(line.trim())
-        .context("Invalid handshake JSON")?;
+    let msg: Value = serde_json::from_str(line.trim()).context("Invalid handshake JSON")?;
 
     let msg_type = msg["type"].as_str().unwrap_or("");
     if msg_type != "handshake" {
         anyhow::bail!("Expected handshake, got '{msg_type}'");
     }
 
-    let challenge = msg["challenge"].as_str()
+    let challenge = msg["challenge"]
+        .as_str()
         .ok_or_else(|| anyhow::anyhow!("Missing challenge"))?;
-    let initiator_sig = msg["signature"].as_str()
+    let initiator_sig = msg["signature"]
+        .as_str()
         .ok_or_else(|| anyhow::anyhow!("Missing signature"))?;
-    let initiator_pub = msg["public_key"].as_str()
+    let initiator_pub = msg["public_key"]
+        .as_str()
         .ok_or_else(|| anyhow::anyhow!("Missing public_key"))?;
 
     // Perform responder handshake
-    let (_handshake, our_sig) = perform_responder_handshake(
-        &key_pair,
-        challenge,
-        initiator_sig,
-        initiator_pub,
-    )?;
+    let (_handshake, our_sig) =
+        perform_responder_handshake(&key_pair, challenge, initiator_sig, initiator_pub)?;
 
     // Send handshake_ack
     let ack = serde_json::json!({
@@ -322,7 +321,9 @@ async fn handle_connection(
         "signature": our_sig,
         "public_key": key_pair.public_key_hex(),
     });
-    writer.write_all(format!("{}\n", serde_json::to_string(&ack)?).as_bytes()).await?;
+    writer
+        .write_all(format!("{}\n", serde_json::to_string(&ack)?).as_bytes())
+        .await?;
     writer.flush().await?;
 
     tracing::debug!("ACP handshake completed with {peer_addr}");
@@ -346,7 +347,9 @@ async fn handle_connection(
                     "data": null,
                     "error": format!("Invalid JSON: {e}"),
                 });
-                writer.write_all(format!("{}\n", serde_json::to_string(&err_resp)?).as_bytes()).await?;
+                writer
+                    .write_all(format!("{}\n", serde_json::to_string(&err_resp)?).as_bytes())
+                    .await?;
                 writer.flush().await?;
                 continue;
             }
@@ -361,11 +364,25 @@ async fn handle_connection(
                 let task_id = cmd["task_id"].as_str().unwrap_or("");
 
                 if agent_id.is_empty() {
-                    send_response(&mut writer, request_id, "error", None, Some("agent_id required")).await?;
+                    send_response(
+                        &mut writer,
+                        request_id,
+                        "error",
+                        None,
+                        Some("agent_id required"),
+                    )
+                    .await?;
                     continue;
                 }
                 if task_id.is_empty() {
-                    send_response(&mut writer, request_id, "error", None, Some("task_id required")).await?;
+                    send_response(
+                        &mut writer,
+                        request_id,
+                        "error",
+                        None,
+                        Some("task_id required"),
+                    )
+                    .await?;
                     continue;
                 }
 
@@ -397,7 +414,9 @@ async fn handle_connection(
                                     };
                                     handler(&req)
                                 }
-                                None => Err(anyhow::anyhow!("No handler registered for agent '{agent_id}'")),
+                                None => Err(anyhow::anyhow!(
+                                    "No handler registered for agent '{agent_id}'"
+                                )),
                             }
                         }
                     }
@@ -408,7 +427,8 @@ async fn handle_connection(
                         send_response(&mut writer, request_id, "ok", Some(data), None).await?;
                     }
                     Err(e) => {
-                        send_response(&mut writer, request_id, "error", None, Some(&e.to_string())).await?;
+                        send_response(&mut writer, request_id, "error", None, Some(&e.to_string()))
+                            .await?;
                     }
                 }
             }
@@ -427,7 +447,8 @@ async fn handle_connection(
                     "error",
                     None,
                     Some(&format!("Unknown command type: '{cmd_type}'")),
-                ).await?;
+                )
+                .await?;
             }
         }
     }
@@ -461,7 +482,7 @@ async fn send_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::acp_handshake::{initiate_handshake, complete_initiator};
+    use crate::acp_handshake::{complete_initiator, initiate_handshake};
     use std::time::Duration;
     use tokio::io::AsyncReadExt;
 
@@ -480,7 +501,9 @@ mod tests {
             "signature": our_sig,
             "public_key": client_key.public_key_hex(),
         });
-        stream.write_all(format!("{}\n", serde_json::to_string(&msg)?).as_bytes()).await?;
+        stream
+            .write_all(format!("{}\n", serde_json::to_string(&msg)?).as_bytes())
+            .await?;
 
         // Read handshake_ack
         let mut line = String::new();
@@ -539,7 +562,10 @@ mod tests {
             "agent_id": "nonexistent",
             "payload": {},
         });
-        stream.write_all(format!("{}\n", serde_json::to_string(&dispatch).unwrap()).as_bytes()).await.unwrap();
+        stream
+            .write_all(format!("{}\n", serde_json::to_string(&dispatch).unwrap()).as_bytes())
+            .await
+            .unwrap();
         stream.flush().await.unwrap();
 
         let mut reader = BufReader::new(&mut stream);
@@ -547,7 +573,10 @@ mod tests {
         reader.read_line(&mut line).await.unwrap();
         let resp: Value = serde_json::from_str(line.trim()).unwrap();
         assert_eq!(resp["status"], "error");
-        assert!(resp["error"].as_str().unwrap().contains("No handler registered"));
+        assert!(resp["error"]
+            .as_str()
+            .unwrap()
+            .contains("No handler registered"));
 
         server.stop().await;
     }
@@ -577,7 +606,10 @@ mod tests {
             "agent_id": "test-agent",
             "payload": {"foo": "bar"},
         });
-        stream.write_all(format!("{}\n", serde_json::to_string(&dispatch).unwrap()).as_bytes()).await.unwrap();
+        stream
+            .write_all(format!("{}\n", serde_json::to_string(&dispatch).unwrap()).as_bytes())
+            .await
+            .unwrap();
         stream.flush().await.unwrap();
 
         let mut reader = BufReader::new(&mut stream);
@@ -605,7 +637,10 @@ mod tests {
             "type": "health",
             "request_id": "health-1",
         });
-        stream.write_all(format!("{}\n", serde_json::to_string(&health_req).unwrap()).as_bytes()).await.unwrap();
+        stream
+            .write_all(format!("{}\n", serde_json::to_string(&health_req).unwrap()).as_bytes())
+            .await
+            .unwrap();
         stream.flush().await.unwrap();
 
         let mut reader = BufReader::new(&mut stream);
@@ -631,7 +666,10 @@ mod tests {
             "type": "foobar",
             "request_id": "bad-1",
         });
-        stream.write_all(format!("{}\n", serde_json::to_string(&bad_req).unwrap()).as_bytes()).await.unwrap();
+        stream
+            .write_all(format!("{}\n", serde_json::to_string(&bad_req).unwrap()).as_bytes())
+            .await
+            .unwrap();
         stream.flush().await.unwrap();
 
         let mut reader = BufReader::new(&mut stream);
@@ -681,7 +719,10 @@ mod tests {
             "signature": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
             "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
         });
-        stream.write_all(format!("{}\n", serde_json::to_string(&bad_msg).unwrap()).as_bytes()).await.unwrap();
+        stream
+            .write_all(format!("{}\n", serde_json::to_string(&bad_msg).unwrap()).as_bytes())
+            .await
+            .unwrap();
         stream.flush().await.unwrap();
 
         // Wait for close from server

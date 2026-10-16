@@ -229,15 +229,9 @@ fn test_post_phase_hook_runs_and_receives_env() -> Result<()> {
             .load_from_dir(&hooks_dir)
             .await
             .expect("load hooks");
-        let fired = loom_hooks::run_post_phase_hooks(
-            &registry,
-            "task-123",
-            "Plan",
-            "opencode",
-            0,
-        )
-        .await
-        .expect("post-phase hooks");
+        let fired = loom_hooks::run_post_phase_hooks(&registry, "task-123", "Plan", "opencode", 0)
+            .await
+            .expect("post-phase hooks");
         assert_eq!(fired, 1, "exactly one PostPhase hook should fire");
     });
 

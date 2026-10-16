@@ -19,11 +19,11 @@ pub mod codex;
 pub mod crush;
 pub mod cursor_cli;
 pub mod gemini_cli;
+pub mod github_copilot;
 pub mod goose;
 pub mod jcode;
-pub mod kiro;
 pub mod juno;
-pub mod github_copilot;
+pub mod kiro;
 pub mod opencode;
 
 use anyhow::Result;
@@ -59,10 +59,9 @@ pub trait LoomToolAdapter: Send + Sync {
                             ));
                         }
                     }
-                    Err(e) => report.notes.push(format!(
-                        "MCP sync to {} failed: {e}",
-                        config_path
-                    )),
+                    Err(e) => report
+                        .notes
+                        .push(format!("MCP sync to {} failed: {e}", config_path)),
                 }
             }
         }
@@ -74,16 +73,14 @@ pub trait LoomToolAdapter: Send + Sync {
                     Ok(n) => {
                         report.skills_synced = n;
                         if n > 0 {
-                            report.notes.push(format!(
-                                "synced {n} shared skill(s) to {}",
-                                native_dir
-                            ));
+                            report
+                                .notes
+                                .push(format!("synced {n} shared skill(s) to {}", native_dir));
                         }
                     }
-                    Err(e) => report.notes.push(format!(
-                        "skills sync to {} failed: {e}",
-                        native_dir
-                    )),
+                    Err(e) => report
+                        .notes
+                        .push(format!("skills sync to {} failed: {e}", native_dir)),
                 }
             }
         }
@@ -151,11 +148,19 @@ pub trait LoomToolAdapter: Send + Sync {
 
     /// Apply a hashline edit to a file, with stale detection and fallback.
     /// Returns the edited file content (caller writes to disk).
-    fn apply_hashline_edit(&self, file_path: &str, start: usize, end: usize, new_content: &str, context_lines: &str) -> Result<Option<String>> {
+    fn apply_hashline_edit(
+        &self,
+        file_path: &str,
+        start: usize,
+        end: usize,
+        new_content: &str,
+        context_lines: &str,
+    ) -> Result<Option<String>> {
         let content = std::fs::read_to_string(file_path)
             .map_err(|e| anyhow::anyhow!("Cannot read {file_path}: {e}"))?;
         let edit = make_replace_edit(&content, start, end, new_content, context_lines)?;
-        edit.apply(&content).map_err(|e| anyhow::anyhow!("Hashline edit failed: {e}"))
+        edit.apply(&content)
+            .map_err(|e| anyhow::anyhow!("Hashline edit failed: {e}"))
     }
 }
 
@@ -327,23 +332,35 @@ pub fn adapter_for(tool: &str) -> Option<Box<dyn LoomToolAdapter>> {
 }
 
 pub fn supported_tools() -> &'static [&'static str] {
-    &["jcode", "crush", "claude-code", "opencode", "goose", "codex", "cursor", "gemini-cli", "aider", "kiro", "juno", "github-copilot"]
+    &[
+        "jcode",
+        "crush",
+        "claude-code",
+        "opencode",
+        "goose",
+        "codex",
+        "cursor",
+        "gemini-cli",
+        "aider",
+        "kiro",
+        "juno",
+        "github-copilot",
+    ]
 }
 
 pub fn sync_tools_dir(loom_dir: &str) -> Result<SyncReport> {
     let mut report = SyncReport::default();
     let mgr = loom_mcp::McpManager::new(loom_dir)?;
     let registry = mgr.registry();
-    let n = loom_mcp::import::import_from_tools_dir(
-        std::path::Path::new(loom_dir),
-        &|entry| {
-            registry.upsert(&entry)?;
-            Ok(())
-        },
-    )?;
+    let n = loom_mcp::import::import_from_tools_dir(std::path::Path::new(loom_dir), &|entry| {
+        registry.upsert(&entry)?;
+        Ok(())
+    })?;
     report.mcp_servers_imported = n;
     if n > 0 {
-        report.notes.push(format!("imported {n} MCP server(s) from tools/"));
+        report
+            .notes
+            .push(format!("imported {n} MCP server(s) from tools/"));
     }
     Ok(report)
 }

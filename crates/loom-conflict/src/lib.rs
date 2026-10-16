@@ -132,11 +132,10 @@ pub fn scan_content(file_path: &str, content: &str) -> Vec<Conflict> {
 
 /// Scan a file for merge conflicts.
 pub fn scan_file(path: &str) -> Result<Vec<Conflict>, ConflictError> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| ConflictError::Io {
-            path: path.to_string(),
-            source: e,
-        })?;
+    let content = std::fs::read_to_string(path).map_err(|e| ConflictError::Io {
+        path: path.to_string(),
+        source: e,
+    })?;
     Ok(scan_content(path, &content))
 }
 
@@ -145,7 +144,14 @@ pub fn scan_file(path: &str) -> Result<Vec<Conflict>, ConflictError> {
 /// Skips `.git/`, `node_modules/`, `target/`, and binary files.
 pub fn scan_directory(dir: &str) -> Result<Vec<Conflict>, ConflictError> {
     let mut all_conflicts = Vec::new();
-    let skip_dirs = [".git", "node_modules", "target", ".venv", "vendor", ".build"];
+    let skip_dirs = [
+        ".git",
+        "node_modules",
+        "target",
+        ".venv",
+        "vendor",
+        ".build",
+    ];
 
     scan_directory_recursive(dir, &skip_dirs, &mut all_conflicts)?;
     Ok(all_conflicts)
@@ -171,22 +177,16 @@ fn scan_directory_recursive(
         if path.is_dir() {
             let name = path.file_name().unwrap_or_default().to_string_lossy();
             if !skip_dirs.contains(&name.as_ref()) {
-                scan_directory_recursive(
-                    &path.to_string_lossy(),
-                    skip_dirs,
-                    conflicts,
-                )?;
+                scan_directory_recursive(&path.to_string_lossy(), skip_dirs, conflicts)?;
             }
         } else if path.is_file() {
             // Skip binary-looking files
             if let Some(ext) = path.extension() {
                 let ext = ext.to_string_lossy().to_lowercase();
                 match ext.as_str() {
-                    "png" | "jpg" | "jpeg" | "gif" | "bmp" | "ico" | "svg"
-                    | "woff" | "woff2" | "ttf" | "eot"
-                    | "o" | "so" | "dylib" | "dll" | "exe"
-                    | "zip" | "tar" | "gz" | "bz2" | "xz" | "7z"
-                    | "mp3" | "mp4" | "avi" | "mov" | "mkv"
+                    "png" | "jpg" | "jpeg" | "gif" | "bmp" | "ico" | "svg" | "woff" | "woff2"
+                    | "ttf" | "eot" | "o" | "so" | "dylib" | "dll" | "exe" | "zip" | "tar"
+                    | "gz" | "bz2" | "xz" | "7z" | "mp3" | "mp4" | "avi" | "mov" | "mkv"
                     | "pdf" | "doc" | "docx" | "xls" | "xlsx" => continue,
                     _ => {}
                 }
@@ -257,7 +257,10 @@ pub fn resolve_file(content: &str, strategy: ResolutionStrategy) -> String {
 }
 
 /// Resolve all conflicts in a file using the given strategy, writing the result.
-pub fn resolve_file_in_place(path: &str, strategy: ResolutionStrategy) -> Result<usize, ConflictError> {
+pub fn resolve_file_in_place(
+    path: &str,
+    strategy: ResolutionStrategy,
+) -> Result<usize, ConflictError> {
     let content = std::fs::read_to_string(path).map_err(|e| ConflictError::Io {
         path: path.to_string(),
         source: e,
@@ -298,7 +301,10 @@ pub fn resolve_bulk(
 
 #[derive(Debug)]
 pub enum ConflictError {
-    Io { path: String, source: std::io::Error },
+    Io {
+        path: String,
+        source: std::io::Error,
+    },
 }
 
 impl std::error::Error for ConflictError {
@@ -399,20 +405,14 @@ mod tests {
     fn test_resolve_file_ours() {
         let content = sample_conflict();
         let resolved = resolve_file(content, ResolutionStrategy::Ours);
-        assert_eq!(
-            resolved,
-            "fn main() {\n    println!(\"hello\");\n}\n"
-        );
+        assert_eq!(resolved, "fn main() {\n    println!(\"hello\");\n}\n");
     }
 
     #[test]
     fn test_resolve_file_theirs() {
         let content = sample_conflict();
         let resolved = resolve_file(content, ResolutionStrategy::Theirs);
-        assert_eq!(
-            resolved,
-            "fn main() {\n    println!(\"world\");\n}\n"
-        );
+        assert_eq!(resolved, "fn main() {\n    println!(\"world\");\n}\n");
     }
 
     #[test]
@@ -458,11 +458,8 @@ mod tests {
         let path = dir.path().join("conflict.rs");
         std::fs::write(&path, sample_conflict()).unwrap();
 
-        let count = resolve_file_in_place(
-            &path.to_string_lossy(),
-            ResolutionStrategy::Theirs,
-        )
-        .unwrap();
+        let count =
+            resolve_file_in_place(&path.to_string_lossy(), ResolutionStrategy::Theirs).unwrap();
         assert_eq!(count, 1);
 
         let content = std::fs::read_to_string(&path).unwrap();
@@ -483,7 +480,10 @@ mod tests {
         std::fs::write(&p1, sample_conflict()).unwrap();
         std::fs::write(&p2, "clean file").unwrap();
 
-        let files = vec![p1.to_string_lossy().to_string(), p2.to_string_lossy().to_string()];
+        let files = vec![
+            p1.to_string_lossy().to_string(),
+            p2.to_string_lossy().to_string(),
+        ];
         let results = resolve_bulk(&files, ResolutionStrategy::Ours);
 
         assert_eq!(results.len(), 2);

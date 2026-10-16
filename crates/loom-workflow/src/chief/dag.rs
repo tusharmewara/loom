@@ -19,11 +19,7 @@ impl TaskDag {
         let ids: std::collections::HashSet<&str> =
             plan.tasks.iter().map(|t| t.id.as_str()).collect();
         for task in &plan.tasks {
-            if let Some(dep) = task
-                .depends_on
-                .iter()
-                .find(|d| !ids.contains(d.as_str()))
-            {
+            if let Some(dep) = task.depends_on.iter().find(|d| !ids.contains(d.as_str())) {
                 anyhow::bail!("task '{}' depends on unknown task '{}'", task.id, dep);
             }
         }
@@ -39,11 +35,7 @@ impl TaskDag {
     pub fn execution_batches(&self) -> Result<Vec<Vec<String>>> {
         let mut remaining: Vec<usize> = (0..self.tasks.len()).collect();
         let mut batches = Vec::new();
-        let mut unmet: Vec<usize> = self
-            .tasks
-            .iter()
-            .map(|t| t.depends_on.len())
-            .collect();
+        let mut unmet: Vec<usize> = self.tasks.iter().map(|t| t.depends_on.len()).collect();
 
         while !remaining.is_empty() {
             let mut ready: Vec<usize> = remaining
@@ -62,10 +54,7 @@ impl TaskDag {
             let ready_set: std::collections::HashSet<usize> = ready.iter().copied().collect();
             for &i in &ready {
                 for j in &remaining {
-                    if self.tasks[*j]
-                        .depends_on
-                        .contains(&self.tasks[i].id)
-                    {
+                    if self.tasks[*j].depends_on.contains(&self.tasks[i].id) {
                         unmet[*j] -= 1;
                     }
                 }
@@ -111,7 +100,10 @@ mod tests {
         let dag = TaskDag::from_plan(&plan).unwrap();
         assert_eq!(
             dag.execution_batches().unwrap(),
-            vec![vec!["t1".to_string(), "t2".to_string()], vec!["t3".to_string()]]
+            vec![
+                vec!["t1".to_string(), "t2".to_string()],
+                vec!["t3".to_string()]
+            ]
         );
     }
 

@@ -94,7 +94,7 @@ pub async fn launch_agent_with_task_context(
         let phase_name = task.phase.name();
         let stdout_log = capture_log_path(loom_dir, &task.task_id, phase_name, "stdout");
         let stderr_log = capture_log_path(loom_dir, &task.task_id, phase_name, "stderr");
-        
+
         // Build launch config from tool's TOML and CLI args
         let launch_config = if runtime.is_some() {
             Some(loom_runtime::LaunchConfig {
@@ -110,7 +110,7 @@ pub async fn launch_agent_with_task_context(
         } else {
             None
         };
-        
+
         return execute_workflow_task(
             loom_dir,
             agent,
@@ -118,7 +118,8 @@ pub async fn launch_agent_with_task_context(
             task,
             &stdout_log,
             &stderr_log,
-        ).await;
+        )
+        .await;
     }
 
     let home = loom_core::home_dir();
@@ -140,7 +141,10 @@ pub async fn launch_agent_with_task_context(
             "LOOM_ROUTING_PROVIDER".to_string(),
             rd.recommended_provider.clone(),
         );
-        env_vars.insert("LOOM_ROUTING_MODEL".to_string(), rd.recommended_model.clone());
+        env_vars.insert(
+            "LOOM_ROUTING_MODEL".to_string(),
+            rd.recommended_model.clone(),
+        );
         env_vars.insert(
             "LOOM_ROUTING_TIER".to_string(),
             format!("{:?}", rd.recommended_tier),
@@ -184,7 +188,10 @@ pub async fn launch_agent_with_task_context(
         // Sessions
         if let Some(ref sessions) = toml.sessions {
             if let Some(ref store_path) = sessions.store_path {
-                env_vars.insert("LOOM_SESSIONS_DIR".to_string(), format!("{loom_dir}/sessions"));
+                env_vars.insert(
+                    "LOOM_SESSIONS_DIR".to_string(),
+                    format!("{loom_dir}/sessions"),
+                );
                 env_vars.insert(
                     format!("{}_SESSIONS_DIR", agent.to_uppercase().replace('-', "_")),
                     store_path.clone(),
@@ -222,7 +229,10 @@ pub async fn launch_agent_with_task_context(
     // write a result file (consumed by the next dispatch in --auto-advance).
     let phase_name = task.phase.name();
     let result_path = phase_result_path(loom_dir, &task.task_id, phase_name);
-    env_vars.insert("LOOM_EXPECTED_RESULT_PATH".to_string(), result_path.display().to_string());
+    env_vars.insert(
+        "LOOM_EXPECTED_RESULT_PATH".to_string(),
+        result_path.display().to_string(),
+    );
 
     // Inject the most recent phase result (if any) so the next phase's agent
     // can see what the prior agent produced.
@@ -240,15 +250,10 @@ pub async fn launch_agent_with_task_context(
     // assistant message bodies (truncated) so they don't have to
     // round-trip through the database.
     if !prior_sessions.is_empty() {
-        env_vars.insert(
-            "LOOM_PRIOR_SESSIONS".to_string(),
-            prior_sessions.join(","),
-        );
-        if let Some(ctx_path) = build_prior_sessions_context(
-            loom_dir,
-            &task.task_id,
-            prior_sessions,
-        ) {
+        env_vars.insert("LOOM_PRIOR_SESSIONS".to_string(), prior_sessions.join(","));
+        if let Some(ctx_path) =
+            build_prior_sessions_context(loom_dir, &task.task_id, prior_sessions)
+        {
             env_vars.insert(
                 "LOOM_PRIOR_SESSIONS_CONTEXT_PATH".to_string(),
                 ctx_path.display().to_string(),
@@ -277,7 +282,10 @@ pub async fn launch_agent_with_task_context(
     };
 
     if dry_run {
-        println!("\n=== Dry Run: dispatch {} with {} ===", task.task_id, agent);
+        println!(
+            "\n=== Dry Run: dispatch {} with {} ===",
+            task.task_id, agent
+        );
         println!("Binary: {}", binary_path.display());
         println!("Args: {:?}", final_args);
         println!("\nTask context:");
@@ -454,8 +462,7 @@ pub async fn fire_post_phase_hooks(
     } else {
         return;
     }
-    match loom_hooks::run_post_phase_hooks(&registry, task_id, phase_name, agent, exit_code).await
-    {
+    match loom_hooks::run_post_phase_hooks(&registry, task_id, phase_name, agent, exit_code).await {
         Ok(n) if n > 0 => println!("🔗 Fired {n} PostPhase hook(s)"),
         Ok(_) => {} // no hooks registered — silent
         Err(e) => eprintln!("⚠  PostPhase hook error: {e}"),
@@ -597,7 +604,9 @@ pub fn capture_dispatch_session(
     if let Some(last) = task.phase_results.last() {
         sys_content.push_str(&format!(
             "\n  prior_phase_result: phase={} agent={} summary_len={}",
-            last.phase, last.agent, last.summary.len(),
+            last.phase,
+            last.agent,
+            last.summary.len(),
         ));
     }
     messages.push(loom_core::Message {
@@ -645,7 +654,10 @@ pub fn capture_dispatch_session(
         metadata: {
             let mut m = std::collections::HashMap::new();
             m.insert("agent".into(), serde_json::Value::String(agent.to_string()));
-            m.insert("phase".into(), serde_json::Value::String(phase_name.to_string()));
+            m.insert(
+                "phase".into(),
+                serde_json::Value::String(phase_name.to_string()),
+            );
             m.insert("exit_code".into(), serde_json::Value::from(exit_code));
             m
         },

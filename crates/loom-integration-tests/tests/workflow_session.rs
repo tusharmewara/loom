@@ -354,7 +354,12 @@ fn test_full_phase_chain_captures_four_ordered_sessions() -> Result<()> {
     let agents = loom_dir(&dir);
     let engine = WorkflowEngine::new(&agents);
     let orch = engine.orchestrator();
-    let task = orch.create_task("Phase chain capture", "verify the chain end to end", false, None)?;
+    let task = orch.create_task(
+        "Phase chain capture",
+        "verify the chain end to end",
+        false,
+        None,
+    )?;
 
     // Simulate the full Plan → Implement → Verify → Finish chain, capturing
     // a session at every step. Order matters: `prior_session_ids_for_task`

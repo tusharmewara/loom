@@ -205,8 +205,16 @@ mod tests {
     async fn test_multiple_peers() {
         let discovery = PeerDiscovery::new("test-agent");
         let peers = vec![
-            AcpPeer::new("a", "A", SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9001)),
-            AcpPeer::new("b", "B", SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9002)),
+            AcpPeer::new(
+                "a",
+                "A",
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9001),
+            ),
+            AcpPeer::new(
+                "b",
+                "B",
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9002),
+            ),
         ];
         discovery.register_peers(peers).await;
         assert_eq!(discovery.get_peers().await.len(), 2);

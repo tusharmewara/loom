@@ -9,16 +9,18 @@ fn test_create_and_advance_task() {
     let orch = engine.orchestrator();
 
     let task = orch
-        .create_task("Auth refactor", "Refactor distributed security middleware", false, None)
+        .create_task(
+            "Auth refactor",
+            "Refactor distributed security middleware",
+            false,
+            None,
+        )
         .unwrap();
     assert!(task.complexity_score.is_some());
     assert!(task.routing_decision.is_some());
 
     let advanced = orch.advance_phase(&task.task_id).unwrap();
-    assert!(matches!(
-        advanced.phase,
-        loom_core::TaskPhase::Implement
-    ));
+    assert!(matches!(advanced.phase, loom_core::TaskPhase::Implement));
 }
 
 #[test]
@@ -28,7 +30,12 @@ fn test_sub_agents_resolution() {
     let orch = engine.orchestrator();
 
     let task = orch
-        .create_task("Sub-agent test", "Test per-phase agent resolution", false, None)
+        .create_task(
+            "Sub-agent test",
+            "Test per-phase agent resolution",
+            false,
+            None,
+        )
         .unwrap();
 
     // Set sub-agents
@@ -47,7 +54,11 @@ fn test_sub_agents_resolution() {
 
     // resolve_agent uses current task phase — should pick plan-agent for new tasks
     let resolved = orch.resolve_agent(&task.task_id).unwrap();
-    assert_eq!(resolved, Some("plan-agent".to_string()), "new tasks start in Plan phase, should use plan-agent");
+    assert_eq!(
+        resolved,
+        Some("plan-agent".to_string()),
+        "new tasks start in Plan phase, should use plan-agent"
+    );
 
     // Advance to Implement — should resolve to impl-agent
     let adv = orch.advance_phase(&task.task_id).unwrap();
@@ -73,7 +84,12 @@ fn test_phase_result_capture_and_replace() {
     let orch = engine.orchestrator();
 
     let task = orch
-        .create_task("Phase result test", "Capture and replace per phase", false, None)
+        .create_task(
+            "Phase result test",
+            "Capture and replace per phase",
+            false,
+            None,
+        )
         .unwrap();
 
     // No results yet
@@ -103,7 +119,8 @@ fn test_phase_result_capture_and_replace() {
         artifacts: vec![],
         completed_at: "2026-06-06T04:05:00Z".into(),
     };
-    orch.set_phase_result(&task.task_id, impl_result.clone()).unwrap();
+    orch.set_phase_result(&task.task_id, impl_result.clone())
+        .unwrap();
 
     let latest = orch.latest_phase_result(&task.task_id).unwrap().unwrap();
     assert_eq!(latest.phase, "Implement");
@@ -120,7 +137,11 @@ fn test_phase_result_capture_and_replace() {
     orch.set_phase_result(&task.task_id, plan_v2).unwrap();
 
     let reloaded = orch.get_task(&task.task_id).unwrap().unwrap();
-    assert_eq!(reloaded.phase_results.len(), 2, "duplicate Plan result should replace, not append");
+    assert_eq!(
+        reloaded.phase_results.len(),
+        2,
+        "duplicate Plan result should replace, not append"
+    );
     let plan_in_store = reloaded
         .phase_results
         .iter()

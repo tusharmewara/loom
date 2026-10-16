@@ -490,7 +490,10 @@ mod tests {
         let logger = AuditLogger::new(loom);
         logger.log_write("tool-b", "provider-2", true).unwrap();
         let report = logger.verify_integrity().unwrap();
-        assert!(report.intact, "chain must continue across restart: {report:?}");
+        assert!(
+            report.intact,
+            "chain must continue across restart: {report:?}"
+        );
         assert_eq!(report.chained, 2);
     }
 

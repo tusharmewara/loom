@@ -18,8 +18,18 @@ const KNOWN_SERVERS: &[(&str, &str, &[&str], &[&str])] = &[
     ("rust", "rust-analyzer", &[], &["rs"]),
     ("python", "pyright-langserver", &["--stdio"], &["py"]),
     ("python", "pylsp", &[], &["py"]),
-    ("typescript", "typescript-language-server", &["--stdio"], &["ts", "tsx"]),
-    ("javascript", "typescript-language-server", &["--stdio"], &["js", "jsx"]),
+    (
+        "typescript",
+        "typescript-language-server",
+        &["--stdio"],
+        &["ts", "tsx"],
+    ),
+    (
+        "javascript",
+        "typescript-language-server",
+        &["--stdio"],
+        &["js", "jsx"],
+    ),
     ("go", "gopls", &[], &["go"]),
 ];
 

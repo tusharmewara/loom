@@ -61,18 +61,16 @@ impl LoomToolAdapter for JcodeAdapter {
                 file_extensions: vec!["rs".into(), "ts".into(), "tsx".into()],
             }),
             debug: Some(DebugSection {
-                adapters: vec![
-                    DebugAdapterConfig {
-                        language: "rust".into(),
-                        command: "lldb-dap".into(),
-                        args: vec![],
-                        name: Some("LLDB".into()),
-                    },
-                ],
+                adapters: vec![DebugAdapterConfig {
+                    language: "rust".into(),
+                    command: "lldb-dap".into(),
+                    args: vec![],
+                    name: Some("LLDB".into()),
+                }],
                 cwd: None,
             }),
-                    launch: None,
-}
+            launch: None,
+        }
     }
 
     fn apply_routing_decision(&self, decision: &RoutingDecision) -> Result<()> {

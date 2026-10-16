@@ -24,9 +24,21 @@ type AdapterSpec = (
     &'static [&'static str],
 );
 const KNOWN_ADAPTERS: &[AdapterSpec] = &[
-    ("lldb-dap", &["c", "cpp", "rust", "swift"], &[], "lldb", &["lldb-dap"]),
+    (
+        "lldb-dap",
+        &["c", "cpp", "rust", "swift"],
+        &[],
+        "lldb",
+        &["lldb-dap"],
+    ),
     ("dlv", &["go"], &["dap"], "go", &["dlv"]),
-    ("debugpy", &["python"], &["--listen", "0.0.0.0:5678"], "python", &["debugpy"]),
+    (
+        "debugpy",
+        &["python"],
+        &["--listen", "0.0.0.0:5678"],
+        "python",
+        &["debugpy"],
+    ),
 ];
 
 /// Check if a command exists on PATH.
@@ -59,5 +71,7 @@ pub fn discover_adapters() -> Vec<DebugAdapter> {
 /// Resolve a debug adapter for the given language.
 pub fn resolve_for_language(language: &str) -> Option<DebugAdapter> {
     let adapters = discover_adapters();
-    adapters.into_iter().find(|a| a.languages.iter().any(|l| l == language))
+    adapters
+        .into_iter()
+        .find(|a| a.languages.iter().any(|l| l == language))
 }

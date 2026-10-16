@@ -210,7 +210,10 @@ impl fmt::Display for HashlineError {
                 )
             }
             Self::AnchorNotFound => {
-                write!(f, "anchor content not found in file (missing line range or shifted content)")
+                write!(
+                    f,
+                    "anchor content not found in file (missing line range or shifted content)"
+                )
             }
         }
     }
@@ -246,8 +249,8 @@ pub fn make_replace_edit(
     new_content: &str,
     context: &str,
 ) -> Result<HashlineEdit, HashlineError> {
-    let target = get_lines(file_content, start_line, end_line)
-        .ok_or(HashlineError::AnchorNotFound)?;
+    let target =
+        get_lines(file_content, start_line, end_line).ok_or(HashlineError::AnchorNotFound)?;
 
     let anchor = HashlineAnchor::from_content(
         target.as_bytes(),
@@ -290,8 +293,11 @@ mod tests {
     #[test]
     fn test_anchor_create_and_validate() {
         let content = "fn main() { println!(\"hello\"); }";
-        let anchor =
-            HashlineAnchor::from_content(content.as_bytes(), Some(LineRange { start: 1, end: 1 }), "fn main()");
+        let anchor = HashlineAnchor::from_content(
+            content.as_bytes(),
+            Some(LineRange { start: 1, end: 1 }),
+            "fn main()",
+        );
         assert!(anchor.validate(content));
         assert!(!anchor.validate("fn main() { }"));
     }
@@ -316,8 +322,8 @@ mod tests {
     #[test]
     fn test_replace_edit_success() {
         let content = sample_content();
-        let edit = make_replace_edit(content, 3, 4, "replaced line 3\nreplaced line 4", "foo")
-            .unwrap();
+        let edit =
+            make_replace_edit(content, 3, 4, "replaced line 3\nreplaced line 4", "foo").unwrap();
 
         let result = edit.apply(content).unwrap().unwrap();
         assert_eq!(
@@ -395,14 +401,8 @@ mod tests {
                         fn foo() {\n    return 1;\n}\n\
                         outro line\n";
 
-        let edit = make_replace_edit(
-            original,
-            2,
-            4,
-            "fn foo() {\n    return 42;\n}",
-            "fn foo",
-        )
-        .unwrap();
+        let edit =
+            make_replace_edit(original, 2, 4, "fn foo() {\n    return 42;\n}", "fn foo").unwrap();
 
         // The anchor text at line 2-4 hasn't changed -> edit succeeds
         let result = edit.apply(modified).unwrap().unwrap();

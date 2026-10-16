@@ -1,8 +1,8 @@
-use std::path::Path;
-use std::collections::HashMap;
-use rusqlite::{Connection, params};
-use std::sync::Mutex;
 use loom_core::HealthCheck;
+use rusqlite::{params, Connection};
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::Mutex;
 
 /// SQLite-backed snapshot database.
 ///
@@ -26,8 +26,7 @@ impl SnapshotDb {
             let _ = std::fs::create_dir_all(parent);
         }
 
-        let conn = loom_core::db::open(&db_path)
-            .expect("Failed to open snapshot database");
+        let conn = loom_core::db::open(&db_path).expect("Failed to open snapshot database");
 
         Self {
             loom_dir: loom_dir.to_string(),
@@ -38,7 +37,8 @@ impl SnapshotDb {
     /// Create schema if not exists.
     pub fn initialize_schema(&self) -> anyhow::Result<()> {
         let conn = loom_core::lock_ok!(self.conn);
-        conn.execute_batch("
+        conn.execute_batch(
+            "
             CREATE TABLE IF NOT EXISTS skills (
                 name TEXT PRIMARY KEY,
                 path TEXT NOT NULL,
@@ -83,7 +83,8 @@ impl SnapshotDb {
             CREATE INDEX IF NOT EXISTS idx_mcp_shared ON mcp_servers(shared);
             CREATE INDEX IF NOT EXISTS idx_providers_status ON providers(status);
             CREATE INDEX IF NOT EXISTS idx_sessions_tool ON sessions(tool);
-        ")?;
+        ",
+        )?;
         Ok(())
     }
 
@@ -98,7 +99,12 @@ impl SnapshotDb {
     }
 
     /// Insert or update an MCP server entry.
-    pub fn insert_mcp_server(&self, name: &str, transport: &str, shared: bool) -> anyhow::Result<()> {
+    pub fn insert_mcp_server(
+        &self,
+        name: &str,
+        transport: &str,
+        shared: bool,
+    ) -> anyhow::Result<()> {
         let conn = loom_core::lock_ok!(self.conn);
         conn.execute(
             "INSERT OR REPLACE INTO mcp_servers (id, name, transport, shared) VALUES (?1, ?2, ?3, ?4)",
@@ -133,9 +139,8 @@ impl SnapshotDb {
     /// Get all skills from snapshot.
     pub fn get_skills(&self) -> anyhow::Result<Vec<loom_core::SkillEntry>> {
         let conn = loom_core::lock_ok!(self.conn);
-        let mut stmt = conn.prepare(
-            "SELECT name, path, hash, tags, compat, version, mtime FROM skills"
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT name, path, hash, tags, compat, version, mtime FROM skills")?;
         let skills = stmt
             .query_map([], |row| {
                 Ok(loom_core::SkillEntry {
@@ -143,8 +148,18 @@ impl SnapshotDb {
                     description: String::new(),
                     path: row.get(1)?,
                     content_hash: row.get(2)?,
-                    tags: row.get::<_, String>(3)?.split(',').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect(),
-                    ecosystem_compatible: row.get::<_, String>(4)?.split(',').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect(),
+                    tags: row
+                        .get::<_, String>(3)?
+                        .split(',')
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string())
+                        .collect(),
+                    ecosystem_compatible: row
+                        .get::<_, String>(4)?
+                        .split(',')
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string())
+                        .collect(),
                     ecosystem_requires: vec![],
                     version: row.get(5)?,
                     last_modified: row.get(6)?,
@@ -168,8 +183,12 @@ impl SnapshotDb {
 
         // Check for base layers even if empty
         let path = Path::new(&self.loom_dir);
-        if path.join("config.toml").exists() { layers.push("config".into()); }
-        if path.join("tools").exists() { layers.push("tools".into()); }
+        if path.join("config.toml").exists() {
+            layers.push("config".into());
+        }
+        if path.join("tools").exists() {
+            layers.push("tools".into());
+        }
 
         layers.sort();
         layers.dedup();
@@ -238,7 +257,8 @@ mod tests {
         let db = SnapshotDb::new(dir.to_str().unwrap());
         db.initialize_schema().unwrap();
 
-        db.insert_skill("test-skill", "/tmp/test/SKILL.md", "abc123").unwrap();
+        db.insert_skill("test-skill", "/tmp/test/SKILL.md", "abc123")
+            .unwrap();
         db.insert_mcp_server("filesystem", "stdio", true).unwrap();
         db.insert_tool("cursor", "/tmp/tools/cursor.toml").unwrap();
 

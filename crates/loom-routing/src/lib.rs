@@ -1,18 +1,21 @@
 pub mod catalog;
 pub mod classifier;
 pub mod decision;
+pub mod metrics;
 pub mod router;
 pub mod scorer;
-pub mod metrics;
 
 use loom_core::HealthCheck;
 
 pub use catalog::CatalogManager;
 pub use classifier::Classifier;
 pub use decision::DecisionEngine;
-pub use router::ModelRouter;
-pub use scorer::{score_dynamic, score_static, score_dynamic_signals, score_static_signals, DynamicSignals, StaticSignals};
 pub use metrics::RoutingMetrics;
+pub use router::ModelRouter;
+pub use scorer::{
+    score_dynamic, score_dynamic_signals, score_static, score_static_signals, DynamicSignals,
+    StaticSignals,
+};
 
 use std::sync::Arc;
 

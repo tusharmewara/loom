@@ -46,24 +46,23 @@ pub fn extract_from_llm_response(
     let mut rel_count = 0usize;
 
     // Try to parse as structured JSON
-    let result: LlmExtractionResult = serde_json::from_str(llm_response)
-        .or_else(|_| {
-            // The response might be wrapped in a markdown code block
-            if let Some(start) = llm_response.find("```json") {
-                let rest = &llm_response[start + 7..];
-                if let Some(end) = rest.find("```") {
-                    return serde_json::from_str(rest[..end].trim());
-                }
+    let result: LlmExtractionResult = serde_json::from_str(llm_response).or_else(|_| {
+        // The response might be wrapped in a markdown code block
+        if let Some(start) = llm_response.find("```json") {
+            let rest = &llm_response[start + 7..];
+            if let Some(end) = rest.find("```") {
+                return serde_json::from_str(rest[..end].trim());
             }
-            // Or just a code block without language
-            if let Some(start) = llm_response.find("```") {
-                let rest = &llm_response[start + 3..];
-                if let Some(end) = rest.find("```") {
-                    return serde_json::from_str(rest[..end].trim());
-                }
+        }
+        // Or just a code block without language
+        if let Some(start) = llm_response.find("```") {
+            let rest = &llm_response[start + 3..];
+            if let Some(end) = rest.find("```") {
+                return serde_json::from_str(rest[..end].trim());
             }
-            Err(serde_json::from_str::<LlmExtractionResult>("").unwrap_err())
-        })?;
+        }
+        Err(serde_json::from_str::<LlmExtractionResult>("").unwrap_err())
+    })?;
 
     for ent in &result.entities {
         if kg.find_entity(&ent.name)?.is_none() {
@@ -217,13 +216,7 @@ pub fn extract_from_messages(
                     // Infer predicate based on types
                     let predicate = infer_predicate(type_a, type_b);
 
-                    kg.add_relationship(
-                        &a.id,
-                        &predicate,
-                        &b.id,
-                        0.5,
-                        Some(source_session),
-                    )?;
+                    kg.add_relationship(&a.id, &predicate, &b.id, 0.5, Some(source_session))?;
                     rel_count += 1;
                 }
             }
@@ -252,20 +245,112 @@ fn infer_predicate(type_a: &str, type_b: &str) -> String {
 fn is_stop_phrase(phrase: &str) -> bool {
     let lower = phrase.to_lowercase();
     let stops = [
-        "how", "what", "when", "where", "why", "the", "this", "that", "with",
-        "from", "into", "there", "here", "come", "came", "make", "like", "just",
-        "also", "than", "then", "and", "but", "for", "not", "you", "your",
-        "have", "has", "had", "can", "could", "would", "should", "will",
-        "shall", "may", "might", "must", "need", "use", "using", "used",
-        "get", "got", "set", "let", "put", "take", "look", "see", "show",
-        "tell", "ask", "said", "says", "say", "one", "two", "some", "any",
-        "each", "every", "all", "both", "few", "more", "most", "other",
-        "such", "only", "own", "same", "so", "very", "too", "quite",
-        "please", "thank", "yes", "no", "ok", "okay", "hi", "hello",
-        "thanks", "welcome", "regards", "best", "sincerely",
-        "step", "steps", "part", "parts", "section", "sections",
-        "example", "examples", "note", "notes", "tip", "tips",
-        "warning", "caution", "important", "see also",
+        "how",
+        "what",
+        "when",
+        "where",
+        "why",
+        "the",
+        "this",
+        "that",
+        "with",
+        "from",
+        "into",
+        "there",
+        "here",
+        "come",
+        "came",
+        "make",
+        "like",
+        "just",
+        "also",
+        "than",
+        "then",
+        "and",
+        "but",
+        "for",
+        "not",
+        "you",
+        "your",
+        "have",
+        "has",
+        "had",
+        "can",
+        "could",
+        "would",
+        "should",
+        "will",
+        "shall",
+        "may",
+        "might",
+        "must",
+        "need",
+        "use",
+        "using",
+        "used",
+        "get",
+        "got",
+        "set",
+        "let",
+        "put",
+        "take",
+        "look",
+        "see",
+        "show",
+        "tell",
+        "ask",
+        "said",
+        "says",
+        "say",
+        "one",
+        "two",
+        "some",
+        "any",
+        "each",
+        "every",
+        "all",
+        "both",
+        "few",
+        "more",
+        "most",
+        "other",
+        "such",
+        "only",
+        "own",
+        "same",
+        "so",
+        "very",
+        "too",
+        "quite",
+        "please",
+        "thank",
+        "yes",
+        "no",
+        "ok",
+        "okay",
+        "hi",
+        "hello",
+        "thanks",
+        "welcome",
+        "regards",
+        "best",
+        "sincerely",
+        "step",
+        "steps",
+        "part",
+        "parts",
+        "section",
+        "sections",
+        "example",
+        "examples",
+        "note",
+        "notes",
+        "tip",
+        "tips",
+        "warning",
+        "caution",
+        "important",
+        "see also",
     ];
     let words: Vec<&str> = lower.split_whitespace().collect();
     words.len() == 1 && stops.contains(&words[0])

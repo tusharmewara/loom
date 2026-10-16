@@ -43,7 +43,15 @@ pub fn draw_pulls(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, the
             .split(inner);
 
         draw_pr_list(frame, chunks[0], app, theme, " PRs ");
-        if app.pr_ci_status.is_object() && !app.pr_ci_status.get("checks").unwrap_or(&Value::Null).as_array().unwrap_or(&Vec::new()).is_empty() {
+        if app.pr_ci_status.is_object()
+            && !app
+                .pr_ci_status
+                .get("checks")
+                .unwrap_or(&Value::Null)
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .is_empty()
+        {
             draw_ci_status(frame, chunks[1], app, theme);
         } else {
             draw_pr_detail(frame, chunks[1], app, theme);
@@ -51,7 +59,13 @@ pub fn draw_pulls(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, the
     }
 }
 
-fn draw_pr_list(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, theme: &Theme, title: &str) {
+fn draw_pr_list(
+    frame: &mut Frame,
+    area: ratatui::layout::Rect,
+    app: &App,
+    theme: &Theme,
+    title: &str,
+) {
     let pulls = &app.pulls;
     let items: Vec<ListItem> = if pulls.is_null() || !pulls.is_object() {
         vec![ListItem::new(Line::from(Span::styled(
@@ -74,14 +88,17 @@ fn draw_pr_list(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, theme
             list.iter()
                 .enumerate()
                 .map(|(i, pr)| {
-                    let title = pr.pointer("/title").and_then(Value::as_str).unwrap_or("(untitled)");
+                    let title = pr
+                        .pointer("/title")
+                        .and_then(Value::as_str)
+                        .unwrap_or("(untitled)");
                     let state = pr.pointer("/state").and_then(Value::as_str).unwrap_or("?");
                     let id = pr.pointer("/id").and_then(Value::as_str).unwrap_or("?");
-                let labels: Vec<&str> = pr
-                .pointer("/labels")
-                .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
-                .unwrap_or_default();
+                    let labels: Vec<&str> = pr
+                        .pointer("/labels")
+                        .and_then(Value::as_array)
+                        .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+                        .unwrap_or_default();
 
                     let is_selected = i == app.pull_selection_index;
                     let style = if is_selected {
@@ -125,27 +142,44 @@ fn draw_pr_list(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, theme
 
 fn draw_pr_detail(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, theme: &Theme) {
     let detail_lines = if let Some(selected_pr) = app.selected_pull() {
-        let title = selected_pr.pointer("/title").and_then(Value::as_str).unwrap_or("Untitled");
-        let state = selected_pr.pointer("/state").and_then(Value::as_str).unwrap_or("?");
-        let id = selected_pr.pointer("/id").and_then(Value::as_str).unwrap_or("?");
-        let body = selected_pr.pointer("/body").and_then(Value::as_str).unwrap_or("");
+        let title = selected_pr
+            .pointer("/title")
+            .and_then(Value::as_str)
+            .unwrap_or("Untitled");
+        let state = selected_pr
+            .pointer("/state")
+            .and_then(Value::as_str)
+            .unwrap_or("?");
+        let id = selected_pr
+            .pointer("/id")
+            .and_then(Value::as_str)
+            .unwrap_or("?");
+        let body = selected_pr
+            .pointer("/body")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         let labels: Vec<&str> = selected_pr
             .pointer("/labels")
             .and_then(Value::as_array)
             .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
             .unwrap_or_default();
-        let assignee = selected_pr.pointer("/assignee").and_then(Value::as_str).unwrap_or("none");
-        let url = selected_pr.pointer("/html_url").and_then(Value::as_str).unwrap_or("");
+        let assignee = selected_pr
+            .pointer("/assignee")
+            .and_then(Value::as_str)
+            .unwrap_or("none");
+        let url = selected_pr
+            .pointer("/html_url")
+            .and_then(Value::as_str)
+            .unwrap_or("");
 
         let mut lines = vec![
             Line::from(Span::styled(
                 format!(" {title}"),
-                Style::default().fg(theme.primary).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(theme.primary)
+                    .add_modifier(Modifier::BOLD),
             )),
-            Line::from(Span::styled(
-                format!(" {id}  ({state})",),
-                theme.text_dim,
-            )),
+            Line::from(Span::styled(format!(" {id}  ({state})",), theme.text_dim)),
             Line::from(Span::styled("", Style::default())),
         ];
 
@@ -170,7 +204,9 @@ fn draw_pr_detail(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, the
             lines.push(Line::from(Span::styled("", Style::default())));
             lines.push(Line::from(Span::styled(
                 " Description:",
-                Style::default().fg(theme.text_dim).add_modifier(Modifier::UNDERLINED),
+                Style::default()
+                    .fg(theme.text_dim)
+                    .add_modifier(Modifier::UNDERLINED),
             )));
             for line in body.lines().take(8) {
                 lines.push(Line::from(Span::styled(line, theme.text)));
@@ -203,25 +239,40 @@ fn draw_pr_detail(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, the
 }
 
 fn draw_ci_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, theme: &Theme) {
-    let mut lines = vec![
-        Line::from(Span::styled(
-            " CI Status",
-            Style::default().fg(theme.primary).add_modifier(Modifier::BOLD),
-        )),
-    ];
+    let mut lines = vec![Line::from(Span::styled(
+        " CI Status",
+        Style::default()
+            .fg(theme.primary)
+            .add_modifier(Modifier::BOLD),
+    ))];
 
-    if let Some(checks) = app.pr_ci_status.pointer("/checks").and_then(Value::as_array) {
+    if let Some(checks) = app
+        .pr_ci_status
+        .pointer("/checks")
+        .and_then(Value::as_array)
+    {
         if checks.is_empty() {
-            lines.push(Line::from(Span::styled(" No CI checks found.", theme.text_dim)));
+            lines.push(Line::from(Span::styled(
+                " No CI checks found.",
+                theme.text_dim,
+            )));
         } else {
             for check in checks {
-                let name = check.pointer("/name").and_then(Value::as_str).unwrap_or("?");
-                let status = check.pointer("/status").and_then(Value::as_str).unwrap_or("?");
+                let name = check
+                    .pointer("/name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?");
+                let status = check
+                    .pointer("/status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?");
                 let (icon, style) = match status {
                     "success" => ("✅", Style::default().fg(theme.success)),
                     "failure" => ("❌", Style::default().fg(theme.error)),
                     "cancelled" => ("⏹️", Style::default().fg(theme.warning)),
-                    "pending" | "queued" | "in_progress" => ("⏳", Style::default().fg(theme.warning)),
+                    "pending" | "queued" | "in_progress" => {
+                        ("⏳", Style::default().fg(theme.warning))
+                    }
                     "neutral" => ("➖", Style::default().fg(theme.text_dim)),
                     _ => ("❓", Style::default().fg(theme.text_dim)),
                 };
@@ -232,7 +283,10 @@ fn draw_ci_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, the
             }
         }
     } else {
-        lines.push(Line::from(Span::styled(" No CI status available.", theme.text_dim)));
+        lines.push(Line::from(Span::styled(
+            " No CI status available.",
+            theme.text_dim,
+        )));
     }
 
     let ci = Paragraph::new(lines)

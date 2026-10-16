@@ -69,7 +69,10 @@ impl McpClientPool {
 
         if let Some(conns) = available.get_mut(&entry.id) {
             if let Some(conn) = conns.pop() {
-                debug!("Client: reusing connection {} for '{}'", conn.conn_id, entry.id);
+                debug!(
+                    "Client: reusing connection {} for '{}'",
+                    conn.conn_id, entry.id
+                );
                 self.track_active(conn.clone());
                 return Ok(conn);
             }
@@ -83,10 +86,7 @@ impl McpClientPool {
             id
         };
 
-        let persistent = matches!(
-            entry.transport.transport_type,
-            McpTransportType::Stdio
-        );
+        let persistent = matches!(entry.transport.transport_type, McpTransportType::Stdio);
 
         let conn = McpClientConnection {
             server_id: entry.id.clone(),
@@ -145,7 +145,10 @@ impl McpClientPool {
         let mut available = loom_core::lock_ok!(self.available);
         let count = available.remove(server_id).map_or(0, |v| v.len());
         if count > 0 {
-            info!("Client: evicted {} idle connections for '{}'", count, server_id);
+            info!(
+                "Client: evicted {} idle connections for '{}'",
+                count, server_id
+            );
         }
         count
     }

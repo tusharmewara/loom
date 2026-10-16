@@ -205,7 +205,11 @@ fn test_append_message_auto_triggers_compression() {
     store.append_message("s1", &new_msg).expect("append");
     let post = store.load_messages("s1").unwrap();
     // 1 summary + 10 full-fidelity = 11
-    assert_eq!(post.len(), 11, "auto-compress should leave summary + 10 kept");
+    assert_eq!(
+        post.len(),
+        11,
+        "auto-compress should leave summary + 10 kept"
+    );
     assert_eq!(post[0].id, SUMMARY_MESSAGE_ID);
     let manifest = store.get("s1").unwrap();
     assert!(manifest.summarized_at.is_some());
@@ -222,7 +226,11 @@ fn test_compress_then_index_drops_folded_messages_from_search() {
     store.save_manifest(&sample_manifest("s1", 25)).unwrap();
     // Build the raw messages with the kangaroo/platypus content so
     // the summary body itself contains "kangaroo".
-    let path = dir.path().join("sessions").join("s1").join("messages.jsonl");
+    let path = dir
+        .path()
+        .join("sessions")
+        .join("s1")
+        .join("messages.jsonl");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     {
         let mut f = std::fs::File::create(&path).unwrap();
@@ -292,7 +300,10 @@ fn test_summary_message_role_and_metadata() {
     assert!(matches!(summary.role, MessageRole::System));
     let meta = &summary.metadata;
     assert_eq!(
-        meta.get("loom.summary.folded_count").unwrap().as_u64().unwrap(),
+        meta.get("loom.summary.folded_count")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
         15
     );
     assert_eq!(
@@ -303,7 +314,10 @@ fn test_summary_message_role_and_metadata() {
         10
     );
     assert_eq!(
-        meta.get("loom.summary.generator").unwrap().as_str().unwrap(),
+        meta.get("loom.summary.generator")
+            .unwrap()
+            .as_str()
+            .unwrap(),
         "extractive-v1"
     );
 }
@@ -351,15 +365,13 @@ fn test_manifest_round_trips_with_summarized_fields() {
     store.compress_session("s1").expect("compress");
     // Read the manifest back from disk and verify fields survive.
     let manifest = store.get("s1").unwrap();
-    let raw = std::fs::read_to_string(
-        dir.path()
-            .join("sessions")
-            .join("s1")
-            .join("manifest.json"),
-    )
-    .unwrap();
+    let raw = std::fs::read_to_string(dir.path().join("sessions").join("s1").join("manifest.json"))
+        .unwrap();
     let parsed: SessionManifest = serde_json::from_str(&raw).unwrap();
-    assert_eq!(parsed.summarized_message_count, manifest.summarized_message_count);
+    assert_eq!(
+        parsed.summarized_message_count,
+        manifest.summarized_message_count
+    );
     assert_eq!(parsed.summarized_at, manifest.summarized_at);
     // Pre-v0.3.9 manifests (without these fields) must still load
     // — synthesize one on disk and read it.

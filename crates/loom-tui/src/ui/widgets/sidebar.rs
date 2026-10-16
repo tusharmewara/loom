@@ -40,7 +40,11 @@ fn build_sidebar_lines<'a>(app: &App, theme: &Theme) -> Vec<Line<'a>> {
         Span::styled(
             if daemon_ok { "● " } else { "○ " },
             Style::default()
-                .fg(if daemon_ok { theme.success } else { theme.error })
+                .fg(if daemon_ok {
+                    theme.success
+                } else {
+                    theme.error
+                })
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled("Daemon", Style::default().fg(theme.text)),
@@ -51,10 +55,7 @@ fn build_sidebar_lines<'a>(app: &App, theme: &Theme) -> Vec<Line<'a>> {
     )));
     lines.push(Line::from(Span::styled("", Style::default())));
 
-    lines.push(Line::from(Span::styled(
-        "── Resources ──",
-        theme.text_dim,
-    )));
+    lines.push(Line::from(Span::styled("── Resources ──", theme.text_dim)));
 
     let tool_count = app
         .scan
@@ -65,11 +66,25 @@ fn build_sidebar_lines<'a>(app: &App, theme: &Theme) -> Vec<Line<'a>> {
 
     // Use aggregated resource counts from status for consistency
     let resource_counts = app.status.pointer("/resources/counts");
-    let skill_count = resource_counts.and_then(|c| c.pointer("/skills").and_then(Value::as_u64)).unwrap_or(0);
-    let mcp_count = resource_counts.and_then(|c| c.pointer("/mcp_servers").and_then(Value::as_u64)).unwrap_or(0);
-    let session_count = resource_counts.and_then(|c| c.pointer("/sessions").and_then(Value::as_u64)).unwrap_or(0);
-    let hook_count = app.hooks.pointer("/count").and_then(Value::as_u64).unwrap_or(0);
-    let task_count = app.workflow.pointer("/count").and_then(Value::as_u64).unwrap_or(0);
+    let skill_count = resource_counts
+        .and_then(|c| c.pointer("/skills").and_then(Value::as_u64))
+        .unwrap_or(0);
+    let mcp_count = resource_counts
+        .and_then(|c| c.pointer("/mcp_servers").and_then(Value::as_u64))
+        .unwrap_or(0);
+    let session_count = resource_counts
+        .and_then(|c| c.pointer("/sessions").and_then(Value::as_u64))
+        .unwrap_or(0);
+    let hook_count = app
+        .hooks
+        .pointer("/count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let task_count = app
+        .workflow
+        .pointer("/count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
 
     lines.push(format_line("Tools", tool_count as u64, theme));
     lines.push(format_line("Skills", skill_count, theme));
@@ -87,17 +102,11 @@ fn build_sidebar_lines<'a>(app: &App, theme: &Theme) -> Vec<Line<'a>> {
         .unwrap_or(0);
     lines.push(Line::from(vec![
         Span::styled("Total: ", theme.text_dim),
-        Span::styled(
-            format!("{}", total),
-            Style::default().fg(theme.text_bright),
-        ),
+        Span::styled(format!("{}", total), Style::default().fg(theme.text_bright)),
     ]));
 
     lines.push(Line::from(Span::styled("", Style::default())));
-    lines.push(Line::from(Span::styled(
-        "── Health ──",
-        theme.text_dim,
-    )));
+    lines.push(Line::from(Span::styled("── Health ──", theme.text_dim)));
 
     let doctor_pass = app
         .doctor
@@ -134,10 +143,7 @@ fn build_sidebar_lines<'a>(app: &App, theme: &Theme) -> Vec<Line<'a>> {
     let last_refresh = app.last_refresh.elapsed().as_secs_f64();
     lines.push(Line::from(vec![
         Span::styled("Updated ", theme.text_dim),
-        Span::styled(
-            format!("{:.1}s ago", last_refresh),
-            theme.text_dim,
-        ),
+        Span::styled(format!("{:.1}s ago", last_refresh), theme.text_dim),
     ]));
 
     lines

@@ -67,10 +67,7 @@ impl McpHealthChecker {
     ///
     /// `on_change` is called whenever a server's health changes.
     /// Use [`McpHealthCheckerBuilder`] for a fluent API.
-    pub fn new(
-        check_interval: Duration,
-        on_change: Option<HealthChangeCallback>,
-    ) -> Self {
+    pub fn new(check_interval: Duration, on_change: Option<HealthChangeCallback>) -> Self {
         Self {
             servers: Arc::new(Mutex::new(HashMap::new())),
             on_change,
@@ -122,10 +119,7 @@ impl McpHealthChecker {
         let mut ticker = interval(check_interval);
 
         tokio::spawn(async move {
-            info!(
-                "Health checker started (interval = {:?})",
-                check_interval
-            );
+            info!("Health checker started (interval = {:?})", check_interval);
 
             loop {
                 tokio::select! {
@@ -255,10 +249,7 @@ impl HealthCheck for McpHealthChecker {
             last_error: None,
             performance_counters: {
                 let mut h = std::collections::HashMap::new();
-                h.insert(
-                    "check_interval_secs".into(),
-                    self.interval.as_secs(),
-                );
+                h.insert("check_interval_secs".into(), self.interval.as_secs());
                 h
             },
         })

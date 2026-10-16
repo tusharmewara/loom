@@ -6,8 +6,14 @@ pub fn reconstruct_environment(manifest: &SessionManifest) -> HashMap<String, St
     let mut env = HashMap::new();
     env.insert("LOOM_SESSION_ID".into(), manifest.session_id.clone());
     env.insert("LOOM_SOURCE_TOOL".into(), manifest.source_tool.clone());
-    env.insert("LOOM_WORKING_DIRECTORY".into(), manifest.working_directory.clone());
-    env.insert("LOOM_MODEL_PROVIDER".into(), manifest.model_provider.clone());
+    env.insert(
+        "LOOM_WORKING_DIRECTORY".into(),
+        manifest.working_directory.clone(),
+    );
+    env.insert(
+        "LOOM_MODEL_PROVIDER".into(),
+        manifest.model_provider.clone(),
+    );
 
     if !manifest.active_skills.is_empty() {
         env.insert(

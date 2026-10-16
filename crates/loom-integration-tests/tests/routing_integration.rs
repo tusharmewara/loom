@@ -98,7 +98,10 @@ fn test_routing_uses_config_thresholds() -> Result<()> {
         ..score
     };
     let decision_high = engine.decide(score_high);
-    assert!(matches!(decision_high.recommended_tier, ModelTier::Flagship));
+    assert!(matches!(
+        decision_high.recommended_tier,
+        ModelTier::Flagship
+    ));
 
     Ok(())
 }
@@ -143,7 +146,7 @@ fn test_phase_transition_records_dynamic_signals() -> Result<()> {
     // Directly check signals from the complexity score
     let cs = task_after.complexity_score.as_ref().unwrap();
     assert_eq!(cs.signals.files_modified_count, Some(0)); // no files modified yet
-    // phase_iteration_count should be 1 (first time in Implement)
+                                                          // phase_iteration_count should be 1 (first time in Implement)
     assert_eq!(cs.signals.phase_iteration_count, Some(1));
 
     Ok(())
@@ -242,12 +245,17 @@ fn test_manual_override_persists() -> Result<()> {
 
     // Reload and verify
     let reloaded = manager.get(&task_id)?;
-    let reloaded = reloaded.as_ref().ok_or_else(|| anyhow::anyhow!("task missing"))?;
+    let reloaded = reloaded
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("task missing"))?;
     assert!(reloaded.routing_decision.is_some());
     let rd = reloaded.routing_decision.as_ref().unwrap();
     assert!(matches!(rd.recommended_tier, ModelTier::Slm));
     assert!(rd.overrides_role_default);
-    assert_eq!(reloaded.routed_provider.as_ref().unwrap(), &model.provider_id);
+    assert_eq!(
+        reloaded.routed_provider.as_ref().unwrap(),
+        &model.provider_id
+    );
 
     Ok(())
 }

@@ -1,8 +1,8 @@
-pub mod scanner;
-pub mod registry;
 pub mod config_reader;
 pub mod initializer;
 pub mod merger;
+pub mod registry;
+pub mod scanner;
 pub mod watcher;
 
 use loom_core::HealthCheck;
@@ -106,7 +106,9 @@ impl DiscoveryEngine {
                 warnings.push(format!(
                     "Unresolved conflict for '{}': {} strategy needed",
                     c.resource_name,
-                    c.strategy.clone().unwrap_or(loom_core::ConflictResolution::NativeFirst)
+                    c.strategy
+                        .clone()
+                        .unwrap_or(loom_core::ConflictResolution::NativeFirst)
                 ));
             }
         }
@@ -201,7 +203,11 @@ impl HealthCheck for DiscoveryEngine {
             crate_name: "loom-discovery",
             version: env!("CARGO_PKG_VERSION"),
             uptime_seconds: 0,
-            last_error: if snapshot_ok { None } else { Some("snapshot check failed".into()) },
+            last_error: if snapshot_ok {
+                None
+            } else {
+                Some("snapshot check failed".into())
+            },
             performance_counters: {
                 let mut m = std::collections::HashMap::new();
                 m.insert("snapshot_entries".into(), self.snapshot.entry_count());

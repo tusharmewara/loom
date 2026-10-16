@@ -23,7 +23,10 @@ impl DapTransport {
             .stderr(Stdio::piped())
             .spawn()
             .with_context(|| format!("Failed to spawn debug adapter: {command}"))?;
-        Ok(Self { child, request_id: 0 })
+        Ok(Self {
+            child,
+            request_id: 0,
+        })
     }
 
     /// Send a JSON-RPC notification (no response expected).
@@ -70,7 +73,10 @@ impl DapTransport {
                         anyhow::bail!("DAP error: {msg}");
                     }
                 }
-                let body = response.get("body").cloned().unwrap_or(serde_json::Value::Null);
+                let body = response
+                    .get("body")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
                 return Ok(serde_json::from_value(body)?);
             }
         }
@@ -100,8 +106,7 @@ impl DapTransport {
     }
 
     fn read_message(&mut self) -> Result<serde_json::Value> {
-        let stdout = self.child.stdout.as_mut()
-            .context("stdout not captured")?;
+        let stdout = self.child.stdout.as_mut().context("stdout not captured")?;
         let mut reader = std::io::BufReader::new(stdout);
 
         let mut content_length: usize = 0;
@@ -119,8 +124,7 @@ impl DapTransport {
 
         let mut body = vec![0u8; content_length];
         reader.read_exact(&mut body)?;
-        serde_json::from_slice(&body)
-            .context("Failed to parse DAP response JSON")
+        serde_json::from_slice(&body).context("Failed to parse DAP response JSON")
     }
 }
 

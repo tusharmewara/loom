@@ -120,7 +120,9 @@ pub fn draw_help_overlay(frame: &mut Frame, area: Rect, theme: &Theme) {
     ]));
 
     frame.render_widget(
-        Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
         area,
     );
 }

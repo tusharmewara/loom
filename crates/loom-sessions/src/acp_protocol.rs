@@ -160,11 +160,7 @@ fn accumulate(transcript: &mut TranscriptAcc, params: &Value) {
             let call_id = update.get("toolCallId").and_then(Value::as_str);
             let status = update.get("status").and_then(Value::as_str);
             if let (Some(call_id), Some(status)) = (call_id, status) {
-                if let Some(entry) = transcript
-                    .tools
-                    .iter_mut()
-                    .find(|(id, _, _)| id == call_id)
-                {
+                if let Some(entry) = transcript.tools.iter_mut().find(|(id, _, _)| id == call_id) {
                     entry.2 = status.to_string();
                 }
             }
@@ -189,10 +185,7 @@ fn permission_outcome(params: &Value) -> Value {
     });
     match allow.or_else(|| options.first()) {
         Some(option) => {
-            let option_id = option
-                .get("optionId")
-                .and_then(Value::as_str)
-                .unwrap_or("");
+            let option_id = option.get("optionId").and_then(Value::as_str).unwrap_or("");
             serde_json::json!({
                 "outcome": "selected",
                 "optionId": option_id,
@@ -238,9 +231,7 @@ impl AcpProtocolClient {
             .stdout
             .take()
             .ok_or_else(|| anyhow::anyhow!("ACP agent has no stdout"))?;
-        let stderr = child
-            .stderr
-            .take();
+        let stderr = child.stderr.take();
         if let Some(stderr) = stderr {
             // Spawn a thread to read stderr
             let _stderr_thread = std::thread::spawn(move || {
@@ -321,40 +312,32 @@ impl AcpProtocolClient {
                 .map_err(|e| anyhow::anyhow!("failed to flush ACP request: {e}"))?;
             Ok(())
         };
-        let wait_response =
-            |id: u64, method: &str, timeout: Duration| -> anyhow::Result<Value> {
-                let key = id.to_string();
-                let deadline = Instant::now() + timeout;
-                let mut guard = loom_core::lock_ok!(shared.responses);
-                loop {
-                    if let Some((result, error)) = guard.remove(&key) {
-                        if let Some(error) = error {
-                            let message = error
-                                .get("message")
-                                .and_then(Value::as_str)
-                                .unwrap_or("unknown ACP error");
-                            anyhow::bail!("ACP {method} failed: {message}");
-                        }
-                        return Ok(result.unwrap_or(Value::Null));
+        let wait_response = |id: u64, method: &str, timeout: Duration| -> anyhow::Result<Value> {
+            let key = id.to_string();
+            let deadline = Instant::now() + timeout;
+            let mut guard = loom_core::lock_ok!(shared.responses);
+            loop {
+                if let Some((result, error)) = guard.remove(&key) {
+                    if let Some(error) = error {
+                        let message = error
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .unwrap_or("unknown ACP error");
+                        anyhow::bail!("ACP {method} failed: {message}");
                     }
-                    let remaining = deadline.saturating_duration_since(Instant::now());
-                    if remaining.is_zero() {
-                        anyhow::bail!(
-                            "ACP {method} timed out after {}s",
-                            timeout.as_secs()
-                        );
-                    }
-                    let (guard_out, wait) =
-                        shared.arrived.wait_timeout(guard, remaining).unwrap();
-                    guard = guard_out;
-                    if wait.timed_out() && !guard.contains_key(&key) {
-                        anyhow::bail!(
-                            "ACP {method} timed out after {}s",
-                            timeout.as_secs()
-                        );
-                    }
+                    return Ok(result.unwrap_or(Value::Null));
                 }
-            };
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    anyhow::bail!("ACP {method} timed out after {}s", timeout.as_secs());
+                }
+                let (guard_out, wait) = shared.arrived.wait_timeout(guard, remaining).unwrap();
+                guard = guard_out;
+                if wait.timed_out() && !guard.contains_key(&key) {
+                    anyhow::bail!("ACP {method} timed out after {}s", timeout.as_secs());
+                }
+            }
+        };
 
         // 1. initialize + version negotiation.
         send(
@@ -564,7 +547,9 @@ mod tests {
             }
             other => panic!("expected Notification, got {other:?}"),
         }
-        match parse_message(r#"{"jsonrpc":"2.0","id":5,"method":"session/request_permission","params":{}}"#) {
+        match parse_message(
+            r#"{"jsonrpc":"2.0","id":5,"method":"session/request_permission","params":{}}"#,
+        ) {
             AcpIncoming::Request { id, method, .. } => {
                 assert_eq!(id, serde_json::json!(5));
                 assert_eq!(method, "session/request_permission");
@@ -628,7 +613,10 @@ mod tests {
         assert_eq!(transcript.session_id, "sess-test-1");
         assert_eq!(transcript.stop_reason, "end_turn");
         assert!(transcript.agent_text.contains("Hello back"));
-        assert!(transcript.tool_calls.iter().any(|t| t.contains("Reading file")));
+        assert!(transcript
+            .tool_calls
+            .iter()
+            .any(|t| t.contains("Reading file")));
     }
 
     #[test]

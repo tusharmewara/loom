@@ -1,8 +1,8 @@
+use chrono;
+use loom_runtime::RuntimeRegistry;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env;
-use loom_runtime::RuntimeRegistry;
-use chrono;
 
 pub const DISPATCHER_COUNT: usize = 4;
 
@@ -17,23 +17,31 @@ pub struct DispatchResult {
 
 impl DispatchResult {
     fn ok(message: String, run_id: Option<String>) -> Self {
-        Self { success: true, message, run_id }
+        Self {
+            success: true,
+            message,
+            run_id,
+        }
     }
 
     fn err(message: String) -> Self {
-        Self { success: false, message, run_id: None }
+        Self {
+            success: false,
+            message,
+            run_id: None,
+        }
     }
 }
 
 /// Supported terminal applications for launching new tabs/windows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalApp {
-    Terminal,    // macOS Terminal.app
-    Iterm2,      // iTerm2
-    Ghostty,     // Ghostty
-    Wezterm,     // WezTerm
-    Alacritty,   // Alacritty
-    Kitty,       // Kitty
+    Terminal,  // macOS Terminal.app
+    Iterm2,    // iTerm2
+    Ghostty,   // Ghostty
+    Wezterm,   // WezTerm
+    Alacritty, // Alacritty
+    Kitty,     // Kitty
     Unknown,
 }
 
@@ -125,7 +133,9 @@ impl TerminalApp {
         }
         #[cfg(target_os = "linux")]
         {
-            if let Ok(comm) = std::fs::read_to_string(format!("/proc/{}/comm", nix::unistd::getppid())) {
+            if let Ok(comm) =
+                std::fs::read_to_string(format!("/proc/{}/comm", nix::unistd::getppid()))
+            {
                 return comm.to_lowercase().contains(name);
             }
         }
@@ -188,9 +198,10 @@ impl TerminalApp {
         let full_cmd = format!("cd '{}' && {}", cwd_escaped, cmd_escaped);
 
         match self {
-            TerminalApp::Terminal => {
-                Some(format!(r#"tell application "Terminal" to do script "{}""#, full_cmd.replace('"', r#"\""#)))
-            }
+            TerminalApp::Terminal => Some(format!(
+                r#"tell application "Terminal" to do script "{}""#,
+                full_cmd.replace('"', r#"\""#)
+            )),
             TerminalApp::Iterm2 => {
                 // iTerm2: create a new tab in the current window
                 Some(format!(
@@ -231,23 +242,28 @@ pub fn parse_daemon_response(line: &str) -> DispatchResult {
         Ok(v) => v,
         Err(_) => return DispatchResult::err("Invalid response from daemon".to_string()),
     };
-    if resp.get("status").and_then(Value::as_str).unwrap_or("error") == "ok" {
+    if resp
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("error")
+        == "ok"
+    {
         let data = resp.get("data");
         DispatchResult::ok(
-            data
-                .and_then(|d| d.get("message"))
+            data.and_then(|d| d.get("message"))
                 .and_then(Value::as_str)
                 .unwrap_or("dispatched")
                 .to_string(),
-            data
-                .and_then(|d| d.get("run_id"))
+            data.and_then(|d| d.get("run_id"))
                 .and_then(Value::as_str)
                 .map(str::to_string),
         )
     } else {
         DispatchResult::err(format!(
             "Daemon error: {}",
-            resp.get("error").and_then(Value::as_str).unwrap_or("unknown error")
+            resp.get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown error")
         ))
     }
 }
@@ -257,7 +273,10 @@ pub fn parse_daemon_response(line: &str) -> DispatchResult {
 /// and blank entries dropped). Returns `None` when the required ids
 /// are missing, so callers fail before touching the socket.
 pub fn dispatch_target(task: &Value) -> Option<(String, String, Vec<String>)> {
-    let task_id = task.pointer("/task_id").and_then(Value::as_str).unwrap_or("");
+    let task_id = task
+        .pointer("/task_id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let agent_id = task
         .pointer("/agent_id")
         .and_then(Value::as_str)
@@ -346,7 +365,8 @@ impl Dispatcher for TerminalLaunch {
             Some(a) => a,
             None => {
                 return DispatchResult::err(
-                    "No agent binary found on PATH (opencode, claude-code, jcode, crush)".to_string(),
+                    "No agent binary found on PATH (opencode, claude-code, jcode, crush)"
+                        .to_string(),
                 );
             }
         };
@@ -358,7 +378,10 @@ impl Dispatcher for TerminalLaunch {
             }
         };
 
-        let task_id = task.pointer("/task_id").and_then(Value::as_str).unwrap_or("");
+        let task_id = task
+            .pointer("/task_id")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         let _title = task.pointer("/title").and_then(Value::as_str).unwrap_or("");
 
         if !Self::is_safe_task_id(task_id) {
@@ -369,17 +392,27 @@ impl Dispatcher for TerminalLaunch {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
 
-        let cwd_has_metachar = cwd.contains([';', '|', '&', '$', '`', '(', ')', '{', '}', '<', '>', '!', '\\']);
+        let cwd_has_metachar = cwd.contains([
+            ';', '|', '&', '$', '`', '(', ')', '{', '}', '<', '>', '!', '\\',
+        ]);
         if cwd_has_metachar {
             return DispatchResult::err("Working directory contains unsafe characters".to_string());
         }
 
-        let command = format!("cd '{}' && loom workflow show '{}' && exec {}", Self::shell_escape(&cwd), Self::shell_escape(task_id), agent);
+        let command = format!(
+            "cd '{}' && loom workflow show '{}' && exec {}",
+            Self::shell_escape(&cwd),
+            Self::shell_escape(task_id),
+            agent
+        );
 
         let script = match terminal_app.build_command(&command, &cwd) {
             Some(s) => s,
             None => {
-                return DispatchResult::err(format!("Unsupported terminal app: {:?}", terminal_app));
+                return DispatchResult::err(format!(
+                    "Unsupported terminal app: {:?}",
+                    terminal_app
+                ));
             }
         };
 
@@ -398,7 +431,12 @@ impl Dispatcher for TerminalLaunch {
 
         match cmd.spawn() {
             Ok(child) => DispatchResult::ok(
-                format!("Opened {} in {} tab (pid {})", agent, terminal_app_name(&terminal_app), child.id()),
+                format!(
+                    "Opened {} in {} tab (pid {})",
+                    agent,
+                    terminal_app_name(&terminal_app),
+                    child.id()
+                ),
                 None,
             ),
             Err(e) => DispatchResult::err(format!("Failed to launch terminal: {e}")),
@@ -425,7 +463,10 @@ pub struct ACPDispatch {
 
 impl ACPDispatch {
     pub fn new(daemon_reachable: bool, socket_path: Option<String>) -> Self {
-        Self { daemon_reachable, socket_path }
+        Self {
+            daemon_reachable,
+            socket_path,
+        }
     }
 }
 
@@ -517,7 +558,10 @@ impl Dispatcher for EmbeddedPane {
     }
 
     fn dispatch(&self, task: &serde_json::Value) -> DispatchResult {
-        let task_id = task.pointer("/task_id").and_then(Value::as_str).unwrap_or("");
+        let task_id = task
+            .pointer("/task_id")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         if task_id.is_empty() {
             return DispatchResult::err("task_id required".to_string());
         }
@@ -533,7 +577,11 @@ pub struct RuntimeDispatch {
 }
 
 impl RuntimeDispatch {
-    pub fn new(runtime_registry: RuntimeRegistry, default_runtime: String, loom_dir: String) -> Self {
+    pub fn new(
+        runtime_registry: RuntimeRegistry,
+        default_runtime: String,
+        loom_dir: String,
+    ) -> Self {
         Self {
             runtime_registry,
             default_runtime,
@@ -578,7 +626,6 @@ pub fn default_runtime_registry() -> loom_runtime::RuntimeRegistry {
     registry
 }
 
-
 impl Dispatcher for RuntimeDispatch {
     fn name(&self) -> &'static str {
         "Runtime Dispatch"
@@ -602,21 +649,27 @@ impl Dispatcher for RuntimeDispatch {
         };
 
         // Get launch config from tool's TOML
-        let launch_config = self.get_launch_config(&agent_id).unwrap_or_else(|| loom_runtime::LaunchConfig {
-            runtime: runtime.name().to_string(),
-            command: agent_id.to_string(),
-            args: vec![],
-            env: std::collections::HashMap::new(),
-            working_dir: None,
-            image: None,
-            network: None,
-            auto_remove: true,
-        });
+        let launch_config =
+            self.get_launch_config(&agent_id)
+                .unwrap_or_else(|| loom_runtime::LaunchConfig {
+                    runtime: runtime.name().to_string(),
+                    command: agent_id.to_string(),
+                    args: vec![],
+                    env: std::collections::HashMap::new(),
+                    working_dir: None,
+                    image: None,
+                    network: None,
+                    auto_remove: true,
+                });
 
         // Create a minimal task for runtime execution
         let runtime_task = loom_core::Task {
             task_id: task_id.clone(),
-            title: task.pointer("/title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            title: task
+                .pointer("/title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             description: "".to_string(),
             phase: loom_core::TaskPhase::Plan,
             phase_history: vec![],
@@ -631,7 +684,10 @@ impl Dispatcher for RuntimeDispatch {
             sub_agents: None,
             phase_results: vec![],
             tags: vec![],
-            worktree_path: task.pointer("/worktree_path").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            worktree_path: task
+                .pointer("/worktree_path")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
             runtime: None,
             created_at: chrono::Utc::now().to_rfc3339(),
             updated_at: chrono::Utc::now().to_rfc3339(),
@@ -663,7 +719,9 @@ mod tests {
 
     #[test]
     fn test_command_exists_missing() {
-        assert!(!TerminalLaunch::command_exists("definitely-not-a-real-binary-xyz"));
+        assert!(!TerminalLaunch::command_exists(
+            "definitely-not-a-real-binary-xyz"
+        ));
     }
 
     #[test]
@@ -728,7 +786,8 @@ mod tests {
 
     #[test]
     fn test_parse_daemon_response_ok_without_run_id() {
-        let line = r#"{"request_id":"tui-1","status":"ok","data":{"dispatched":true,"message":"legacy"}}"#;
+        let line =
+            r#"{"request_id":"tui-1","status":"ok","data":{"dispatched":true,"message":"legacy"}}"#;
         let result = parse_daemon_response(line);
         assert!(result.success);
         assert_eq!(result.run_id, None);

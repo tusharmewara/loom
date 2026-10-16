@@ -56,13 +56,14 @@ pub fn draw_logs(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, them
             .add_modifier(Modifier::BOLD),
     )));
 
-    let task_count = app.workflow.pointer("/count").and_then(Value::as_u64).unwrap_or(0);
+    let task_count = app
+        .workflow
+        .pointer("/count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     lines.push(Line::from(vec![
         Span::styled("  Active: ", theme.text_dim),
-        Span::styled(
-            format!("{}", task_count),
-            theme.text_bright,
-        ),
+        Span::styled(format!("{}", task_count), theme.text_bright),
     ]));
 
     if let Some(tasks) = app.workflow.pointer("/tasks").and_then(Value::as_array) {
@@ -109,7 +110,11 @@ pub fn draw_logs(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, them
             .add_modifier(Modifier::BOLD),
     )));
 
-    let hook_count = app.hooks.pointer("/count").and_then(Value::as_u64).unwrap_or(0);
+    let hook_count = app
+        .hooks
+        .pointer("/count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     lines.push(Line::from(vec![
         Span::styled("  Registered: ", theme.text_dim),
         Span::styled(format!("{}", hook_count), theme.text_bright),
@@ -118,8 +123,14 @@ pub fn draw_logs(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, them
     if let Some(hooks) = app.hooks.pointer("/hooks").and_then(Value::as_array) {
         for h in hooks {
             let id = h.pointer("/id").and_then(Value::as_str).unwrap_or("?");
-            let event = h.pointer("/event_type").and_then(Value::as_str).unwrap_or("?");
-            let path = h.pointer("/script_path").and_then(Value::as_str).unwrap_or("");
+            let event = h
+                .pointer("/event_type")
+                .and_then(Value::as_str)
+                .unwrap_or("?");
+            let path = h
+                .pointer("/script_path")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             lines.push(Line::from(vec![
                 Span::styled("  • ", theme.primary),
                 Span::styled(id, theme.text),
@@ -129,7 +140,9 @@ pub fn draw_logs(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, them
     }
 
     frame.render_widget(
-        Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
         area,
     );
 }

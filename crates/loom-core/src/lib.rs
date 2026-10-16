@@ -1,11 +1,11 @@
-pub mod types;
 pub mod config;
 pub mod constants;
 pub mod plugin_registry;
+pub mod types;
 
-pub use types::*;
 pub use config::*;
 pub use constants::*;
+pub use types::*;
 
 use anyhow::Result;
 

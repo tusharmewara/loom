@@ -19,8 +19,13 @@ pub fn draw_mcp(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, theme
 
     let mut lines: Vec<Line> = Vec::new();
 
-    let registered_count = app.mcp.pointer("/count").and_then(Value::as_u64).unwrap_or(0);
-    let detected_count = app.status
+    let registered_count = app
+        .mcp
+        .pointer("/count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let detected_count = app
+        .status
         .pointer("/resources/counts/mcp_servers")
         .and_then(Value::as_u64)
         .unwrap_or(0);
@@ -29,7 +34,9 @@ pub fn draw_mcp(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, theme
         Span::styled("Registered: ", theme.text_dim),
         Span::styled(
             format!("{}", registered_count),
-            Style::default().fg(theme.text_bright).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.text_bright)
+                .add_modifier(Modifier::BOLD),
         ),
     ]));
     if detected_count > registered_count {
@@ -80,16 +87,25 @@ pub fn draw_mcp(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, theme
 
     // Show cross-tool detected servers when no registered ones exist
     if registered_count == 0 {
-        if let Some(sources) = app.scan.pointer("/system_audit/mcp_sources").and_then(Value::as_array) {
+        if let Some(sources) = app
+            .scan
+            .pointer("/system_audit/mcp_sources")
+            .and_then(Value::as_array)
+        {
             if !sources.is_empty() && detected_count > 0 {
                 lines.push(Line::from(Span::styled("", Style::default())));
                 lines.push(Line::from(Span::styled(
                     "Detected from other tools:",
-                    Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(theme.secondary)
+                        .add_modifier(Modifier::BOLD),
                 )));
                 for s in sources {
                     let source = s.pointer("/source").and_then(Value::as_str).unwrap_or("?");
-                    let count = s.pointer("/server_count").and_then(Value::as_u64).unwrap_or(0);
+                    let count = s
+                        .pointer("/server_count")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0);
                     let path = s.pointer("/path").and_then(Value::as_str).unwrap_or("");
                     lines.push(Line::from(vec![
                         Span::styled("  • ", theme.primary),
@@ -133,7 +149,9 @@ pub fn draw_mcp(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, theme
     }
 
     frame.render_widget(
-        Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
         area,
     );
 }

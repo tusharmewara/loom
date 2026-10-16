@@ -259,7 +259,10 @@ mod tests {
         let skill_v2 = make_skill("test-skill", "2.0.0", "abc123");
         let violations = lock.verify_against(&[skill_v2]);
         assert_eq!(violations.len(), 1);
-        assert!(matches!(violations[0].kind, LockViolationKind::VersionMismatch));
+        assert!(matches!(
+            violations[0].kind,
+            LockViolationKind::VersionMismatch
+        ));
     }
 
     #[test]
@@ -271,7 +274,10 @@ mod tests {
         let skill_modified = make_skill("test-skill", "1.0.0", "def456");
         let violations = lock.verify_against(&[skill_modified]);
         assert_eq!(violations.len(), 1);
-        assert!(matches!(violations[0].kind, LockViolationKind::ContentChanged));
+        assert!(matches!(
+            violations[0].kind,
+            LockViolationKind::ContentChanged
+        ));
     }
 
     #[test]
@@ -324,8 +330,14 @@ mod tests {
     #[test]
     fn test_display_lock_violation_kind() {
         assert_eq!(LockViolationKind::Missing.to_string(), "missing");
-        assert_eq!(LockViolationKind::VersionMismatch.to_string(), "version mismatch");
-        assert_eq!(LockViolationKind::ContentChanged.to_string(), "content changed");
+        assert_eq!(
+            LockViolationKind::VersionMismatch.to_string(),
+            "version mismatch"
+        );
+        assert_eq!(
+            LockViolationKind::ContentChanged.to_string(),
+            "content changed"
+        );
         assert_eq!(LockViolationKind::Unlocked.to_string(), "unlocked");
     }
 }

@@ -12,8 +12,8 @@ pub async fn run(loom_dir: &Path, action: &McpAction) -> anyhow::Result<()> {
                     let name = entry.file_name().to_string_lossy().to_string();
                     if name.ends_with(".toml") {
                         let content = std::fs::read_to_string(entry.path())?;
-                        let config: toml::Value =
-                            toml::from_str(&content).unwrap_or(toml::Value::Table(Default::default()));
+                        let config: toml::Value = toml::from_str(&content)
+                            .unwrap_or(toml::Value::Table(Default::default()));
                         servers.push(serde_json::json!({
                             "id": name.strip_suffix(".toml").unwrap_or(&name),
                             "name": config.get("name").and_then(|v| v.as_str()).unwrap_or(""),
@@ -92,8 +92,12 @@ command = ""
             }
         }
         McpAction::Install { name, prewarm } => {
-            let known = loom_mcp::known::find(name)
-                .ok_or_else(|| anyhow::anyhow!("Unknown MCP server '{}'. Use `loom mcp list-known` to see available servers.", name))?;
+            let known = loom_mcp::known::find(name).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Unknown MCP server '{}'. Use `loom mcp list-known` to see available servers.",
+                    name
+                )
+            })?;
 
             install_known_server(loom_dir, known, *prewarm)?;
         }
@@ -139,8 +143,10 @@ command = ""
                 );
             } else {
                 let recommended = loom_mcp::known::recommended();
-                let other: Vec<&loom_mcp::known::KnownMcpServer> =
-                    all.iter().filter(|s| !s.tags.contains(&"recommended")).collect();
+                let other: Vec<&loom_mcp::known::KnownMcpServer> = all
+                    .iter()
+                    .filter(|s| !s.tags.contains(&"recommended"))
+                    .collect();
 
                 println!("Known MCP servers (use `loom mcp install <id>` to install):\n");
 
@@ -184,17 +190,14 @@ fn install_known_server(
     prewarm: bool,
 ) -> anyhow::Result<()> {
     let loom_dir_str = loom_dir.to_string_lossy();
-    let registry =
-        loom_mcp::McpRegistry::new(&loom_dir_str).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let registry = loom_mcp::McpRegistry::new(&loom_dir_str).map_err(|e| anyhow::anyhow!("{e}"))?;
 
     // Check if already registered
-    if registry
-        .get(known.id)
-        .ok()
-        .flatten()
-        .is_some()
-    {
-        println!("  MCP server '{}' is already registered (skipping)", known.id);
+    if registry.get(known.id).ok().flatten().is_some() {
+        println!(
+            "  MCP server '{}' is already registered (skipping)",
+            known.id
+        );
         return Ok(());
     }
 

@@ -19,12 +19,18 @@ pub fn draw_sessions(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, 
 
     let mut lines: Vec<Line> = Vec::new();
 
-    let count = app.sessions.pointer("/count").and_then(Value::as_u64).unwrap_or(0);
+    let count = app
+        .sessions
+        .pointer("/count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     lines.push(Line::from(vec![
         Span::styled("Stored: ", theme.text_dim),
         Span::styled(
             format!("{}", count),
-            Style::default().fg(theme.text_bright).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.text_bright)
+                .add_modifier(Modifier::BOLD),
         ),
     ]));
 
@@ -42,13 +48,31 @@ pub fn draw_sessions(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, 
         } else {
             for (i, s) in sessions.iter().enumerate() {
                 lines.push(Line::from(Span::styled("", Style::default())));
-                let id = s.pointer("/session_id").and_then(Value::as_str).unwrap_or("?");
-                let tool = s.pointer("/source_tool").and_then(Value::as_str).unwrap_or("?");
-                let msgs = s.pointer("/message_count").and_then(Value::as_u64).unwrap_or(0);
+                let id = s
+                    .pointer("/session_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?");
+                let tool = s
+                    .pointer("/source_tool")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?");
+                let msgs = s
+                    .pointer("/message_count")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
                 let topic = s.pointer("/topic").and_then(Value::as_str).unwrap_or("");
-                let exported = s.pointer("/exported_at").and_then(Value::as_str).unwrap_or("");
-                let working_dir = s.pointer("/working_directory").and_then(Value::as_str).unwrap_or("");
-                let src_ver = s.pointer("/source_version").and_then(Value::as_str).unwrap_or("");
+                let exported = s
+                    .pointer("/exported_at")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let working_dir = s
+                    .pointer("/working_directory")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let src_ver = s
+                    .pointer("/source_version")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
 
                 let prefix = if i == app.task_selection_index && app.tab_index == 5 {
                     "▸ "
@@ -95,7 +119,9 @@ pub fn draw_sessions(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, 
     }
 
     frame.render_widget(
-        Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
         area,
     );
 }

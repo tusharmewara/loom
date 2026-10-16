@@ -4,7 +4,10 @@
 //! and resolves them using the chosen strategy.
 
 use crate::cli::ConflictAction;
-use loom_conflict::{Conflict, ResolutionStrategy, scan_content, scan_file, scan_directory, resolve_file, resolve_file_in_place, resolve_bulk};
+use loom_conflict::{
+    resolve_bulk, resolve_file, resolve_file_in_place, scan_content, scan_directory, scan_file,
+    Conflict, ResolutionStrategy,
+};
 use serde_json::json;
 
 pub async fn run(loom_dir: &str, action: &ConflictAction) -> anyhow::Result<()> {
@@ -65,11 +68,7 @@ fn preview(s: &str, max_chars: usize) -> String {
 }
 
 /// Scan a file or directory for conflicts.
-async fn handle_scan(
-    _loom_dir: &str,
-    path: &str,
-    json_output: bool,
-) -> anyhow::Result<()> {
+async fn handle_scan(_loom_dir: &str, path: &str, json_output: bool) -> anyhow::Result<()> {
     let resolved_path = if path.starts_with('/') {
         path.to_string()
     } else {
@@ -151,7 +150,9 @@ async fn handle_resolve(
         } else if count == 0 {
             println!("No conflicts found in {resolved_path}");
         } else {
-            println!("Resolved {count} conflict(s) in {resolved_path} using \"{strategy_str}\" strategy");
+            println!(
+                "Resolved {count} conflict(s) in {resolved_path} using \"{strategy_str}\" strategy"
+            );
         }
     } else {
         // Dry-run: show what would be resolved
@@ -239,16 +240,15 @@ async fn handle_resolve_bulk(
             }
         }
     }
-    println!("Total: {total} conflict(s) resolved across {} file(s)", files.len());
+    println!(
+        "Total: {total} conflict(s) resolved across {} file(s)",
+        files.len()
+    );
     Ok(())
 }
 
 /// Show detailed info about conflicts in a file.
-async fn handle_show(
-    _loom_dir: &str,
-    file: &str,
-    json_output: bool,
-) -> anyhow::Result<()> {
+async fn handle_show(_loom_dir: &str, file: &str, json_output: bool) -> anyhow::Result<()> {
     let resolved_path = if file.starts_with('/') {
         file.to_string()
     } else {
@@ -289,11 +289,7 @@ async fn handle_show(
             return Ok(());
         }
         for (i, c) in conflicts.iter().enumerate() {
-            println!(
-                "Conflict #{} at line {}",
-                i + 1,
-                c.start_line
-            );
+            println!("Conflict #{} at line {}", i + 1, c.start_line);
             println!("  Ours ({}):", c.our_ref);
             for line in c.ours.lines() {
                 println!("    {line}");
@@ -305,7 +301,10 @@ async fn handle_show(
             println!("  Resolution options:");
             println!("    loom conflict resolve {} --strategy ours", file);
             println!("    loom conflict resolve {} --strategy theirs", file);
-            println!("    loom conflict resolve {} --strategy both-ours-theirs", file);
+            println!(
+                "    loom conflict resolve {} --strategy both-ours-theirs",
+                file
+            );
             println!();
         }
     }

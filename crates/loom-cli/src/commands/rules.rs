@@ -1,6 +1,6 @@
 use crate::cli::RulesAction;
 use loom_rules::{
-    ComparisonOp, Condition, LoomEventExt, RuleBuilder, RuleEngine, Action as RuleAction,
+    Action as RuleAction, ComparisonOp, Condition, LoomEventExt, RuleBuilder, RuleEngine,
 };
 use std::path::Path;
 
@@ -12,18 +12,23 @@ pub async fn run(loom_dir: &Path, action: &RulesAction) -> anyhow::Result<()> {
         RulesAction::List { json } => {
             let rules = engine.list_rules().await;
             if *json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "command": "rules.list",
-                    "count": rules.len(),
-                    "rules": rules,
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "command": "rules.list",
+                        "count": rules.len(),
+                        "rules": rules,
+                    }))?
+                );
             } else {
                 for rule in &rules {
                     let status = if rule.enabled { "enabled" } else { "disabled" };
                     let conds = rule.conditions.len();
                     let acts = rule.actions.len();
-                    println!("{}  {}  [{}]  {} conds, {} acts  prio={}", 
-                        rule.id, rule.name, status, conds, acts, rule.priority);
+                    println!(
+                        "{}  {}  [{}]  {} conds, {} acts  prio={}",
+                        rule.id, rule.name, status, conds, acts, rule.priority
+                    );
                 }
                 if rules.is_empty() {
                     println!("No rules defined.");
@@ -36,10 +41,13 @@ pub async fn run(loom_dir: &Path, action: &RulesAction) -> anyhow::Result<()> {
                 .await
                 .ok_or_else(|| anyhow::anyhow!("Rule '{id}' not found"))?;
             if *json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "command": "rules.show",
-                    "rule": rule,
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "command": "rules.show",
+                        "rule": rule,
+                    }))?
+                );
             } else {
                 println!("{}", toml::to_string_pretty(&rule)?);
             }
@@ -104,17 +112,26 @@ pub async fn run(loom_dir: &Path, action: &RulesAction) -> anyhow::Result<()> {
             let results = engine.evaluate(&ev).await?;
 
             if *json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "command": "rules.eval",
-                    "event": ev.variant_name(),
-                    "results": results,
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "command": "rules.eval",
+                        "event": ev.variant_name(),
+                        "results": results,
+                    }))?
+                );
             } else {
-                println!("Event: {} (total evaluations: {})", ev.variant_name(), engine.total_evaluations());
+                println!(
+                    "Event: {} (total evaluations: {})",
+                    ev.variant_name(),
+                    engine.total_evaluations()
+                );
                 for r in &results {
                     let status = if r.matched { "✓" } else { " " };
-                    println!("  {} {}  matched={}  actions={:?}", 
-                        status, r.rule_id, r.matched, r.actions_fired);
+                    println!(
+                        "  {} {}  matched={}  actions={:?}",
+                        status, r.rule_id, r.matched, r.actions_fired
+                    );
                 }
             }
         }
@@ -152,33 +169,23 @@ fn build_synthetic_event(
                 name,
             }
         }
-        "SessionExported" => {
-            loom_rules::LoomEvent::SessionExported {
-                session_id: value.unwrap_or("session-1").to_string(),
-            }
-        }
+        "SessionExported" => loom_rules::LoomEvent::SessionExported {
+            session_id: value.unwrap_or("session-1").to_string(),
+        },
         "RoutingUpdated" => loom_rules::LoomEvent::RoutingUpdated,
-        "AuthProviderAdded" => {
-            loom_rules::LoomEvent::AuthProviderAdded {
-                provider_id: value.unwrap_or("provider-1").to_string(),
-            }
-        }
-        "HooksRegistered" => {
-            loom_rules::LoomEvent::HooksRegistered {
-                hook_id: value.unwrap_or("hook-1").to_string(),
-            }
-        }
-        "TaskPhaseChanged" => {
-            loom_rules::LoomEvent::TaskPhaseChanged {
-                task_id: field.unwrap_or("task-1").to_string(),
-                phase: loom_core::TaskPhase::Implement,
-            }
-        }
-        "TaskCreated" => {
-            loom_rules::LoomEvent::TaskCreated {
-                task_id: value.unwrap_or("task-1").to_string(),
-            }
-        }
+        "AuthProviderAdded" => loom_rules::LoomEvent::AuthProviderAdded {
+            provider_id: value.unwrap_or("provider-1").to_string(),
+        },
+        "HooksRegistered" => loom_rules::LoomEvent::HooksRegistered {
+            hook_id: value.unwrap_or("hook-1").to_string(),
+        },
+        "TaskPhaseChanged" => loom_rules::LoomEvent::TaskPhaseChanged {
+            task_id: field.unwrap_or("task-1").to_string(),
+            phase: loom_core::TaskPhase::Implement,
+        },
+        "TaskCreated" => loom_rules::LoomEvent::TaskCreated {
+            task_id: value.unwrap_or("task-1").to_string(),
+        },
         _ => {
             // Default to RoutingUpdated as a safe fallback
             loom_rules::LoomEvent::RoutingUpdated

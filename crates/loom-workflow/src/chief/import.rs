@@ -95,7 +95,11 @@ mod tests {
         assert_eq!(tasks[0].title, "First");
         assert_eq!(tasks[1].title, "Second");
         for task in &tasks {
-            assert!(task.tags.contains(&"plan".to_string()), "tags: {:?}", task.tags);
+            assert!(
+                task.tags.contains(&"plan".to_string()),
+                "tags: {:?}",
+                task.tags
+            );
         }
         assert!(tasks[0].tags.contains(&"plan-task:t1".to_string()));
         assert!(tasks[1].tags.contains(&"plan-task:t2".to_string()));

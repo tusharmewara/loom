@@ -52,20 +52,19 @@ impl JiraTracker {
 
         let base_url = host.trim_end_matches('/').to_string();
 
-        let auth_header = if let Some(email) = email_override
-            .or_else(|| std::env::var("JIRA_EMAIL").ok())
-        {
-            // Basic auth with email + API token
-            let credentials = format!("{}:{}", email.trim(), token);
-            let encoded = base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                credentials.as_bytes(),
-            );
-            format!("Basic {encoded}")
-        } else {
-            // Bearer token (PAT)
-            format!("Bearer {}", token.trim())
-        };
+        let auth_header =
+            if let Some(email) = email_override.or_else(|| std::env::var("JIRA_EMAIL").ok()) {
+                // Basic auth with email + API token
+                let credentials = format!("{}:{}", email.trim(), token);
+                let encoded = base64::Engine::encode(
+                    &base64::engine::general_purpose::STANDARD,
+                    credentials.as_bytes(),
+                );
+                format!("Basic {encoded}")
+            } else {
+                // Bearer token (PAT)
+                format!("Bearer {}", token.trim())
+            };
 
         let client = Client::builder()
             .user_agent("loom-trackers/0.1")
@@ -85,10 +84,7 @@ impl JiraTracker {
     }
 
     /// Execute a GET request and deserialize the response.
-    async fn get<T: serde::de::DeserializeOwned>(
-        &self,
-        url: &str,
-    ) -> Result<T, TrackerError> {
+    async fn get<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, TrackerError> {
         let resp = self
             .client
             .get(url)
@@ -185,10 +181,8 @@ impl IssueTracker for JiraTracker {
             }
             // labels can be comma-separated: "bug,frontend"
             let parts: Vec<&str> = labels.split(',').map(|l| l.trim()).collect();
-            let label_jql: Vec<String> = parts
-                .iter()
-                .map(|l| format!("labels = \"{l}\""))
-                .collect();
+            let label_jql: Vec<String> =
+                parts.iter().map(|l| format!("labels = \"{l}\"")).collect();
             jql.push_str(&label_jql.join(" AND "));
         }
 
@@ -340,7 +334,10 @@ fn extract_adf_text(value: &serde_json::Value, output: &mut String) {
                     extract_adf_text(child, output);
                 }
             }
-            if matches!(value.get("type").and_then(|t| t.as_str()), Some("paragraph") | Some("heading")) {
+            if matches!(
+                value.get("type").and_then(|t| t.as_str()),
+                Some("paragraph") | Some("heading")
+            ) {
                 output.push('\n');
             }
         }

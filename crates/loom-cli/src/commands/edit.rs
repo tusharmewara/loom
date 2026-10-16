@@ -4,7 +4,7 @@
 //! with stale detection, and validate references.
 
 use crate::cli::EditAction;
-use loom_skills::edit::{HashlineAnchor, make_replace_edit};
+use loom_skills::edit::{make_replace_edit, HashlineAnchor};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::io::Write;
@@ -40,8 +40,8 @@ fn read_file(loom_dir: &str, file: &str) -> anyhow::Result<(std::path::PathBuf, 
     } else {
         std::path::Path::new(loom_dir).join(file)
     };
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| anyhow::anyhow!("Cannot read {path:?}: {e}"))?;
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| anyhow::anyhow!("Cannot read {path:?}: {e}"))?;
     Ok((path, content))
 }
 
@@ -59,7 +59,8 @@ async fn handle_hash(
     let target = loom_skills::edit::get_lines(&content, start, end)
         .ok_or_else(|| anyhow::anyhow!("Invalid line range {start}-{end}"))?;
 
-    let context_snippet = content.lines()
+    let context_snippet = content
+        .lines()
         .skip(start.saturating_sub(1))
         .take(end.saturating_sub(start).saturating_add(1))
         .collect::<Vec<_>>()
@@ -84,12 +85,25 @@ async fn handle_hash(
         );
     } else {
         println!("Hashline Anchor for {}", path.display());
-        println!("  Hash:       hash[{}]  (full: {})", anchor.hash_prefix(8), anchor.content_hash);
+        println!(
+            "  Hash:       hash[{}]  (full: {})",
+            anchor.hash_prefix(8),
+            anchor.content_hash
+        );
         println!("  Line Range: lines {start}–{end}");
         println!("  Valid:      {}", anchor.validate(&content));
         println!();
-        println!("  Usage:  loom edit apply {} --start {} --end {} --content \"...\"", file, start, end);
-        println!("  Usage:  loom edit validate {} --hash {} --start {} --end {}", file, anchor.hash_prefix(8), start, end);
+        println!(
+            "  Usage:  loom edit apply {} --start {} --end {} --content \"...\"",
+            file, start, end
+        );
+        println!(
+            "  Usage:  loom edit validate {} --hash {} --start {} --end {}",
+            file,
+            anchor.hash_prefix(8),
+            start,
+            end
+        );
     }
     Ok(())
 }
@@ -138,14 +152,21 @@ async fn handle_apply(
         let mut f = std::fs::File::create(&path)?;
         f.write_all(result.as_bytes())?;
         println!("Applied hashline edit to {}", path.display());
-        println!("  hash[{}] lines {start}-{end} → replacement ({} chars)", edit.anchor.hash_prefix(8), new_content.len());
+        println!(
+            "  hash[{}] lines {start}-{end} → replacement ({} chars)",
+            edit.anchor.hash_prefix(8),
+            new_content.len()
+        );
     } else {
         // Dry-run: show diff-ish output
         let old_lines: Vec<&str> = content.lines().collect();
         let new_lines: Vec<&str> = result.lines().collect();
 
         println!("=== Dry-run: {} === (use --write to apply)", path.display());
-        println!("Hashline: hash[{}] lines {start}-{end}", edit.anchor.hash_prefix(8));
+        println!(
+            "Hashline: hash[{}] lines {start}-{end}",
+            edit.anchor.hash_prefix(8)
+        );
         if old_lines.len() == new_lines.len() {
             for (i, (old, new)) in old_lines.iter().zip(new_lines.iter()).enumerate() {
                 if old != new {
@@ -154,7 +175,11 @@ async fn handle_apply(
                 }
             }
         } else {
-            println!("  File size changed: {} lines → {} lines", old_lines.len(), new_lines.len());
+            println!(
+                "  File size changed: {} lines → {} lines",
+                old_lines.len(),
+                new_lines.len()
+            );
             println!("{}", result);
         }
     }
@@ -180,7 +205,9 @@ async fn handle_validate(
         hash.to_string()
     } else {
         // Prefix match
-        actual_hash.starts_with(hash).then(|| actual_hash.clone())
+        actual_hash
+            .starts_with(hash)
+            .then(|| actual_hash.clone())
             .ok_or_else(|| {
                 anyhow::anyhow!(
                     "Hash mismatch: expected prefix hash[{hash}] but actual hash is hash[{}]",
@@ -190,7 +217,10 @@ async fn handle_validate(
     };
 
     if actual_hash == expected_full {
-        println!("✅ Valid: hash[{}] matches lines {start}-{end}", &actual_hash[..8]);
+        println!(
+            "✅ Valid: hash[{}] matches lines {start}-{end}",
+            &actual_hash[..8]
+        );
     } else {
         anyhow::bail!(
             "Stale: expected hash[{expected_full}] but found hash[{actual_hash}] at lines {start}-{end}"

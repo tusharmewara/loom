@@ -1,4 +1,4 @@
-use loom_ipc::{IpcRequest, send_command};
+use loom_ipc::{send_command, IpcRequest};
 use std::path::Path;
 use std::time::Duration;
 

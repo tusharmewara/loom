@@ -164,10 +164,7 @@ async fn run_task(task: AgentTask) -> AgentResult {
         };
 
         let exit_status = child.wait().ok();
-        let success = exit_status
-            .as_ref()
-            .map(|s| s.success())
-            .unwrap_or(false);
+        let success = exit_status.as_ref().map(|s| s.success()).unwrap_or(false);
         let error = exit_status
             .as_ref()
             .filter(|s| !s.success())
@@ -200,8 +197,7 @@ mod tests {
     #[tokio::test]
     async fn test_execute_single_task() {
         let pool = AgentPool::new(1);
-        let task = AgentTask::new("echo", "echo")
-            .args(vec!["hello".into()]);
+        let task = AgentTask::new("echo", "echo").args(vec!["hello".into()]);
         let results = pool.execute_all(vec![task]).await;
         assert_eq!(results.len(), 1);
         assert!(results[0].success);
@@ -226,17 +222,17 @@ mod tests {
         assert_eq!(pool.max_concurrent(), 2);
 
         let tasks: Vec<_> = (0..4)
-            .map(|i| {
-                AgentTask::new(format!("sleep-{i}"), "sleep")
-                    .args(vec!["0.01".into()])
-            })
+            .map(|i| AgentTask::new(format!("sleep-{i}"), "sleep").args(vec!["0.01".into()]))
             .collect();
         let start = Instant::now();
         let results = pool.execute_all(tasks).await;
         // With max_concurrent=2 and 4 tasks each sleeping 0.01s,
         // total should be ~0.02s (two batches)
         let elapsed = start.elapsed();
-        assert!(elapsed < Duration::from_secs(1), "took too long: {elapsed:?}");
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "took too long: {elapsed:?}"
+        );
         assert_eq!(results.len(), 4);
         for r in &results {
             assert!(r.success, "{} failed", r.name);

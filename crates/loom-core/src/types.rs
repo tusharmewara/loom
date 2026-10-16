@@ -215,7 +215,6 @@ pub struct LaunchConfig {
     pub auto_remove: bool,
 }
 
-
 fn default_auto_remove() -> bool {
     true
 }
@@ -731,7 +730,9 @@ pub struct SubAgentConfig {
     pub fallback_agent: Option<String>,
 }
 
-fn default_max_retries() -> u8 { 3 }
+fn default_max_retries() -> u8 {
+    3
+}
 
 /// Dispatch mode for workflow tasks.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -846,7 +847,11 @@ pub trait SessionExportable: Send + Sync {
 /// Tool provides authentication providers
 pub trait AuthProviderTrait: Send + Sync {
     fn discover_providers(&self) -> anyhow::Result<Vec<ProviderEntry>>;
-    fn export_credential(&self, provider_id: &str, requesting_tool: &str) -> anyhow::Result<EncryptedCredential>;
+    fn export_credential(
+        &self,
+        provider_id: &str,
+        requesting_tool: &str,
+    ) -> anyhow::Result<EncryptedCredential>;
 }
 
 /// Tool can execute hooks from the shared hook registry
@@ -908,7 +913,9 @@ pub trait LspProvider: Send + Sync {
     }
     /// Resolve the best LSP server for a given file extension.
     fn resolve_lsp_server(&self, extension: &str) -> Option<LspServerInfo> {
-        self.lsp_servers().into_iter().find(|s| s.file_extensions.iter().any(|e| e == extension))
+        self.lsp_servers()
+            .into_iter()
+            .find(|s| s.file_extensions.iter().any(|e| e == extension))
     }
 }
 
@@ -926,7 +933,9 @@ pub trait DebugProvider: Send + Sync {
     }
     /// Resolve the best debug adapter for a given language.
     fn resolve_debug_adapter(&self, language: &str) -> Option<DebugAdapterInfo> {
-        self.debug_adapters().into_iter().find(|a| a.language == language)
+        self.debug_adapters()
+            .into_iter()
+            .find(|a| a.language == language)
     }
 }
 

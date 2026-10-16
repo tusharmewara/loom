@@ -223,9 +223,7 @@ impl AcpHandshake {
 /// 4. Verify the responder's signature [... then call `complete_initiator`]
 ///
 /// Returns (handshake, challenge, local_signature).
-pub fn initiate_handshake(
-    keypair: &AcpKeyPair,
-) -> Result<(AcpHandshake, String, String)> {
+pub fn initiate_handshake(keypair: &AcpKeyPair) -> Result<(AcpHandshake, String, String)> {
     let handshake = AcpHandshake::new(AcpKeyPair {
         signing_key: SigningKey::from_bytes(&keypair.signing_key.to_bytes()),
         verifying_key: keypair.verifying_key,
@@ -251,7 +249,8 @@ pub fn complete_initiator(
     challenge: &str,
 ) -> Result<()> {
     // Verify the responder's signature
-    let valid = handshake.verify_challenge(challenge, responder_signature, responder_public_key_hex)?;
+    let valid =
+        handshake.verify_challenge(challenge, responder_signature, responder_public_key_hex)?;
     if !valid {
         anyhow::bail!("Responder signature verification failed");
     }
@@ -279,7 +278,8 @@ pub fn perform_responder_handshake(
     });
 
     // Verify the initiator's signature
-    let valid = handshake.verify_challenge(challenge, initiator_signature, initiator_public_key_hex)?;
+    let valid =
+        handshake.verify_challenge(challenge, initiator_signature, initiator_public_key_hex)?;
     if !valid {
         anyhow::bail!("Initiator signature verification failed");
     }
@@ -334,17 +334,12 @@ mod tests {
         let bob = AcpKeyPair::generate();
 
         // Alice initiates
-        let (mut alice_handshake, challenge, alice_sig) =
-            initiate_handshake(&alice).unwrap();
+        let (mut alice_handshake, challenge, alice_sig) = initiate_handshake(&alice).unwrap();
 
         // Bob responds
-        let (bob_handshake, bob_sig) = perform_responder_handshake(
-            &bob,
-            &challenge,
-            &alice_sig,
-            &alice.public_key_hex(),
-        )
-        .unwrap();
+        let (bob_handshake, bob_sig) =
+            perform_responder_handshake(&bob, &challenge, &alice_sig, &alice.public_key_hex())
+                .unwrap();
 
         // Alice completes with Bob's response
         complete_initiator(

@@ -7,7 +7,7 @@ pub mod manager;
 pub mod registry;
 
 pub use adapter::{adapt_skill, ToolAdapterConfig};
-pub use edit::{HashlineAnchor, HashlineEdit, InsertionPoint, make_replace_edit};
+pub use edit::{make_replace_edit, HashlineAnchor, HashlineEdit, InsertionPoint};
 pub use hot_reload::SkillWatcher;
 pub use loader::SkillLoader;
 

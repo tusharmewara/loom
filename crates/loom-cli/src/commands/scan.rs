@@ -360,8 +360,7 @@ fn detect_agentic_tools(path_override: Option<&OsStr>) -> Vec<AgenticToolHit> {
 
     for spec in AGENTIC_TOOLS {
         let found = spec.binaries.iter().find_map(|binary| {
-            find_executable(binary, path_override)
-                .map(|path| (binary.to_string(), path))
+            find_executable(binary, path_override).map(|path| (binary.to_string(), path))
         });
 
         if let Some((binary, path)) = found {
@@ -386,7 +385,10 @@ fn detect_mcp_sources(
 
     let mut file_candidates: Vec<(String, PathBuf)> = vec![
         ("loom project".to_string(), loom_dir.join(".mcp.json")),
-        ("loom mcp_config".to_string(), loom_dir.join("mcp_config.json")),
+        (
+            "loom mcp_config".to_string(),
+            loom_dir.join("mcp_config.json"),
+        ),
     ];
 
     if let Some(home) = home {
@@ -418,10 +420,7 @@ fn detect_mcp_sources(
                 home.join(".codeium/windsurf/mcp_config.json"),
             ),
             ("gemini".to_string(), home.join(".gemini/settings.json")),
-            (
-                "project-global".to_string(),
-                home.join(".mcp.json"),
-            ),
+            ("project-global".to_string(), home.join(".mcp.json")),
         ]);
     }
 
@@ -452,10 +451,7 @@ fn detect_mcp_sources(
     let mut dir_candidates = vec![("loom mcp directory".to_string(), loom_dir.join("mcp"))];
     if let Some(home) = home {
         dir_candidates.extend([
-            (
-                "global mcp directory".to_string(),
-                home.join(".config/mcp"),
-            ),
+            ("global mcp directory".to_string(), home.join(".config/mcp")),
             ("dot-mcp directory".to_string(), home.join(".mcp")),
         ]);
     }
@@ -567,8 +563,8 @@ fn detect_skill_sources(
 }
 
 fn count_skills_in_directory(dir: &Path) -> Result<usize> {
-    let entries = std::fs::read_dir(dir)
-        .with_context(|| format!("failed to read {}", dir.display()))?;
+    let entries =
+        std::fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))?;
     let mut count = 0usize;
 
     for entry in entries {
@@ -638,10 +634,7 @@ fn count_mcp_servers_in_json_value(value: &serde_json::Value) -> usize {
             }
             total
         }
-        serde_json::Value::Array(items) => items
-            .iter()
-            .map(count_mcp_servers_in_json_value)
-            .sum(),
+        serde_json::Value::Array(items) => items.iter().map(count_mcp_servers_in_json_value).sum(),
         _ => 0,
     }
 }
@@ -660,10 +653,7 @@ fn count_mcp_servers_in_toml_value(value: &toml::Value) -> usize {
             }
             total
         }
-        toml::Value::Array(items) => items
-            .iter()
-            .map(count_mcp_servers_in_toml_value)
-            .sum(),
+        toml::Value::Array(items) => items.iter().map(count_mcp_servers_in_toml_value).sum(),
         _ => 0,
     }
 }
@@ -685,8 +675,8 @@ fn find_executable(binary: &str, path_override: Option<&OsStr>) -> Option<PathBu
 
         #[cfg(windows)]
         {
-            let pathext = std::env::var_os("PATHEXT")
-                .unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".into());
+            let pathext =
+                std::env::var_os("PATHEXT").unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".into());
             for ext in std::env::split_paths(&pathext) {
                 let ext = ext.to_string_lossy();
                 let ext = ext.trim_matches(';');

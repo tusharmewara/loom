@@ -162,9 +162,15 @@ pub async fn resume_session(
 
     if let Some(agent) = cli_agent {
         return launch_agent_with_session_context(
-            loom_dir_str, session_id, agent, &manifest, &messages,
-            &provider, &model,
-        ).await;
+            loom_dir_str,
+            session_id,
+            agent,
+            &manifest,
+            &messages,
+            &provider,
+            &model,
+        )
+        .await;
     }
 
     println!("=== Resuming session {} ===", session_id);
@@ -173,7 +179,10 @@ pub async fn resume_session(
     println!("  Provider: {}", provider);
     println!("  Model:    {}", model);
     println!("  Messages: {}", messages.len());
-    if let (Some(ts), Some(folded)) = (manifest.summarized_at.as_deref(), manifest.summarized_message_count) {
+    if let (Some(ts), Some(folded)) = (
+        manifest.summarized_at.as_deref(),
+        manifest.summarized_message_count,
+    ) {
         println!(
             "  Summary:  {} earlier message{} compressed (at {})",
             folded,
@@ -313,7 +322,10 @@ async fn launch_agent_with_session_context(
         // Sessions
         if let Some(ref sessions) = toml.sessions {
             if let Some(ref store_path) = sessions.store_path {
-                env_vars.insert("LOOM_SESSIONS_DIR".to_string(), format!("{loom_dir}/sessions"));
+                env_vars.insert(
+                    "LOOM_SESSIONS_DIR".to_string(),
+                    format!("{loom_dir}/sessions"),
+                );
                 env_vars.insert(
                     format!("{}_SESSIONS_DIR", agent.to_uppercase().replace('-', "_")),
                     store_path.clone(),
@@ -414,7 +426,11 @@ fn resolve_provider(cli: Option<&str>, routing: Option<&loom_core::RoutingConfig
     DEFAULT_PROVIDER.to_string()
 }
 
-fn resolve_model(cli: Option<&str>, routing: Option<&loom_core::RoutingConfig>, provider: &str) -> String {
+fn resolve_model(
+    cli: Option<&str>,
+    routing: Option<&loom_core::RoutingConfig>,
+    provider: &str,
+) -> String {
     if let Some(v) = cli.filter(|s| !s.is_empty()) {
         return v.to_string();
     }
@@ -451,8 +467,7 @@ fn resolve_api_key(provider: &str) -> anyhow::Result<String> {
     match provider {
         "anthropic" | "claude" => std::env::var("ANTHROPIC_API_KEY")
             .map_err(|_| anyhow::anyhow!("ANTHROPIC_API_KEY not set")),
-        _ => std::env::var("OPENAI_API_KEY")
-            .map_err(|_| anyhow::anyhow!("OPENAI_API_KEY not set")),
+        _ => std::env::var("OPENAI_API_KEY").map_err(|_| anyhow::anyhow!("OPENAI_API_KEY not set")),
     }
 }
 
@@ -463,7 +478,9 @@ fn provider_endpoint(provider: &str) -> String {
     match provider {
         "openai" | "gpt" | "gpt-4" | "gpt-3.5" => "https://api.openai.com/v1/chat/completions",
         "deepseek" => "https://api.deepseek.com/v1/chat/completions",
-        "google" | "gemini" => "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        "google" | "gemini" => {
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        }
         _ => "https://api.openai.com/v1/chat/completions",
     }
     .to_string()

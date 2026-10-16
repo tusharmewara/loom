@@ -1,5 +1,5 @@
-use std::path::Path;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Mutex;
 
 /// Layer-specific config reader with lazy loading.
@@ -48,7 +48,10 @@ impl ConfigReader {
     }
 
     /// Load an individual layer config file from ~/.loom/config/{name}.
-    fn load_overlay<T: serde::de::DeserializeOwned>(&self, filename: &str) -> anyhow::Result<Option<T>> {
+    fn load_overlay<T: serde::de::DeserializeOwned>(
+        &self,
+        filename: &str,
+    ) -> anyhow::Result<Option<T>> {
         let path = Path::new(&self.loom_dir).join("config").join(filename);
         if !path.exists() {
             return Ok(None);
@@ -124,6 +127,9 @@ strategy = "CostOptimize"
         let reader = ConfigReader::new(dir.to_str().unwrap());
         let config = reader.load_global().unwrap().unwrap();
         assert!(config.routing.is_some());
-        assert!(matches!(config.routing.unwrap().strategy, loom_core::RoutingStrategy::CostOptimize));
+        assert!(matches!(
+            config.routing.unwrap().strategy,
+            loom_core::RoutingStrategy::CostOptimize
+        ));
     }
 }

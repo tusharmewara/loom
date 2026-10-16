@@ -1,8 +1,8 @@
-pub mod vault;
 pub mod acl;
 pub mod audit;
-pub mod providers;
 pub mod import;
+pub mod providers;
+pub mod vault;
 
 use anyhow::Result;
 use loom_core::{AuthProviderTrait, EncryptedCredential, HealthCheck, HealthStatus, ProviderEntry};
@@ -152,10 +152,7 @@ impl AuthManager {
     }
 
     /// Import from a specific auth_store path.
-    pub fn import_from_auth_store(
-        &mut self,
-        auth_store_path: &str,
-    ) -> Result<Vec<ProviderEntry>> {
+    pub fn import_from_auth_store(&mut self, auth_store_path: &str) -> Result<Vec<ProviderEntry>> {
         let vault = if !self.vault.is_locked() {
             Some(&self.vault)
         } else {
@@ -186,10 +183,19 @@ impl AuthManager {
 impl HealthCheck for AuthManager {
     fn health(&self) -> Result<HealthStatus> {
         let mut counters = std::collections::HashMap::new();
-        counters.insert("vault_locked".to_string(), if self.vault.is_locked() { 1 } else { 0 });
+        counters.insert(
+            "vault_locked".to_string(),
+            if self.vault.is_locked() { 1 } else { 0 },
+        );
         counters.insert("acl_rules".to_string(), self.acl.len() as u64);
-        counters.insert("providers_registered".to_string(), self.providers.len() as u64);
-        counters.insert("audit_entries".to_string(), self.audit.list().unwrap_or_default().len() as u64);
+        counters.insert(
+            "providers_registered".to_string(),
+            self.providers.len() as u64,
+        );
+        counters.insert(
+            "audit_entries".to_string(),
+            self.audit.list().unwrap_or_default().len() as u64,
+        );
 
         Ok(HealthStatus {
             crate_name: "loom-auth",
@@ -206,15 +212,24 @@ impl AuthProviderTrait for AuthManager {
         Ok(self.providers.list())
     }
 
-    fn export_credential(&self, provider_id: &str, requesting_tool: &str) -> Result<EncryptedCredential> {
+    fn export_credential(
+        &self,
+        provider_id: &str,
+        requesting_tool: &str,
+    ) -> Result<EncryptedCredential> {
         if self.vault.is_locked() {
             anyhow::bail!("vault is locked");
         }
 
         // Check ACL before exporting any credential
         if !self.acl.check_access(provider_id, requesting_tool) {
-            self.audit.log_denied_access(requesting_tool, provider_id, "export denied by ACL");
-            anyhow::bail!("access denied: tool '{}' not authorized to export credential for '{}'", requesting_tool, provider_id);
+            self.audit
+                .log_denied_access(requesting_tool, provider_id, "export denied by ACL");
+            anyhow::bail!(
+                "access denied: tool '{}' not authorized to export credential for '{}'",
+                requesting_tool,
+                provider_id
+            );
         }
 
         // Log the export attempt
@@ -297,13 +312,11 @@ mod tests {
 
         // Add a deny rule
         use loom_core::AclRule;
-        manager
-            .acl()
-            .add_rule(AclRule {
-                tool: "restricted".to_string(),
-                allow: vec![],
-                deny: vec!["bad-actor".to_string()],
-            });
+        manager.acl().add_rule(AclRule {
+            tool: "restricted".to_string(),
+            allow: vec![],
+            deny: vec!["bad-actor".to_string()],
+        });
 
         assert!(!manager.check_access("restricted", "bad-actor"));
         assert!(manager.check_access("restricted", "good-actor"));
@@ -400,7 +413,10 @@ credential = "sk-imported"
 
         let result = manager.export_credential("nonexistent", "test-tool");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("no credential found"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("no credential found"));
     }
 
     #[test]

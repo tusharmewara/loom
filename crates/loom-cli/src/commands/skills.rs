@@ -24,12 +24,15 @@ pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
                     if let Some(data) = resp.data {
                         if let Some(skills) = data.get("skills") {
                             if *json {
-                                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                                    "schema_version": 1,
-                                    "command": "skills.list",
-                                    "count": skills.as_array().map(|a| a.len()).unwrap_or(0),
-                                    "skills": skills
-                                }))?);
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&serde_json::json!({
+                                        "schema_version": 1,
+                                        "command": "skills.list",
+                                        "count": skills.as_array().map(|a| a.len()).unwrap_or(0),
+                                        "skills": skills
+                                    }))?
+                                );
                             } else {
                                 println!("{}", serde_json::to_string_pretty(skills)?);
                             }
@@ -50,12 +53,15 @@ pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
                 }
             }
             if *json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "schema_version": 1,
-                    "command": "skills.list",
-                    "count": skill_names.len(),
-                    "skills": skill_names
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "command": "skills.list",
+                        "count": skill_names.len(),
+                        "skills": skill_names
+                    }))?
+                );
             } else {
                 if skill_names.is_empty() {
                     println!("No skills found.");
@@ -79,10 +85,16 @@ pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
                                 for v in &violations {
                                     match v.kind {
                                         lockfile::LockViolationKind::Missing => {
-                                            println!("  ✗ {}: in lock but removed from registry", v.name);
+                                            println!(
+                                                "  ✗ {}: in lock but removed from registry",
+                                                v.name
+                                            );
                                         }
                                         lockfile::LockViolationKind::VersionMismatch => {
-                                            println!("  ✗ {}: version mismatch (expected {}, actual {})", v.name, v.expected, v.actual);
+                                            println!(
+                                                "  ✗ {}: version mismatch (expected {}, actual {})",
+                                                v.name, v.expected, v.actual
+                                            );
                                         }
                                         lockfile::LockViolationKind::ContentChanged => {
                                             println!("  ✗ {}: content hash changed", v.name);
@@ -101,18 +113,21 @@ pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
             }
         }
         SkillsAction::Show { name, json } => {
-            let req = IpcRequest::new("skills.show")
-                .with_params(serde_json::json!({ "name": name }));
+            let req =
+                IpcRequest::new("skills.show").with_params(serde_json::json!({ "name": name }));
             match crate::ipc_client::send_daemon_command(loom_dir, req).await {
                 Ok(resp) if resp.status == "ok" => {
                     if let Some(data) = resp.data {
                         if *json {
-                            println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                                "schema_version": 1,
-                                "command": "skills.show",
-                                "name": name,
-                                "skill": data
-                            }))?);
+                            println!(
+                                "{}",
+                                serde_json::to_string_pretty(&serde_json::json!({
+                                    "schema_version": 1,
+                                    "command": "skills.show",
+                                    "name": name,
+                                    "skill": data
+                                }))?
+                            );
                         } else {
                             println!("{}", serde_json::to_string_pretty(&data)?);
                         }
@@ -127,12 +142,15 @@ pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
             if path.exists() {
                 let content = std::fs::read_to_string(&path)?;
                 if *json {
-                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                        "schema_version": 1,
-                        "command": "skills.show",
-                        "name": name,
-                        "content": content
-                    }))?);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "schema_version": 1,
+                            "command": "skills.show",
+                            "name": name,
+                            "content": content
+                        }))?
+                    );
                 } else {
                     println!("{}", content);
                 }

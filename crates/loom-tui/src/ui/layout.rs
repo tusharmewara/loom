@@ -38,10 +38,7 @@ pub fn compute_layout(area: Rect, show_sidebar: bool) -> UILayout {
     } else {
         let horizontal = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Min(40),
-                Constraint::Length(SIDEBAR_MIN_WIDTH),
-            ])
+            .constraints([Constraint::Min(40), Constraint::Length(SIDEBAR_MIN_WIDTH)])
             .split(middle);
 
         UILayout {

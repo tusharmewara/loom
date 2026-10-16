@@ -363,12 +363,8 @@ impl Condition {
     /// Check if this condition matches the given event.
     pub fn matches(&self, event: &LoomEvent, now: &DateTime<Utc>) -> RuleResult<bool> {
         match self {
-            Condition::EventType { pattern } => {
-                Ok(event.variant_name() == pattern.as_str())
-            }
-            Condition::NotEventType { pattern } => {
-                Ok(event.variant_name() != pattern.as_str())
-            }
+            Condition::EventType { pattern } => Ok(event.variant_name() == pattern.as_str()),
+            Condition::NotEventType { pattern } => Ok(event.variant_name() != pattern.as_str()),
             Condition::FieldComparison {
                 field,
                 operator,
@@ -395,11 +391,7 @@ impl Condition {
 }
 
 /// Apply a comparison operator to two string values.
-fn apply_comparison(
-    op: &ComparisonOp,
-    actual: &str,
-    expected: &str,
-) -> RuleResult<bool> {
+fn apply_comparison(op: &ComparisonOp, actual: &str, expected: &str) -> RuleResult<bool> {
     match op {
         ComparisonOp::Equals => Ok(actual == expected),
         ComparisonOp::NotEquals => Ok(actual != expected),
@@ -588,7 +580,9 @@ impl RuleEngine {
     /// Remove a rule by id.
     pub async fn remove_rule(&self, id: &str) -> RuleResult<()> {
         let mut rules = self.rules.write().await;
-        rules.remove(id).ok_or_else(|| RuleError::NotFound(id.to_string()))?;
+        rules
+            .remove(id)
+            .ok_or_else(|| RuleError::NotFound(id.to_string()))?;
         let mut stats = self.stats.write().await;
         stats.remove(id);
         Ok(())
@@ -627,9 +621,11 @@ impl RuleEngine {
             results.push(eval);
         }
 
-        self.total_evaluations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.total_evaluations
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if !matched_ids.is_empty() {
-            self.total_matches.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.total_matches
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
 
         Ok(results)
@@ -683,12 +679,14 @@ impl RuleEngine {
 
     /// Get the total number of evaluations.
     pub fn total_evaluations(&self) -> u64 {
-        self.total_evaluations.load(std::sync::atomic::Ordering::Relaxed)
+        self.total_evaluations
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get the total number of events that matched at least one rule.
     pub fn total_matches(&self) -> u64 {
-        self.total_matches.load(std::sync::atomic::Ordering::Relaxed)
+        self.total_matches
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Persist a rule to its TOML file.
@@ -850,13 +848,18 @@ impl RuleEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[test]
     fn test_rule_variant_name() {
-        assert_eq!(LoomEvent::SkillsAdded { count: 5 }.variant_name(), "SkillsAdded");
         assert_eq!(
-            LoomEvent::SkillsRemoved { name: "test".into() }.variant_name(),
+            LoomEvent::SkillsAdded { count: 5 }.variant_name(),
+            "SkillsAdded"
+        );
+        assert_eq!(
+            LoomEvent::SkillsRemoved {
+                name: "test".into()
+            }
+            .variant_name(),
             "SkillsRemoved"
         );
         assert_eq!(LoomEvent::RoutingUpdated.variant_name(), "RoutingUpdated");
@@ -1134,9 +1137,15 @@ mod tests {
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            engine.add_rule(RuleBuilder::new("low", "Low").priority(10).build()).await;
-            engine.add_rule(RuleBuilder::new("high", "High").priority(100).build()).await;
-            engine.add_rule(RuleBuilder::new("mid", "Mid").priority(50).build()).await;
+            engine
+                .add_rule(RuleBuilder::new("low", "Low").priority(10).build())
+                .await;
+            engine
+                .add_rule(RuleBuilder::new("high", "High").priority(100).build())
+                .await;
+            engine
+                .add_rule(RuleBuilder::new("mid", "Mid").priority(50).build())
+                .await;
 
             let list = engine.list_rules().await;
             assert_eq!(list[0].id, "high");
@@ -1151,16 +1160,17 @@ mod tests {
         let engine = RuleEngine::new(dir.path().to_str().unwrap());
         let health = engine.health().unwrap();
         assert_eq!(health.crate_name, "loom-rules");
-        assert!(health.performance_counters.contains_key("total_evaluations"));
+        assert!(health
+            .performance_counters
+            .contains_key("total_evaluations"));
     }
 
     #[test]
     fn test_action_description() {
-        assert_eq!(
-            Action::log("hello").description(),
-            "Log[info]: hello"
-        );
+        assert_eq!(Action::log("hello").description(), "Log[info]: hello");
         assert_eq!(Action::suppress().description(), "Suppress");
-        assert!(Action::emit_event(serde_json::json!({"type": "test"})).description().contains("EmitEvent"));
+        assert!(Action::emit_event(serde_json::json!({"type": "test"}))
+            .description()
+            .contains("EmitEvent"));
     }
 }

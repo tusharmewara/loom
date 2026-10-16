@@ -109,14 +109,14 @@ impl McpManager {
         // Wire up health changes to publish on the event bus
         let on_change: Option<HealthChangeCallback> = {
             let eb = event_bus.clone();
-            Some(Box::new(
-                move |id: &str, status: &loom_core::HealthStatusStr| {
+            Some(
+                Box::new(move |id: &str, status: &loom_core::HealthStatusStr| {
                     let _ = eb.publish(LoomEvent::McpHealthChanged {
                         id: id.to_string(),
                         status: status.clone(),
                     });
-                },
-            ) as HealthChangeCallback)
+                }) as HealthChangeCallback,
+            )
         };
         let health_checker = McpHealthChecker::new(DEFAULT_HEALTH_INTERVAL, on_change);
         let client_pool = McpClientPool::with_defaults();
@@ -368,7 +368,10 @@ mod tests {
         assert_eq!(mgr1.pool().refcount("shared-srv"), 1);
 
         // Verify registry has shared state
-        let proc_state = mgr1.shared_registry().inner().get_process_state("shared-srv");
+        let proc_state = mgr1
+            .shared_registry()
+            .inner()
+            .get_process_state("shared-srv");
         assert!(proc_state.is_ok());
         let (state, pid) = proc_state.unwrap().unwrap();
         assert_eq!(state, "running");
@@ -392,7 +395,8 @@ mod tests {
             dir.path().to_str().unwrap(),
             shared.clone(),
             Some(bus),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Verify defaults are present
         assert!(mgr.registry().count().unwrap() >= 4);

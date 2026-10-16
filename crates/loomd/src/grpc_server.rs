@@ -71,32 +71,48 @@ impl LoomService for LoomGrpcService {
     type WatchEventsStream = WatchEventsStream;
 
     // === Health ===
-    async fn health_check(&self, _: Request<HealthCheckRequest>) -> Result<Response<HealthCheckResponse>, Status> {
+    async fn health_check(
+        &self,
+        _: Request<HealthCheckRequest>,
+    ) -> Result<Response<HealthCheckResponse>, Status> {
         let engine = self.workflow_engine();
-        let health = engine.health().map_err(|e| Status::internal(e.to_string()))?;
+        let health = engine
+            .health()
+            .map_err(|e| Status::internal(e.to_string()))?;
         Ok(Response::new(HealthCheckResponse {
             crate_name: health.crate_name.to_string(),
             version: health.version.to_string(),
             uptime_seconds: health.uptime_seconds as i64,
             last_error: health.last_error.unwrap_or_default(),
-            performance_counters: health.performance_counters.into_iter().map(|(k, v)| (k, v as i64)).collect(),
+            performance_counters: health
+                .performance_counters
+                .into_iter()
+                .map(|(k, v)| (k, v as i64))
+                .collect(),
         }))
     }
 
     // === Tasks ===
-    async fn create_task(&self, req: Request<CreateTaskRequest>) -> Result<Response<CreateTaskResponse>, Status> {
+    async fn create_task(
+        &self,
+        req: Request<CreateTaskRequest>,
+    ) -> Result<Response<CreateTaskResponse>, Status> {
         let req = req.into_inner();
         let engine = self.workflow_engine();
         let orch = engine.orchestrator();
         let task = orch
             .create_task(&req.title, &req.description, req.worktree, None)
             .map_err(|e| Status::internal(e.to_string()))?;
-        
-        let (complexity, routing) = if let (Some(c), Some(r)) = (&task.complexity_score, &task.routing_decision) {
-            (serde_json::to_string(c).unwrap_or_default(), serde_json::to_string(r).unwrap_or_default())
-        } else {
-            (String::new(), String::new())
-        };
+
+        let (complexity, routing) =
+            if let (Some(c), Some(r)) = (&task.complexity_score, &task.routing_decision) {
+                (
+                    serde_json::to_string(c).unwrap_or_default(),
+                    serde_json::to_string(r).unwrap_or_default(),
+                )
+            } else {
+                (String::new(), String::new())
+            };
 
         Ok(Response::new(CreateTaskResponse {
             task_id: task.task_id,
@@ -112,179 +128,266 @@ impl LoomService for LoomGrpcService {
         }))
     }
 
-    async fn get_task(&self, req: Request<GetTaskRequest>) -> Result<Response<GetTaskResponse>, Status> {
+    async fn get_task(
+        &self,
+        req: Request<GetTaskRequest>,
+    ) -> Result<Response<GetTaskResponse>, Status> {
         let engine = self.workflow_engine();
         let orch = engine.orchestrator();
-        let task = orch.get_task(&req.into_inner().task_id)
+        let task = orch
+            .get_task(&req.into_inner().task_id)
             .map_err(|e| Status::internal(e.to_string()))?
             .ok_or_else(|| Status::not_found("Task not found"))?;
-        
+
         Ok(Response::new(GetTaskResponse {
             task_json: serde_json::to_string(&task).unwrap_or_default(),
         }))
     }
 
-    async fn list_tasks(&self, _: Request<ListTasksRequest>) -> Result<Response<ListTasksResponse>, Status> {
+    async fn list_tasks(
+        &self,
+        _: Request<ListTasksRequest>,
+    ) -> Result<Response<ListTasksResponse>, Status> {
         let engine = self.workflow_engine();
         let orch = engine.orchestrator();
-        let tasks = orch.list_tasks()
+        let tasks = orch
+            .list_tasks()
             .map_err(|e| Status::internal(e.to_string()))?;
-        
-        let summaries = tasks.into_iter().map(|t| TaskSummary {
-            task_id: t.task_id,
-            title: t.title,
-            phase: format!("{:?}", t.phase),
-            status: format!("{:?}", t.status),
-            worktree_path: t.worktree_path.unwrap_or_default(),
-        }).collect();
+
+        let summaries = tasks
+            .into_iter()
+            .map(|t| TaskSummary {
+                task_id: t.task_id,
+                title: t.title,
+                phase: format!("{:?}", t.phase),
+                status: format!("{:?}", t.status),
+                worktree_path: t.worktree_path.unwrap_or_default(),
+            })
+            .collect();
 
         Ok(Response::new(ListTasksResponse { tasks: summaries }))
     }
 
-    async fn advance_phase(&self, req: Request<AdvancePhaseRequest>) -> Result<Response<AdvancePhaseResponse>, Status> {
+    async fn advance_phase(
+        &self,
+        req: Request<AdvancePhaseRequest>,
+    ) -> Result<Response<AdvancePhaseResponse>, Status> {
         let engine = self.workflow_engine();
         let orch = engine.orchestrator();
-        let task = orch.advance_phase(&req.into_inner().task_id)
+        let task = orch
+            .advance_phase(&req.into_inner().task_id)
             .map_err(|e| Status::internal(e.to_string()))?;
-        
+
         Ok(Response::new(AdvancePhaseResponse {
             task_json: serde_json::to_string(&task).unwrap_or_default(),
         }))
     }
 
-    async fn remove_task(&self, req: Request<RemoveTaskRequest>) -> Result<Response<RemoveTaskResponse>, Status> {
+    async fn remove_task(
+        &self,
+        req: Request<RemoveTaskRequest>,
+    ) -> Result<Response<RemoveTaskResponse>, Status> {
         let engine = self.workflow_engine();
         let orch = engine.orchestrator();
         orch.remove_task(&req.into_inner().task_id)
             .map_err(|e| Status::internal(e.to_string()))?;
-        
+
         Ok(Response::new(RemoveTaskResponse { success: true }))
     }
 
-    async fn assign_routing(&self, req: Request<AssignRoutingRequest>) -> Result<Response<AssignRoutingResponse>, Status> {
+    async fn assign_routing(
+        &self,
+        req: Request<AssignRoutingRequest>,
+    ) -> Result<Response<AssignRoutingResponse>, Status> {
         let req = req.into_inner();
         let engine = self.workflow_engine();
         let orch = engine.orchestrator();
-        let task = orch.assign_routing_with_overrides(&req.task_id, 
-            if req.provider.is_empty() { None } else { Some(&req.provider) },
-            if req.model.is_empty() { None } else { Some(&req.model) },
-        ).map_err(|e| Status::internal(e.to_string()))?;
-        
+        let task = orch
+            .assign_routing_with_overrides(
+                &req.task_id,
+                if req.provider.is_empty() {
+                    None
+                } else {
+                    Some(&req.provider)
+                },
+                if req.model.is_empty() {
+                    None
+                } else {
+                    Some(&req.model)
+                },
+            )
+            .map_err(|e| Status::internal(e.to_string()))?;
+
         Ok(Response::new(AssignRoutingResponse {
             task_json: serde_json::to_string(&task).unwrap_or_default(),
         }))
     }
 
     // === Skills ===
-    async fn list_skills(&self, _: Request<ListSkillsRequest>) -> Result<Response<ListSkillsResponse>, Status> {
+    async fn list_skills(
+        &self,
+        _: Request<ListSkillsRequest>,
+    ) -> Result<Response<ListSkillsResponse>, Status> {
         let skills_engine = loom_skills::SkillsEngine::new(&self.loom_dir)
             .map_err(|e| Status::internal(e.to_string()))?;
         let skills = skills_engine.registry().list();
-        
-        let summaries = skills.into_iter().map(|s| SkillSummary {
-            name: s.name,
-            description: s.description,
-            version: s.version,
-            path: s.path,
-        }).collect();
+
+        let summaries = skills
+            .into_iter()
+            .map(|s| SkillSummary {
+                name: s.name,
+                description: s.description,
+                version: s.version,
+                path: s.path,
+            })
+            .collect();
 
         Ok(Response::new(ListSkillsResponse { skills: summaries }))
     }
 
-    async fn get_skill(&self, req: Request<GetSkillRequest>) -> Result<Response<GetSkillResponse>, Status> {
+    async fn get_skill(
+        &self,
+        req: Request<GetSkillRequest>,
+    ) -> Result<Response<GetSkillResponse>, Status> {
         let skills_engine = loom_skills::SkillsEngine::new(&self.loom_dir)
             .map_err(|e| Status::internal(e.to_string()))?;
-        let skill = skills_engine.registry().get(&req.into_inner().name)
+        let skill = skills_engine
+            .registry()
+            .get(&req.into_inner().name)
             .ok_or_else(|| Status::not_found("Skill not found"))?;
-        
+
         Ok(Response::new(GetSkillResponse {
             skill_json: serde_json::to_string(&skill).unwrap_or_default(),
         }))
     }
 
     // === MCP ===
-    async fn list_mcp(&self, _: Request<ListMcpRequest>) -> Result<Response<ListMcpResponse>, Status> {
-        let mcp_mgr = loom_mcp::McpManager::new(&self.loom_dir).map_err(|e| Status::internal(e.to_string()))?;
-        let mcps = mcp_mgr.registry().list().map_err(|e| Status::internal(e.to_string()))?;
-        
-        let summaries = mcps.into_iter().map(|m| McpSummary {
-            id: m.id,
-            name: m.name,
-            command: m.transport.command.unwrap_or_default(),
-            args: m.transport.args,
-            status: format!("{:?}", m.health_status),
-        }).collect();
+    async fn list_mcp(
+        &self,
+        _: Request<ListMcpRequest>,
+    ) -> Result<Response<ListMcpResponse>, Status> {
+        let mcp_mgr = loom_mcp::McpManager::new(&self.loom_dir)
+            .map_err(|e| Status::internal(e.to_string()))?;
+        let mcps = mcp_mgr
+            .registry()
+            .list()
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let summaries = mcps
+            .into_iter()
+            .map(|m| McpSummary {
+                id: m.id,
+                name: m.name,
+                command: m.transport.command.unwrap_or_default(),
+                args: m.transport.args,
+                status: format!("{:?}", m.health_status),
+            })
+            .collect();
 
         Ok(Response::new(ListMcpResponse { mcps: summaries }))
     }
 
-    async fn mcp_health(&self, _: Request<McpHealthRequest>) -> Result<Response<McpHealthResponse>, Status> {
-        let mcp_mgr = loom_mcp::McpManager::new(&self.loom_dir).map_err(|e| Status::internal(e.to_string()))?;
+    async fn mcp_health(
+        &self,
+        _: Request<McpHealthRequest>,
+    ) -> Result<Response<McpHealthResponse>, Status> {
+        let mcp_mgr = loom_mcp::McpManager::new(&self.loom_dir)
+            .map_err(|e| Status::internal(e.to_string()))?;
         let snapshot = mcp_mgr.health_checker().status_snapshot().await;
-        
-        let entries = snapshot.into_iter().map(|(id, _name, status)| McpHealthEntry {
-            id,
-            status: format!("{:?}", status),
-            last_check: chrono::Utc::now().to_rfc3339(),
-            error: String::new(),
-        }).collect();
+
+        let entries = snapshot
+            .into_iter()
+            .map(|(id, _name, status)| McpHealthEntry {
+                id,
+                status: format!("{:?}", status),
+                last_check: chrono::Utc::now().to_rfc3339(),
+                error: String::new(),
+            })
+            .collect();
 
         Ok(Response::new(McpHealthResponse { health: entries }))
     }
 
     // === Sessions ===
-    async fn list_sessions(&self, _: Request<ListSessionsRequest>) -> Result<Response<ListSessionsResponse>, Status> {
-        let sessions = loom_sessions::SessionManager::new(&self.loom_dir).store().list();
-        let summaries = sessions.into_iter().map(|s| SessionSummary {
-            id: s.session_id,
-            title: s.topic,
-            status: "Completed".to_string(),
-            message_count: s.message_count as i64,
-            created_at: s.exported_at,
-        }).collect();
+    async fn list_sessions(
+        &self,
+        _: Request<ListSessionsRequest>,
+    ) -> Result<Response<ListSessionsResponse>, Status> {
+        let sessions = loom_sessions::SessionManager::new(&self.loom_dir)
+            .store()
+            .list();
+        let summaries = sessions
+            .into_iter()
+            .map(|s| SessionSummary {
+                id: s.session_id,
+                title: s.topic,
+                status: "Completed".to_string(),
+                message_count: s.message_count as i64,
+                created_at: s.exported_at,
+            })
+            .collect();
 
-        Ok(Response::new(ListSessionsResponse { sessions: summaries }))
+        Ok(Response::new(ListSessionsResponse {
+            sessions: summaries,
+        }))
     }
 
-    async fn get_session(&self, req: Request<GetSessionRequest>) -> Result<Response<GetSessionResponse>, Status> {
+    async fn get_session(
+        &self,
+        req: Request<GetSessionRequest>,
+    ) -> Result<Response<GetSessionResponse>, Status> {
         let sessions = loom_sessions::SessionManager::new(&self.loom_dir);
-        let session = sessions.store().get(&req.into_inner().id)
+        let session = sessions
+            .store()
+            .get(&req.into_inner().id)
             .ok_or_else(|| Status::not_found("Session not found"))?;
-        
+
         Ok(Response::new(GetSessionResponse {
             session_json: serde_json::to_string(&session).unwrap_or_default(),
         }))
     }
 
-    async fn export_session(&self, req: Request<ExportSessionRequest>) -> Result<Response<ExportSessionResponse>, Status> {
+    async fn export_session(
+        &self,
+        req: Request<ExportSessionRequest>,
+    ) -> Result<Response<ExportSessionResponse>, Status> {
         let id = req.into_inner().id;
         let store = loom_sessions::store::SessionStore::new(&self.loom_dir);
         let export = loom_sessions::export_session(&store, &id)
             .map_err(|e| Status::internal(e.to_string()))?;
-        
+
         // Write to default exports directory
-        let out_path = Path::new(&self.loom_dir).join("sessions").join("exports").join(format!("{}.json", id));
+        let out_path = Path::new(&self.loom_dir)
+            .join("sessions")
+            .join("exports")
+            .join(format!("{}.json", id));
         loom_sessions::write_export(&export, &out_path)
             .map_err(|e| Status::internal(e.to_string()))?;
-        
+
         Ok(Response::new(ExportSessionResponse {
             export_path: out_path.to_string_lossy().to_string(),
         }))
     }
 
     // === Config ===
-    async fn get_config(&self, _: Request<GetConfigRequest>) -> Result<Response<GetConfigResponse>, Status> {
+    async fn get_config(
+        &self,
+        _: Request<GetConfigRequest>,
+    ) -> Result<Response<GetConfigResponse>, Status> {
         let config = loom_core::config::ConfigReader::new(&self.loom_dir)
             .load()
             .map_err(|e| Status::internal(e.to_string()))?;
-        
+
         Ok(Response::new(GetConfigResponse {
             config_json: serde_json::to_string(&config).unwrap_or_default(),
         }))
     }
 
     // === Events ===
-    async fn watch_events(&self, _: Request<WatchEventsRequest>) -> Result<Response<WatchEventsStream>, Status> {
+    async fn watch_events(
+        &self,
+        _: Request<WatchEventsRequest>,
+    ) -> Result<Response<WatchEventsStream>, Status> {
         let mut rx = self.event_bus.subscribe();
         let stream = stream! {
             while let Ok(event) = rx.recv().await {
@@ -346,12 +449,15 @@ impl LoomService for LoomGrpcService {
 
 /// Start the gRPC server.
 pub async fn start_grpc_server(config: GrpcConfig, service: LoomGrpcService) -> Result<()> {
-    let addr = config.listen_addr.parse().context("Invalid gRPC listen address")?;
-    
+    let addr = config
+        .listen_addr
+        .parse()
+        .context("Invalid gRPC listen address")?;
+
     let svc = LoomServiceServer::new(service);
-    
+
     let mut server = tonic::transport::Server::builder();
-    
+
     if config.enable_tls {
         let cert = std::fs::read_to_string(config.cert_path.as_ref().unwrap())
             .context("Failed to read TLS cert")?;
@@ -359,14 +465,12 @@ pub async fn start_grpc_server(config: GrpcConfig, service: LoomGrpcService) -> 
             .context("Failed to read TLS key")?;
         let identity = tonic::transport::Identity::from_pem(cert, key);
         server = server
-            .tls_config(
-                tonic::transport::ServerTlsConfig::new().identity(identity),
-            )
+            .tls_config(tonic::transport::ServerTlsConfig::new().identity(identity))
             .context("Invalid TLS config")?;
     }
-    
+
     let router = server.add_service(svc);
-    
+
     tracing::info!("Starting gRPC server on {}", addr);
     router.serve(addr).await.context("gRPC server failed")?;
     Ok(())

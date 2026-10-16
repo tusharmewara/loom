@@ -33,7 +33,7 @@ pub mod topic;
 
 pub use bus::InProcessBus;
 pub use error::EventBusError;
-pub use loom_core::{LoomEvent, HealthStatusStr, TaskPhase};
+pub use loom_core::{HealthStatusStr, LoomEvent, TaskPhase};
 pub use metrics::BusMetrics;
 pub use send_socket::SendSocket;
 pub use topic::Topic;
@@ -105,7 +105,10 @@ impl EventBus {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("ZeroMQ socket creation failed: {} (cross-process disabled)", e);
+                    tracing::warn!(
+                        "ZeroMQ socket creation failed: {} (cross-process disabled)",
+                        e
+                    );
                     (None, None)
                 }
             }
@@ -130,7 +133,8 @@ impl EventBus {
     /// Publish an event to all subscribers (in-process + cross-process).
     pub fn publish(&self, event: LoomEvent) -> Result<u64, EventBusError> {
         let topic_str = Topic::from_event(&event).to_string();
-        let payload = serde_json::to_string(&event).map_err(|e| EventBusError::Serialize(e.to_string()))?;
+        let payload =
+            serde_json::to_string(&event).map_err(|e| EventBusError::Serialize(e.to_string()))?;
 
         // In-process delivery
         let sub_count = match self.inner.publish(&event) {
@@ -276,7 +280,10 @@ impl HealthCheck for EventBus {
             performance_counters: {
                 let mut h = std::collections::HashMap::new();
                 h.insert("published".into(), m.published());
-                h.insert("subscriber_count".into(), self.inner.subscriber_count() as u64);
+                h.insert(
+                    "subscriber_count".into(),
+                    self.inner.subscriber_count() as u64,
+                );
                 h.insert("channel_capacity".into(), self.inner.capacity() as u64);
                 h.insert("xproc_published".into(), m.xproc_published());
                 h.insert("xproc_errors".into(), m.xproc_errors());

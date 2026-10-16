@@ -102,7 +102,8 @@ impl TelemetryCollector {
         } else {
             self.metrics.increment("container_runs_failure");
         }
-        self.histograms.observe(&format!("container_run_{}", runtime), duration_us);
+        self.histograms
+            .observe(&format!("container_run_{}", runtime), duration_us);
     }
 
     /// Record a container image pull.

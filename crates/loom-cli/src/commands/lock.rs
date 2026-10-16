@@ -8,8 +8,8 @@ pub fn run(loom_dir: &str, generate: bool, verify: bool, diff: bool) -> Result<(
     let lock_path = lockfile::default_lock_path(loom_dir);
 
     if generate {
-        let engine = loom_skills::SkillsEngine::new(loom_dir)
-            .context("Failed to open skill registry")?;
+        let engine =
+            loom_skills::SkillsEngine::new(loom_dir).context("Failed to open skill registry")?;
         let registry_skills = engine.registry().list();
 
         let mut lock = SkillsLock::new();
@@ -27,13 +27,16 @@ pub fn run(loom_dir: &str, generate: bool, verify: bool, diff: bool) -> Result<(
         let lock = SkillsLock::load(&lock_path)?
             .ok_or_else(|| anyhow::anyhow!("No lock file found at {}", lock_path.display()))?;
 
-        let engine = loom_skills::SkillsEngine::new(loom_dir)
-            .context("Failed to open skill registry")?;
+        let engine =
+            loom_skills::SkillsEngine::new(loom_dir).context("Failed to open skill registry")?;
         let registry_skills = engine.registry().list();
 
         let violations = lock.verify_against(&registry_skills);
         if violations.is_empty() {
-            println!("✓ Lock file is clean — all {} skill(s) match", registry_skills.len());
+            println!(
+                "✓ Lock file is clean — all {} skill(s) match",
+                registry_skills.len()
+            );
             Ok(())
         } else {
             for v in &violations {
@@ -43,7 +46,10 @@ pub fn run(loom_dir: &str, generate: bool, verify: bool, diff: bool) -> Result<(
                             println!("  -{}.toml  # in lock but removed from registry", v.name);
                         }
                         lockfile::LockViolationKind::VersionMismatch => {
-                            println!("  ~{}.toml  # version {} → {} (expected → actual)", v.name, v.expected, v.actual);
+                            println!(
+                                "  ~{}.toml  # version {} → {} (expected → actual)",
+                                v.name, v.expected, v.actual
+                            );
                         }
                         lockfile::LockViolationKind::ContentChanged => {
                             println!(

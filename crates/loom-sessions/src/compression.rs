@@ -123,8 +123,14 @@ pub fn build_summary(
     }
 
     let split_at = real_messages.len() - full_fidelity;
-    let folded: Vec<Message> = real_messages[..split_at].iter().map(|m| (*m).clone()).collect();
-    let kept: Vec<Message> = real_messages[split_at..].iter().map(|m| (*m).clone()).collect();
+    let folded: Vec<Message> = real_messages[..split_at]
+        .iter()
+        .map(|m| (*m).clone())
+        .collect();
+    let kept: Vec<Message> = real_messages[split_at..]
+        .iter()
+        .map(|m| (*m).clone())
+        .collect();
 
     let summary_text = render_summary(&folded, kept.len());
     let folded_count = folded.len();
@@ -298,7 +304,11 @@ mod tests {
         // real messages. After build_summary, only the 15 real
         // messages should be considered (the prior summary is just
         // a header line at this point).
-        let mut msgs = vec![make_msg(SUMMARY_MESSAGE_ID, MessageRole::System, "old summary")];
+        let mut msgs = vec![make_msg(
+            SUMMARY_MESSAGE_ID,
+            MessageRole::System,
+            "old summary",
+        )];
         for i in 0..15 {
             msgs.push(make_msg(
                 &format!("m{i}"),
@@ -367,7 +377,10 @@ mod tests {
         let outcome = build_summary(&msgs, 20, 10).expect("compress");
         let meta = &outcome.summary_message.metadata;
         assert_eq!(
-            meta.get("loom.summary.folded_count").unwrap().as_u64().unwrap(),
+            meta.get("loom.summary.folded_count")
+                .unwrap()
+                .as_u64()
+                .unwrap(),
             15
         );
         assert_eq!(
@@ -378,7 +391,10 @@ mod tests {
             10
         );
         assert_eq!(
-            meta.get("loom.summary.generator").unwrap().as_str().unwrap(),
+            meta.get("loom.summary.generator")
+                .unwrap()
+                .as_str()
+                .unwrap(),
             "extractive-v1"
         );
     }

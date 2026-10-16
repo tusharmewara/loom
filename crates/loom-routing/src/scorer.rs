@@ -263,7 +263,10 @@ pub fn score_static_signals(signals: &Signals) -> ComplexityScore {
 }
 
 /// Dynamic scoring with both static and dynamic signals (backward compat).
-pub fn score_dynamic_signals(static_signals: &Signals, dynamic_signals: &Signals) -> ComplexityScore {
+pub fn score_dynamic_signals(
+    static_signals: &Signals,
+    dynamic_signals: &Signals,
+) -> ComplexityScore {
     score(static_signals, Some(dynamic_signals))
 }
 

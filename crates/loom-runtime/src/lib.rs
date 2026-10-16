@@ -8,7 +8,7 @@
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use loom_core::types::{Task};
+use loom_core::types::Task;
 use loom_core::HealthCheck;
 use loom_telemetry::TelemetryCollector;
 use serde::{Deserialize, Serialize};
@@ -213,7 +213,9 @@ impl Runtime for ProcessRuntime {
     async fn run(&self, config: &LaunchConfig, task: &Task) -> Result<RunResult> {
         use std::process::Command;
 
-        let cwd = self.work_dir.clone()
+        let cwd = self
+            .work_dir
+            .clone()
             .or_else(|| config.working_dir.clone().map(PathBuf::from))
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
@@ -229,7 +231,8 @@ impl Runtime for ProcessRuntime {
         cmd.env("LOOM_TASK_ID", &task.task_id);
         cmd.env("LOOM_TASK_TITLE", &task.title);
 
-        let output = cmd.output()
+        let output = cmd
+            .output()
             .with_context(|| format!("Failed to execute command: {}", config.command))?;
 
         Ok(RunResult {
@@ -271,12 +274,12 @@ pub mod kubernetes_client {
     use std::time::Duration;
     use uuid::Uuid;
 
-    use kube::api::{Api, DeleteParams, ListParams, LogParams, PostParams};
     use k8s_openapi::api::batch::v1::{Job, JobSpec};
     use k8s_openapi::api::core::v1::{
         Container, EmptyDirVolumeSource, EnvVar, Pod, PodSpec, PodTemplateSpec, Volume, VolumeMount,
     };
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+    use kube::api::{Api, DeleteParams, ListParams, LogParams, PostParams};
 
     /// Default namespace for task Jobs.
     pub const DEFAULT_NAMESPACE: &str = "default";
@@ -296,9 +299,9 @@ pub mod kubernetes_client {
         /// Create a client from the ambient kubeconfig
         /// (`KUBECONFIG` / `~/.kube/config` / in-cluster if running in a Pod).
         pub async fn new() -> Result<Self> {
-            let client = kube::Client::try_default()
-                .await
-                .context("failed to load Kubernetes client (no reachable cluster or kubeconfig?)")?;
+            let client = kube::Client::try_default().await.context(
+                "failed to load Kubernetes client (no reachable cluster or kubeconfig?)",
+            )?;
             Ok(Self {
                 client,
                 namespace: DEFAULT_NAMESPACE.to_string(),
@@ -351,37 +354,31 @@ pub mod kubernetes_client {
             let env: Vec<EnvVar> = spec
                 .env
                 .iter()
-                .map(|(k, v)| {
-                    EnvVar {
-                        name: k.clone(),
-                        value: Some(v.clone()),
-                        ..Default::default()
-                    }
+                .map(|(k, v)| EnvVar {
+                    name: k.clone(),
+                    value: Some(v.clone()),
+                    ..Default::default()
                 })
                 .collect();
 
             let volume_mounts: Vec<VolumeMount> = spec
                 .volumes
                 .iter()
-                .map(|v| {
-                    VolumeMount {
-                        name: v.source.clone(),
-                        mount_path: v.target.clone(),
-                        read_only: Some(v.read_only),
-                        ..Default::default()
-                    }
+                .map(|v| VolumeMount {
+                    name: v.source.clone(),
+                    mount_path: v.target.clone(),
+                    read_only: Some(v.read_only),
+                    ..Default::default()
                 })
                 .collect();
 
             let volumes: Vec<Volume> = spec
                 .volumes
                 .iter()
-                .map(|v| {
-                    Volume {
-                        name: v.source.clone(),
-                        empty_dir: Some(EmptyDirVolumeSource::default()),
-                        ..Default::default()
-                    }
+                .map(|v| Volume {
+                    name: v.source.clone(),
+                    empty_dir: Some(EmptyDirVolumeSource::default()),
+                    ..Default::default()
                 })
                 .collect();
 
@@ -390,11 +387,7 @@ pub mod kubernetes_client {
                     name: "task".to_string(),
                     image: Some(spec.image.clone()),
                     command: Some(spec.cmd.clone()),
-                    env: if env.is_empty() {
-                        None
-                    } else {
-                        Some(env)
-                    },
+                    env: if env.is_empty() { None } else { Some(env) },
                     volume_mounts: if volume_mounts.is_empty() {
                         None
                     } else {
@@ -432,7 +425,12 @@ pub mod kubernetes_client {
                 .jobs()
                 .create(&PostParams::default(), &job)
                 .await
-                .with_context(|| format!("failed to create Job {} in namespace {}", job_name, self.namespace))?;
+                .with_context(|| {
+                    format!(
+                        "failed to create Job {} in namespace {}",
+                        job_name, self.namespace
+                    )
+                })?;
             let name = created.metadata.name.unwrap_or(job_name.clone());
             tracing::info!(job = %name, "created Kubernetes Job");
             Ok(name)
@@ -448,7 +446,11 @@ pub mod kubernetes_client {
             let mut job = None;
             while tokio::time::Instant::now() < deadline {
                 if let Ok(j) = self.jobs().get(id).await {
-                    if j.status.as_ref().map(|s| s.succeeded.is_some() || s.failed.is_some()).unwrap_or(false) {
+                    if j.status
+                        .as_ref()
+                        .map(|s| s.succeeded.is_some() || s.failed.is_some())
+                        .unwrap_or(false)
+                    {
                         job = Some(j);
                         break;
                     }
@@ -456,22 +458,16 @@ pub mod kubernetes_client {
                 tokio::time::sleep(WAIT_POLL_INTERVAL).await;
             }
             let job = job.ok_or_else(|| {
-                anyhow::anyhow!("Job {id} did not complete within {}s", WAIT_TIMEOUT.as_secs())
+                anyhow::anyhow!(
+                    "Job {id} did not complete within {}s",
+                    WAIT_TIMEOUT.as_secs()
+                )
             })?;
 
-            let succeeded = job
-                .status
-                .as_ref()
-                .and_then(|s| s.succeeded)
-                .unwrap_or(0)
-                > 0;
+            let succeeded = job.status.as_ref().and_then(|s| s.succeeded).unwrap_or(0) > 0;
 
             let pod = self.find_task_pod(id).await?;
-            let pod_name = pod
-                .metadata
-                .name
-                .clone()
-                .unwrap_or_else(|| id.to_string());
+            let pod_name = pod.metadata.name.clone().unwrap_or_else(|| id.to_string());
             let stdout = self
                 .pods()
                 .logs(&pod_name, &LogParams::default())
@@ -588,7 +584,11 @@ impl ContainerRuntime {
             return Ok(());
         }
 
-        #[cfg(all(feature = "kubernetes", not(feature = "docker"), not(feature = "podman")))]
+        #[cfg(all(
+            feature = "kubernetes",
+            not(feature = "docker"),
+            not(feature = "podman")
+        ))]
         {
             use crate::kubernetes_client::KubernetesClient;
             let client = KubernetesClient::new().await?;
@@ -610,7 +610,11 @@ impl Runtime for ContainerRuntime {
         return "docker";
         #[cfg(all(feature = "podman", not(feature = "docker")))]
         return "podman";
-        #[cfg(all(feature = "kubernetes", not(feature = "docker"), not(feature = "podman")))]
+        #[cfg(all(
+            feature = "kubernetes",
+            not(feature = "docker"),
+            not(feature = "podman")
+        ))]
         return "kubernetes";
         #[cfg(not(any(feature = "docker", feature = "podman", feature = "kubernetes")))]
         return "container";
@@ -625,15 +629,22 @@ impl Runtime for ContainerRuntime {
     async fn run(&self, config: &LaunchConfig, task: &Task) -> Result<RunResult> {
         let start = std::time::Instant::now();
         let telemetry = TelemetryCollector::new("");
-        
+
         let mut runtime = self.clone();
         runtime.init_client().await?;
 
-        let client = runtime.client.as_ref()
+        let client = runtime
+            .client
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Container client not initialized"))?;
 
         // Build container spec from launch config
-        let spec = build_container_spec(config, task, &runtime.default_image, runtime.network.as_deref())?;
+        let spec = build_container_spec(
+            config,
+            task,
+            &runtime.default_image,
+            runtime.network.as_deref(),
+        )?;
 
         // Pull image if needed
         client.pull_image(&spec.image).await?;
@@ -668,7 +679,9 @@ impl Runtime for ContainerRuntime {
         let mut runtime = self.clone();
         runtime.init_client().await?;
 
-        let client = runtime.client.as_ref()
+        let client = runtime
+            .client
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Container client not initialized"))?;
 
         // Pull default image
@@ -699,11 +712,21 @@ impl Clone for ContainerRuntime {
 }
 
 /// Build container spec from launch config and task.
-fn build_container_spec(config: &LaunchConfig, task: &Task, default_image: &str, network: Option<&str>) -> Result<ContainerSpec> {
-    let image = config.image.clone().unwrap_or_else(|| default_image.to_string());
+fn build_container_spec(
+    config: &LaunchConfig,
+    task: &Task,
+    default_image: &str,
+    network: Option<&str>,
+) -> Result<ContainerSpec> {
+    let image = config
+        .image
+        .clone()
+        .unwrap_or_else(|| default_image.to_string());
 
     // Determine working directory
-    let working_dir = config.working_dir.clone()
+    let working_dir = config
+        .working_dir
+        .clone()
         .or_else(|| task.worktree_path.clone())
         .unwrap_or_else(|| "/workspace".to_string());
 
@@ -732,12 +755,18 @@ fn build_container_spec(config: &LaunchConfig, task: &Task, default_image: &str,
     let mut env = config.env.clone();
     env.insert("LOOM_TASK_ID".to_string(), task.task_id.clone());
     env.insert("LOOM_TASK_TITLE".to_string(), task.title.clone());
-    env.insert("LOOM_WORKTREE".to_string(), task.worktree_path.clone().unwrap_or_default());
+    env.insert(
+        "LOOM_WORKTREE".to_string(),
+        task.worktree_path.clone().unwrap_or_default(),
+    );
     env.insert("LOOM_RUNTIME".to_string(), "container".to_string());
 
     Ok(ContainerSpec {
         image,
-        cmd: vec![config.command.clone()].into_iter().chain(config.args.clone()).collect(),
+        cmd: vec![config.command.clone()]
+            .into_iter()
+            .chain(config.args.clone())
+            .collect(),
         env,
         working_dir,
         volumes,
@@ -785,23 +814,42 @@ mod docker_client {
             let config = Config {
                 image: Some(spec.image.clone()),
                 cmd: Some(spec.cmd.clone()),
-                env: Some(spec.env.iter().map(|(k, v)| format!("{}={}", k, v)).collect()),
+                env: Some(
+                    spec.env
+                        .iter()
+                        .map(|(k, v)| format!("{}={}", k, v))
+                        .collect(),
+                ),
                 working_dir: Some(spec.working_dir.clone()),
                 labels: Some(spec.labels.clone()),
                 host_config: Some(HostConfig {
-                    mounts: Some(spec.volumes.iter().map(|v| Mount {
-                        target: Some(v.target.clone()),
-                        source: Some(v.source.clone()),
-                        typ: Some(MountTypeEnum::BIND),
-                        read_only: Some(v.read_only),
-                        ..Default::default()
-                    }).collect()),
+                    mounts: Some(
+                        spec.volumes
+                            .iter()
+                            .map(|v| Mount {
+                                target: Some(v.target.clone()),
+                                source: Some(v.source.clone()),
+                                typ: Some(MountTypeEnum::BIND),
+                                read_only: Some(v.read_only),
+                                ..Default::default()
+                            })
+                            .collect(),
+                    ),
                     network_mode: spec.network_mode.clone(),
                     auto_remove: Some(true),
-                    cpu_shares: spec.resource_limits.as_ref().and_then(|r| r.cpu_shares.map(|v| v as i64)),
-                    memory: spec.resource_limits.as_ref().and_then(|r| r.memory_bytes.map(|v| v as i64)),
+                    cpu_shares: spec
+                        .resource_limits
+                        .as_ref()
+                        .and_then(|r| r.cpu_shares.map(|v| v as i64)),
+                    memory: spec
+                        .resource_limits
+                        .as_ref()
+                        .and_then(|r| r.memory_bytes.map(|v| v as i64)),
                     cpu_quota: spec.resource_limits.as_ref().and_then(|r| r.cpu_quota),
-                    cpu_period: spec.resource_limits.as_ref().and_then(|r| r.cpu_period.map(|v| v as i64)),
+                    cpu_period: spec
+                        .resource_limits
+                        .as_ref()
+                        .and_then(|r| r.cpu_period.map(|v| v as i64)),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -812,7 +860,10 @@ mod docker_client {
                 platform: None,
             };
 
-            let response = self.client.create_container(Some(options), config).await
+            let response = self
+                .client
+                .create_container(Some(options), config)
+                .await
                 .context("Failed to create container")?;
             Ok(response.id)
         }
@@ -826,7 +877,9 @@ mod docker_client {
         }
 
         async fn wait_container(&self, id: &str) -> Result<RunResult> {
-            let mut stream = self.client.wait_container(id, None::<WaitContainerOptions<String>>);
+            let mut stream = self
+                .client
+                .wait_container(id, None::<WaitContainerOptions<String>>);
             let mut exit_code: Option<i32> = None;
             while let Some(item) = stream.try_next().await? {
                 exit_code = Some(item.status_code as i32);
@@ -846,8 +899,12 @@ mod docker_client {
             );
             while let Some(log) = log_stream.try_next().await? {
                 match log {
-                    LogOutput::StdOut { message } => stdout.push_str(&String::from_utf8_lossy(&message)),
-                    LogOutput::StdErr { message } => stderr.push_str(&String::from_utf8_lossy(&message)),
+                    LogOutput::StdOut { message } => {
+                        stdout.push_str(&String::from_utf8_lossy(&message))
+                    }
+                    LogOutput::StdErr { message } => {
+                        stderr.push_str(&String::from_utf8_lossy(&message))
+                    }
                     _ => {}
                 }
             }
@@ -866,7 +923,9 @@ mod docker_client {
                 force,
                 ..Default::default()
             };
-            self.client.remove_container(id, Some(options)).await
+            self.client
+                .remove_container(id, Some(options))
+                .await
                 .context("Failed to remove container")?;
             Ok(())
         }
@@ -882,7 +941,6 @@ mod docker_client {
             }
             Ok(())
         }
-
     }
 }
 
@@ -977,7 +1035,10 @@ mod podman_client {
                 .output()
                 .context("Failed to start container")?;
             if !output.status.success() {
-                anyhow::bail!("Failed to start container: {}", String::from_utf8_lossy(&output.stderr));
+                anyhow::bail!(
+                    "Failed to start container: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
             }
             Ok(())
         }
@@ -988,7 +1049,10 @@ mod podman_client {
                 .output()
                 .context("Failed to wait for container")?;
 
-            let exit_code = String::from_utf8_lossy(&output.stdout).trim().parse::<i32>().ok();
+            let exit_code = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse::<i32>()
+                .ok();
 
             let logs_output = Command::new("podman")
                 .args(["logs", id])
@@ -1020,7 +1084,10 @@ mod podman_client {
                 .context("Failed to remove container")?;
 
             if !output.status.success() {
-                anyhow::bail!("Failed to remove container: {}", String::from_utf8_lossy(&output.stderr));
+                anyhow::bail!(
+                    "Failed to remove container: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
             }
             Ok(())
         }
@@ -1032,14 +1099,15 @@ mod podman_client {
                 .context("Failed to pull image")?;
 
             if !output.status.success() {
-                anyhow::bail!("Failed to pull image: {}", String::from_utf8_lossy(&output.stderr));
+                anyhow::bail!(
+                    "Failed to pull image: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
             }
             Ok(())
         }
-
     }
 }
-
 
 /// Kubernetes client implementation using kubectl CLI
 #[cfg(feature = "kubernetes")]
@@ -1119,5 +1187,4 @@ mod tests {
         assert_eq!(spec.working_dir, "/workspace");
         assert!(!spec.volumes.is_empty());
     }
-
 }

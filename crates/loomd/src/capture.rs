@@ -57,14 +57,16 @@ pub fn resolve_agent_launch(
         let table: toml::Table = toml::from_str(&raw)?;
         if let Some(entry) = table.get(agent_id) {
             let runner = entry.get("runner").and_then(|v| v.as_str()).unwrap_or("");
-            let package = entry
-                .get("package")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let package = entry.get("package").and_then(|v| v.as_str()).unwrap_or("");
             let args: Vec<String> = entry
                 .get("args")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(str::to_string).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str())
+                        .map(str::to_string)
+                        .collect()
+                })
                 .unwrap_or_default();
             if runner == "npm" && !package.is_empty() {
                 let mut full_args = vec![package.to_string()];
@@ -110,7 +112,7 @@ pub fn resolve_agent_launch_with_adapter(
             });
         }
     }
-    
+
     // Fall back to binary lookup (PATH or config/agents.toml)
     let search_dirs: Vec<PathBuf> = std::env::var("PATH")
         .map(|p| std::env::split_paths(&p).collect())
@@ -148,10 +150,7 @@ pub fn load_task_brief(loom_dir: &str, task_id: &str) -> (String, String) {
             }
         }
     }
-    (
-        task_id.to_string(),
-        format!("ACP task {task_id}"),
-    )
+    (task_id.to_string(), format!("ACP task {task_id}"))
 }
 
 /// Dispatch an ACP agent using the canonical ACP protocol client.
@@ -176,18 +175,21 @@ pub fn dispatch_acp_protocol(
         let (topic, prompt) = load_task_brief(loom_dir, task_id);
         (topic, prompt)
     } else {
-        (prompt.chars().take(80).collect::<String>(), prompt.to_string())
+        (
+            prompt.chars().take(80).collect::<String>(),
+            prompt.to_string(),
+        )
     };
-    
+
     // Record run in registry
     if let Ok(mut registry) = manager.lock() {
         registry.record_external_run(&run_id, task_id, agent_id);
     }
-    
+
     // Resolve agent launch: try GenericAdapter first (uses tool TOML launch config),
     // then fall back to binary lookup (PATH or config/agents.toml).
     let launch = resolve_agent_launch_with_adapter(loom_dir, agent_id, task_id)?;
-    
+
     // Build AcpClientConfig - inject --acp flag for cline
     let mut args = launch.args;
     if launch.program == "cline" || launch.program.ends_with("/cline") {
@@ -199,20 +201,20 @@ pub fn dispatch_acp_protocol(
         cwd: None,
         timeout_secs,
     };
-    
+
     // Run ACP prompt
     let transcript = AcpProtocolClient::run_prompt(&config, &prompt)?;
-    
+
     // Build session using the shared ACP shaper (same as the CLI path);
     // topic was resolved above (task-brief title or explicit prompt).
     let (manifest, messages) = build_acp_session(&transcript, &prompt, agent_id, Some(topic));
-    
+
     // Save session
     let loom_dir_str = loom_dir;
     let store = SessionStore::new(loom_dir_str);
     store.save_manifest(&manifest)?;
     store.replace_messages(&manifest.session_id, &messages)?;
-    
+
     // Index into memory
     if let Ok(memory) = loom_sessions::memory::CrossSessionMemory::new(loom_dir_str) {
         if let Err(e) = memory.index_session_with_tags(
@@ -221,22 +223,30 @@ pub fn dispatch_acp_protocol(
             &manifest.topic,
             &manifest.tags,
         ) {
-            tracing::warn!("ACP dispatch: memory index failed for '{}': {}", manifest.session_id, e);
+            tracing::warn!(
+                "ACP dispatch: memory index failed for '{}': {}",
+                manifest.session_id,
+                e
+            );
         }
     }
-    
+
     // Extract into knowledge graph
     if let Ok(kg) = loom_knowledge::KnowledgeGraph::new(loom_dir_str) {
         if let Err(e) = kg.extract_from_messages(&messages, &manifest.session_id) {
-            tracing::warn!("ACP dispatch: knowledge extraction failed for '{}': {}", manifest.session_id, e);
+            tracing::warn!(
+                "ACP dispatch: knowledge extraction failed for '{}': {}",
+                manifest.session_id,
+                e
+            );
         }
     }
-    
+
     // Update run registry with completion
     if let Ok(mut registry) = manager.lock() {
         registry.complete_run(&run_id, 0, Some(manifest.session_id.clone()));
     }
-    
+
     Ok(serde_json::json!({
         "dispatched": true,
         "session_id": manifest.session_id,
@@ -245,7 +255,6 @@ pub fn dispatch_acp_protocol(
         "tool_calls": transcript.tool_calls,
         "run_id": run_id,
     }))
-
 }
 
 #[cfg(test)]
@@ -265,11 +274,13 @@ mod tests {
             std::fs::set_permissions(&bin, perms).unwrap();
         }
 
-        let launch =
-            resolve_agent_launch(dir.path().to_str().unwrap(), "fake-agent", "t1", &[
-                dir.path().to_path_buf()
-            ])
-            .unwrap();
+        let launch = resolve_agent_launch(
+            dir.path().to_str().unwrap(),
+            "fake-agent",
+            "t1",
+            &[dir.path().to_path_buf()],
+        )
+        .unwrap();
         assert_eq!(launch.program, bin.to_str().unwrap());
     }
 
@@ -297,8 +308,7 @@ mod tests {
         )
         .unwrap();
 
-        let launch =
-            resolve_agent_launch(loom_str, "my-agent", "t1", &[]).unwrap();
+        let launch = resolve_agent_launch(loom_str, "my-agent", "t1", &[]).unwrap();
         assert_eq!(launch.program, "npx");
         assert!(launch.args.contains(&"my-agent-pkg".to_string()));
     }
@@ -330,5 +340,4 @@ mod tests {
         assert_eq!(topic, "ghost");
         assert!(prompt.contains("ghost"));
     }
-
 }

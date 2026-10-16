@@ -123,27 +123,42 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
 
             let catalog = CatalogManager::load(loom_dir.to_str().unwrap())?;
             if *json {
-                let models: Vec<_> = catalog.catalog().models.iter().map(|m| {
-                    json!({
-                        "model_id": m.model_id,
-                        "provider_id": m.provider_id,
-                        "tier": format!("{:?}", m.tier),
-                        "input_cost_per_1k": m.input_cost_per_1k,
-                        "output_cost_per_1k": m.output_cost_per_1k,
+                let models: Vec<_> = catalog
+                    .catalog()
+                    .models
+                    .iter()
+                    .map(|m| {
+                        json!({
+                            "model_id": m.model_id,
+                            "provider_id": m.provider_id,
+                            "tier": format!("{:?}", m.tier),
+                            "input_cost_per_1k": m.input_cost_per_1k,
+                            "output_cost_per_1k": m.output_cost_per_1k,
+                        })
                     })
-                }).collect();
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "schema_version": 1,
-                    "command": "routing.show",
-                    "config": config_routing,
-                    "model_catalog": models
-                }))?);
+                    .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "schema_version": 1,
+                        "command": "routing.show",
+                        "config": config_routing,
+                        "model_catalog": models
+                    }))?
+                );
             } else {
-                println!("\nModel catalog ({} entries):", catalog.catalog().models.len());
+                println!(
+                    "\nModel catalog ({} entries):",
+                    catalog.catalog().models.len()
+                );
                 for m in &catalog.catalog().models {
                     println!(
                         "  {} @ {} tier={:?} ${:.4}/${:.4} per 1k",
-                        m.model_id, m.provider_id, m.tier, m.input_cost_per_1k, m.output_cost_per_1k
+                        m.model_id,
+                        m.provider_id,
+                        m.tier,
+                        m.input_cost_per_1k,
+                        m.output_cost_per_1k
                     );
                 }
             }
@@ -181,18 +196,29 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
             if *json {
                 println!("{}", serde_json::to_string_pretty(&result)?);
             } else {
-                println!("Complexity: {:?} (numeric={:.2})", score.level, score.numeric);
+                println!(
+                    "Complexity: {:?} (numeric={:.2})",
+                    score.level, score.numeric
+                );
                 if knowledge_boost > 0.0 {
-                    println!("Knowledge context: {} entities found, boost=+{:.2}",
-                        knowledge_entities.join(", "), knowledge_boost);
+                    println!(
+                        "Knowledge context: {} entities found, boost=+{:.2}",
+                        knowledge_entities.join(", "),
+                        knowledge_boost
+                    );
                 }
                 println!("Decision: {}", decision.reason);
-                println!("  Model: {} ({})", decision.recommended_model, decision.recommended_provider);
+                println!(
+                    "  Model: {} ({})",
+                    decision.recommended_model, decision.recommended_provider
+                );
                 println!("  Tier: {:?}", decision.recommended_tier);
-                println!("  Cost: ${:.4} ({} input, {} output tokens)",
+                println!(
+                    "  Cost: ${:.4} ({} input, {} output tokens)",
                     decision.cost_estimate.estimated_cost_usd,
                     decision.cost_estimate.input_tokens_estimated,
-                    decision.cost_estimate.output_tokens_estimated);
+                    decision.cost_estimate.output_tokens_estimated
+                );
             }
         }
         RoutingAction::Score { prompt, json } => {
@@ -224,11 +250,20 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
             if *json {
                 println!("{}", serde_json::to_string_pretty(&result)?);
             } else {
-                println!("Complexity: {:?} (numeric={:.2})", score.level, score.numeric);
+                println!(
+                    "Complexity: {:?} (numeric={:.2})",
+                    score.level, score.numeric
+                );
                 println!("Signals:");
                 println!("  description_length: {}", score.signals.description_length);
-                println!("  keyword_indicators: {:?}", score.signals.keyword_indicators);
-                println!("  has_cross_module_refs: {}", score.signals.has_cross_module_refs);
+                println!(
+                    "  keyword_indicators: {:?}",
+                    score.signals.keyword_indicators
+                );
+                println!(
+                    "  has_cross_module_refs: {}",
+                    score.signals.has_cross_module_refs
+                );
                 println!("  dependency_depth: {}", score.signals.dependency_depth);
                 if let Some(count) = score.signals.scope_file_count {
                     println!("  scope_file_count: {}", count);
@@ -256,14 +291,24 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
                 println!("{}", serde_json::to_string_pretty(&result)?);
             } else {
                 println!("Task: {} ({})", task.title, task.task_id);
-                println!("Complexity: {:?} (numeric={:.2})", score.level, score.numeric);
-                println!("Recommendation: {} ({})", decision.recommended_model, decision.recommended_provider);
+                println!(
+                    "Complexity: {:?} (numeric={:.2})",
+                    score.level, score.numeric
+                );
+                println!(
+                    "Recommendation: {} ({})",
+                    decision.recommended_model, decision.recommended_provider
+                );
                 println!("  Tier: {:?}", decision.recommended_tier);
                 println!("  Reason: {}", decision.reason);
                 println!("  Cost: ${:.4}", decision.cost_estimate.estimated_cost_usd);
             }
         }
-        RoutingAction::Override { task_id, tier, reason } => {
+        RoutingAction::Override {
+            task_id,
+            tier,
+            reason,
+        } => {
             let mut task = load_task(loom_dir, task_id)?;
             let forced_tier = parse_tier(tier)?;
 
@@ -315,8 +360,10 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
 
             save_task(loom_dir, &task)?;
 
-            println!("Override applied to task {}: tier={:?}, model={} ({})",
-                task_id, forced_tier, model.model_id, model.provider_id);
+            println!(
+                "Override applied to task {}: tier={:?}, model={} ({})",
+                task_id, forced_tier, model.model_id, model.provider_id
+            );
         }
         RoutingAction::Catalog { refresh, json } => {
             if *refresh {
@@ -327,25 +374,36 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
 
             let catalog = CatalogManager::load(loom_dir.to_str().unwrap())?;
             if *json {
-                let models: Vec<_> = catalog.catalog().models.iter().map(|m| {
-                    json!({
-                        "model_id": m.model_id,
-                        "provider_id": m.provider_id,
-                        "tier": format!("{:?}", m.tier),
-                        "input_cost_per_1k": m.input_cost_per_1k,
-                        "output_cost_per_1k": m.output_cost_per_1k,
-                        "context_window": m.context_window,
-                        "capabilities": m.capabilities,
+                let models: Vec<_> = catalog
+                    .catalog()
+                    .models
+                    .iter()
+                    .map(|m| {
+                        json!({
+                            "model_id": m.model_id,
+                            "provider_id": m.provider_id,
+                            "tier": format!("{:?}", m.tier),
+                            "input_cost_per_1k": m.input_cost_per_1k,
+                            "output_cost_per_1k": m.output_cost_per_1k,
+                            "context_window": m.context_window,
+                            "capabilities": m.capabilities,
+                        })
                     })
-                }).collect();
-                println!("{}", serde_json::to_string_pretty(&json!({
-                    "schema_version": 1,
-                    "command": "routing.catalog",
-                    "refresh": *refresh,
-                    "model_catalog": models
-                }))?);
+                    .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "schema_version": 1,
+                        "command": "routing.catalog",
+                        "refresh": *refresh,
+                        "model_catalog": models
+                    }))?
+                );
             } else {
-                println!("\nModel catalog ({} entries):", catalog.catalog().models.len());
+                println!(
+                    "\nModel catalog ({} entries):",
+                    catalog.catalog().models.len()
+                );
                 for m in &catalog.catalog().models {
                     println!(
                         "  {} @ {} tier={:?} ctx={}K ${:.4}/${:.4} per 1k",

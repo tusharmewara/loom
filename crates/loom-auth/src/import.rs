@@ -191,9 +191,7 @@ impl AutoImporter {
                 let abs_path = Path::new(&self.loom_dir).join(cred_file);
                 Some(
                     fs::read_to_string(&abs_path)
-                        .with_context(|| {
-                            format!("failed to read credential file: {:?}", abs_path)
-                        })?
+                        .with_context(|| format!("failed to read credential file: {:?}", abs_path))?
                         .trim()
                         .to_string(),
                 )
@@ -394,8 +392,8 @@ fn parse_auth_method(s: Option<&str>) -> AuthMethod {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vault::CredentialVault;
     use crate::providers::ProviderRegistry;
+    use crate::vault::CredentialVault;
 
     #[test]
     fn test_scan_tool_config_with_auth() {

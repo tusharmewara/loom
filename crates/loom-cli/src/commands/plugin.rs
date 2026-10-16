@@ -25,10 +25,7 @@ pub async fn run(loom_dir: &Path, action: &PluginAction) -> anyhow::Result<()> {
                     println!("Installed plugins:");
                     for p in &plugins {
                         let version = &p.version;
-                        let desc = p
-                            .description
-                            .as_deref()
-                            .unwrap_or("(no description)");
+                        let desc = p.description.as_deref().unwrap_or("(no description)");
                         println!("  {} v{}  — {}", p.name, version, desc);
                     }
                     println!("\n{} plugin(s) installed.", plugins.len());
@@ -38,11 +35,14 @@ pub async fn run(loom_dir: &Path, action: &PluginAction) -> anyhow::Result<()> {
         PluginAction::Show { name, json } => {
             let plugin = registry.get(name)?;
             if *json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "schema_version": 1,
-                    "command": "plugin.show",
-                    "plugin": plugin,
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "command": "plugin.show",
+                        "plugin": plugin,
+                    }))?
+                );
             } else {
                 println!("Plugin: {}", plugin.name);
                 println!("  Version:     {}", plugin.version);
@@ -88,10 +88,7 @@ pub async fn run(loom_dir: &Path, action: &PluginAction) -> anyhow::Result<()> {
                 } else {
                     println!("Plugin search results for '{}':", query);
                     for p in &results {
-                        let desc = p
-                            .description
-                            .as_deref()
-                            .unwrap_or("(no description)");
+                        let desc = p.description.as_deref().unwrap_or("(no description)");
                         println!("  {} v{}  — {}", p.name, p.version, desc);
                     }
                 }
@@ -117,7 +114,10 @@ pub async fn run(loom_dir: &Path, action: &PluginAction) -> anyhow::Result<()> {
                     println!("  ⚠ Tool TOML not found, skipping signature verification");
                 }
             }
-            println!("✓ Plugin '{}' v{} installed", manifest.name, manifest.version);
+            println!(
+                "✓ Plugin '{}' v{} installed",
+                manifest.name, manifest.version
+            );
         }
         PluginAction::Register { name, path } => {
             let tool_path = Path::new(path);
@@ -126,7 +126,10 @@ pub async fn run(loom_dir: &Path, action: &PluginAction) -> anyhow::Result<()> {
             }
             println!("Registering plugin '{}' from {}...", name, path);
             let manifest = registry.register_local(name, tool_path)?;
-            println!("✓ Plugin '{}' v{} registered", manifest.name, manifest.version);
+            println!(
+                "✓ Plugin '{}' v{} registered",
+                manifest.name, manifest.version
+            );
         }
         PluginAction::Update { name } => {
             println!("Updating plugin '{}'...", name);
@@ -138,10 +141,7 @@ pub async fn run(loom_dir: &Path, action: &PluginAction) -> anyhow::Result<()> {
         }
         PluginAction::Remove { name } => {
             let plugin = registry.get(name)?;
-            println!(
-                "Removing plugin '{}' v{}...",
-                plugin.name, plugin.version
-            );
+            println!("Removing plugin '{}' v{}...", plugin.name, plugin.version);
             registry.remove(name)?;
             println!("✓ Plugin '{}' removed", name);
         }

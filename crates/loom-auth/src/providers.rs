@@ -165,9 +165,7 @@ impl ProviderRegistry {
         let mut entries: Vec<_> = inner
             .providers
             .values()
-            .filter(|e| {
-                std::mem::discriminant(&e.status) == std::mem::discriminant(&status)
-            })
+            .filter(|e| std::mem::discriminant(&e.status) == std::mem::discriminant(&status))
             .cloned()
             .collect();
         entries.sort_by(|a, b| a.provider_id.cmp(&b.provider_id));
@@ -222,7 +220,9 @@ impl ProviderRegistry {
     // ─── Persistence ───────────────────────────────────────────────
 
     fn registry_path(&self) -> std::path::PathBuf {
-        Path::new(&self.loom_dir).join("auth").join("providers.json")
+        Path::new(&self.loom_dir)
+            .join("auth")
+            .join("providers.json")
     }
 
     /// Save provider registry to disk.
@@ -326,8 +326,12 @@ mod tests {
     fn test_get_and_unregister() {
         let dir = tempfile::TempDir::new().unwrap();
         let reg = ProviderRegistry::new(dir.path().to_str().unwrap());
-        reg.register(test_entry("test-provider", AuthMethod::OAuth2, ProviderStatus::Active))
-            .unwrap();
+        reg.register(test_entry(
+            "test-provider",
+            AuthMethod::OAuth2,
+            ProviderStatus::Active,
+        ))
+        .unwrap();
 
         let entry = reg.get("test-provider");
         assert!(entry.is_some());
@@ -341,14 +345,30 @@ mod tests {
     fn test_status_filtering() {
         let dir = tempfile::TempDir::new().unwrap();
         let reg = ProviderRegistry::new(dir.path().to_str().unwrap());
-        reg.register(test_entry("active1", AuthMethod::ApiKey, ProviderStatus::Active))
-            .unwrap();
-        reg.register(test_entry("active2", AuthMethod::ApiKey, ProviderStatus::Active))
-            .unwrap();
-        reg.register(test_entry("expired1", AuthMethod::OAuth2, ProviderStatus::Expired))
-            .unwrap();
-        reg.register(test_entry("unconfig1", AuthMethod::Custom, ProviderStatus::Unconfigured))
-            .unwrap();
+        reg.register(test_entry(
+            "active1",
+            AuthMethod::ApiKey,
+            ProviderStatus::Active,
+        ))
+        .unwrap();
+        reg.register(test_entry(
+            "active2",
+            AuthMethod::ApiKey,
+            ProviderStatus::Active,
+        ))
+        .unwrap();
+        reg.register(test_entry(
+            "expired1",
+            AuthMethod::OAuth2,
+            ProviderStatus::Expired,
+        ))
+        .unwrap();
+        reg.register(test_entry(
+            "unconfig1",
+            AuthMethod::Custom,
+            ProviderStatus::Unconfigured,
+        ))
+        .unwrap();
 
         let active = reg.list_by_status(ProviderStatus::Active);
         assert_eq!(active.len(), 2);
@@ -365,11 +385,16 @@ mod tests {
     fn test_update_status() {
         let dir = tempfile::TempDir::new().unwrap();
         let reg = ProviderRegistry::new(dir.path().to_str().unwrap());
-        reg.register(test_entry("provider", AuthMethod::ApiKey, ProviderStatus::Active))
-            .unwrap();
+        reg.register(test_entry(
+            "provider",
+            AuthMethod::ApiKey,
+            ProviderStatus::Active,
+        ))
+        .unwrap();
 
         assert!(reg.is_active("provider"));
-        reg.update_status("provider", ProviderStatus::Expired).unwrap();
+        reg.update_status("provider", ProviderStatus::Expired)
+            .unwrap();
         assert!(!reg.is_active("provider"));
     }
 
@@ -382,8 +407,12 @@ mod tests {
         let reg1 = ProviderRegistry::new(path);
         reg1.register(test_entry("p1", AuthMethod::ApiKey, ProviderStatus::Active))
             .unwrap();
-        reg1.register(test_entry("p2", AuthMethod::OAuth2, ProviderStatus::Expired))
-            .unwrap();
+        reg1.register(test_entry(
+            "p2",
+            AuthMethod::OAuth2,
+            ProviderStatus::Expired,
+        ))
+        .unwrap();
         reg1.save().unwrap();
 
         // Load from disk

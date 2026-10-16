@@ -16,7 +16,10 @@ impl DebugAdapterType {
         match self {
             DebugAdapterType::Lldb => ("lldb-dap", vec![]),
             DebugAdapterType::Dlv => ("dlv", vec!["dap".to_string()]),
-            DebugAdapterType::DebugPy => ("debugpy", vec!["--listen".to_string(), "0.0.0.0:5678".to_string()]),
+            DebugAdapterType::DebugPy => (
+                "debugpy",
+                vec!["--listen".to_string(), "0.0.0.0:5678".to_string()],
+            ),
         }
     }
 }
@@ -71,64 +74,93 @@ impl DapClient {
 
     /// Signal that configuration is complete.
     pub fn configuration_done(&mut self) -> Result<()> {
-        let _: serde_json::Value = self.transport.request("configurationDone", serde_json::json!({}))?;
+        let _: serde_json::Value = self
+            .transport
+            .request("configurationDone", serde_json::json!({}))?;
         Ok(())
     }
 
     /// Set breakpoints in a source file.
-    pub fn set_breakpoints(&mut self, source_path: &str, lines: &[u32]) -> Result<Vec<serde_json::Value>> {
+    pub fn set_breakpoints(
+        &mut self,
+        source_path: &str,
+        lines: &[u32],
+    ) -> Result<Vec<serde_json::Value>> {
         let params = serde_json::json!({
             "source": { "path": source_path },
             "breakpoints": lines.iter().map(|l| serde_json::json!({ "line": l })).collect::<Vec<_>>(),
             "lines": lines,
         });
         let result: serde_json::Value = self.transport.request("setBreakpoints", params)?;
-        let breakpoints = result["breakpoints"].as_array().cloned().unwrap_or_default();
+        let breakpoints = result["breakpoints"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
         Ok(breakpoints)
     }
 
     /// Continue execution.
     pub fn r#continue(&mut self, thread_id: u64) -> Result<()> {
-        let _: serde_json::Value = self.transport.request("continue", serde_json::json!({
-            "threadId": thread_id,
-        }))?;
+        let _: serde_json::Value = self.transport.request(
+            "continue",
+            serde_json::json!({
+                "threadId": thread_id,
+            }),
+        )?;
         Ok(())
     }
 
     /// Step over.
     pub fn next(&mut self, thread_id: u64) -> Result<()> {
-        let _: serde_json::Value = self.transport.request("next", serde_json::json!({
-            "threadId": thread_id,
-        }))?;
+        let _: serde_json::Value = self.transport.request(
+            "next",
+            serde_json::json!({
+                "threadId": thread_id,
+            }),
+        )?;
         Ok(())
     }
 
     /// Step in.
     pub fn step_in(&mut self, thread_id: u64) -> Result<()> {
-        let _: serde_json::Value = self.transport.request("stepIn", serde_json::json!({
-            "threadId": thread_id,
-        }))?;
+        let _: serde_json::Value = self.transport.request(
+            "stepIn",
+            serde_json::json!({
+                "threadId": thread_id,
+            }),
+        )?;
         Ok(())
     }
 
     /// Step out.
     pub fn step_out(&mut self, thread_id: u64) -> Result<()> {
-        let _: serde_json::Value = self.transport.request("stepOut", serde_json::json!({
-            "threadId": thread_id,
-        }))?;
+        let _: serde_json::Value = self.transport.request(
+            "stepOut",
+            serde_json::json!({
+                "threadId": thread_id,
+            }),
+        )?;
         Ok(())
     }
 
     /// Pause execution.
     pub fn pause(&mut self, thread_id: u64) -> Result<()> {
-        let _: serde_json::Value = self.transport.request("pause", serde_json::json!({
-            "threadId": thread_id,
-        }))?;
+        let _: serde_json::Value = self.transport.request(
+            "pause",
+            serde_json::json!({
+                "threadId": thread_id,
+            }),
+        )?;
         Ok(())
     }
 
     /// Get stack trace for a thread.
-    pub fn stack_trace(&mut self, thread_id: u64, start_frame: Option<u64>, levels: Option<u64>) -> Result<Vec<serde_json::Value>> {
+    pub fn stack_trace(
+        &mut self,
+        thread_id: u64,
+        start_frame: Option<u64>,
+        levels: Option<u64>,
+    ) -> Result<Vec<serde_json::Value>> {
         let mut params = serde_json::json!({
             "threadId": thread_id,
         });
@@ -139,30 +171,43 @@ impl DapClient {
             params["levels"] = serde_json::json!(lv);
         }
         let result: serde_json::Value = self.transport.request("stackTrace", params)?;
-        let frames = result["stackFrames"].as_array().cloned().unwrap_or_default();
+        let frames = result["stackFrames"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
         Ok(frames)
     }
 
     /// Get scopes for a stack frame.
     pub fn scopes(&mut self, frame_id: u64) -> Result<Vec<serde_json::Value>> {
-        let result: serde_json::Value = self.transport.request("scopes", serde_json::json!({
-            "frameId": frame_id,
-        }))?;
+        let result: serde_json::Value = self.transport.request(
+            "scopes",
+            serde_json::json!({
+                "frameId": frame_id,
+            }),
+        )?;
         let scopes = result["scopes"].as_array().cloned().unwrap_or_default();
         Ok(scopes)
     }
 
     /// Get variables for a scope or variable reference.
     pub fn variables(&mut self, variables_reference: u64) -> Result<Vec<serde_json::Value>> {
-        let result: serde_json::Value = self.transport.request("variables", serde_json::json!({
-            "variablesReference": variables_reference,
-        }))?;
+        let result: serde_json::Value = self.transport.request(
+            "variables",
+            serde_json::json!({
+                "variablesReference": variables_reference,
+            }),
+        )?;
         let vars = result["variables"].as_array().cloned().unwrap_or_default();
         Ok(vars)
     }
 
     /// Evaluate an expression.
-    pub fn evaluate(&mut self, expression: &str, frame_id: Option<u64>) -> Result<serde_json::Value> {
+    pub fn evaluate(
+        &mut self,
+        expression: &str,
+        frame_id: Option<u64>,
+    ) -> Result<serde_json::Value> {
         let mut params = serde_json::json!({
             "expression": expression,
         });
@@ -174,9 +219,12 @@ impl DapClient {
 
     /// Disconnect from the debug session.
     pub fn disconnect(&mut self) -> Result<()> {
-        let _: serde_json::Value = self.transport.request("disconnect", serde_json::json!({
-            "terminateDebuggee": true,
-        }))?;
+        let _: serde_json::Value = self.transport.request(
+            "disconnect",
+            serde_json::json!({
+                "terminateDebuggee": true,
+            }),
+        )?;
         Ok(())
     }
 

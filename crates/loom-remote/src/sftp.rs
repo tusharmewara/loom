@@ -4,7 +4,12 @@ use crate::connection::SshConnection;
 use std::process::Command;
 
 /// Push a local path to a remote destination via rsync or scp.
-pub fn push(local: &str, remote: &str, conn: &SshConnection, use_rsync: bool) -> anyhow::Result<()> {
+pub fn push(
+    local: &str,
+    remote: &str,
+    conn: &SshConnection,
+    use_rsync: bool,
+) -> anyhow::Result<()> {
     if use_rsync {
         let mut cmd = Command::new("rsync");
         cmd.arg("-avz")
@@ -35,7 +40,12 @@ pub fn push(local: &str, remote: &str, conn: &SshConnection, use_rsync: bool) ->
 }
 
 /// Pull a remote path to a local destination via rsync or scp.
-pub fn pull(remote: &str, local: &str, conn: &SshConnection, use_rsync: bool) -> anyhow::Result<()> {
+pub fn pull(
+    remote: &str,
+    local: &str,
+    conn: &SshConnection,
+    use_rsync: bool,
+) -> anyhow::Result<()> {
     if use_rsync {
         let mut cmd = Command::new("rsync");
         cmd.arg("-avz")

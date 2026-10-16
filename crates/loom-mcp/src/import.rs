@@ -81,8 +81,8 @@ pub fn import_from_toml(
     toml_content: &str,
     registry_upsert: &dyn Fn(McpServerEntry) -> Result<()>,
 ) -> Result<usize> {
-    let config: ToolMcpConfig = toml::from_str(toml_content)
-        .context("Failed to parse tool MCP config TOML")?;
+    let config: ToolMcpConfig =
+        toml::from_str(toml_content).context("Failed to parse tool MCP config TOML")?;
 
     let mut count = 0;
     for (id, tool_srv) in &config.servers {
@@ -116,8 +116,7 @@ pub fn import_from_paths(
         }
 
         // Guard against circular imports via canonical path
-        let canonical = std::fs::canonicalize(&full_path)
-            .unwrap_or_else(|_| full_path.clone());
+        let canonical = std::fs::canonicalize(&full_path).unwrap_or_else(|_| full_path.clone());
         if !seen.insert(canonical.clone()) {
             debug!("Auto-import: skipping duplicate path {:?}", canonical);
             continue;
@@ -126,20 +125,15 @@ pub fn import_from_paths(
         match std::fs::read_to_string(&full_path)
             .with_context(|| format!("Failed to read {}", full_path.display()))
         {
-            Ok(content) => {
-                match import_from_toml(&content, registry_upsert) {
-                    Ok(n) => {
-                        total += n;
-                        info!("Auto-import: imported {} servers from {:?}", n, full_path);
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Auto-import: failed to import from {:?}: {}",
-                            full_path, e
-                        );
-                    }
+            Ok(content) => match import_from_toml(&content, registry_upsert) {
+                Ok(n) => {
+                    total += n;
+                    info!("Auto-import: imported {} servers from {:?}", n, full_path);
                 }
-            }
+                Err(e) => {
+                    warn!("Auto-import: failed to import from {:?}: {}", full_path, e);
+                }
+            },
             Err(e) => {
                 warn!("Auto-import: failed to read {:?}: {}", full_path, e);
             }
@@ -173,28 +167,17 @@ pub fn import_from_tools_dir(
             let mcp_config = path.join("mcp.toml");
             if mcp_config.exists() {
                 match std::fs::read_to_string(&mcp_config) {
-                    Ok(content) => {
-                        match import_from_toml(&content, registry_upsert) {
-                            Ok(n) => {
-                                total += n;
-                                info!(
-                                    "Auto-import: imported {} servers from {:?}",
-                                    n, mcp_config
-                                );
-                            }
-                            Err(e) => {
-                                warn!(
-                                    "Auto-import: failed to import from {:?}: {}",
-                                    mcp_config, e
-                                );
-                            }
+                    Ok(content) => match import_from_toml(&content, registry_upsert) {
+                        Ok(n) => {
+                            total += n;
+                            info!("Auto-import: imported {} servers from {:?}", n, mcp_config);
                         }
-                    }
+                        Err(e) => {
+                            warn!("Auto-import: failed to import from {:?}: {}", mcp_config, e);
+                        }
+                    },
                     Err(e) => {
-                        warn!(
-                            "Auto-import: failed to read {:?}: {}",
-                            mcp_config, e
-                        );
+                        warn!("Auto-import: failed to read {:?}: {}", mcp_config, e);
                     }
                 }
             }
@@ -276,10 +259,7 @@ API_KEY = "test-key"
             imported[0].transport.transport_type,
             McpTransportType::Stdio
         ));
-        assert_eq!(
-            imported[0].transport.command.as_deref(),
-            Some("node")
-        );
+        assert_eq!(imported[0].transport.command.as_deref(), Some("node"));
         assert_eq!(imported[0].transport.args, vec!["server.js"]);
         assert!(imported[0].shared);
         assert!(imported[0].tags.contains(&"database".to_string()));
@@ -339,12 +319,11 @@ shared = false
         };
 
         let imported = Mutex::new(Vec::new());
-        let count =
-            import_from_paths(&cfg, dir.path(), &|entry| {
-                loom_core::lock_ok!(imported).push(entry);
-                Ok(())
-            })
-            .unwrap();
+        let count = import_from_paths(&cfg, dir.path(), &|entry| {
+            loom_core::lock_ok!(imported).push(entry);
+            Ok(())
+        })
+        .unwrap();
 
         assert_eq!(count, 1);
     }

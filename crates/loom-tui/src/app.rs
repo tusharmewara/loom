@@ -6,7 +6,13 @@ use serde_json::Value;
 use std::time::Instant;
 use tokio::sync::mpsc;
 
-const DAEMON_ACTIONS: &[&str] = &["start", "stop", "restart", "install-service", "uninstall-service"];
+const DAEMON_ACTIONS: &[&str] = &[
+    "start",
+    "stop",
+    "restart",
+    "install-service",
+    "uninstall-service",
+];
 
 /// Minimum interval between GitHub API polls (PR list / CI status / diff).
 /// The TUI refresh loop ticks every second, so GitHub-backed data must not be
@@ -97,10 +103,7 @@ pub fn task_session_ids(sessions: &Value, task_id: &str) -> Vec<String> {
 
 /// Agent to dispatch a reviewed task with: the task's recorded
 /// `last_agent`, falling back to the Orchestrator-selected agent.
-pub fn review_dispatch_agent(
-    task_detail: &Value,
-    fallback: Option<&str>,
-) -> Option<String> {
+pub fn review_dispatch_agent(task_detail: &Value, fallback: Option<&str>) -> Option<String> {
     task_detail
         .pointer("/task/last_agent")
         .and_then(Value::as_str)
@@ -112,7 +115,10 @@ pub fn review_dispatch_agent(
 pub fn format_review_task_line(task: &Value) -> String {
     let phase = task.get("phase").and_then(Value::as_str).unwrap_or("?");
     let status = task.get("status").and_then(Value::as_str).unwrap_or("?");
-    let title = task.get("title").and_then(Value::as_str).unwrap_or("(untitled)");
+    let title = task
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("(untitled)");
     let id: String = task
         .get("task_id")
         .and_then(Value::as_str)
@@ -269,7 +275,23 @@ impl App {
         let theme_manager = crate::theme::ThemeManager::new();
         let theme = theme_manager.current();
         Self {
-            tabs: vec!["Dashboard", "Daemon", "Discovery", "MCP", "Skills", "Sessions", "Logs", "Knowledge", "PRs", "Runtime", "Kanban", "Graph", "Cost", "Orchestrator", "Review"],
+            tabs: vec![
+                "Dashboard",
+                "Daemon",
+                "Discovery",
+                "MCP",
+                "Skills",
+                "Sessions",
+                "Logs",
+                "Knowledge",
+                "PRs",
+                "Runtime",
+                "Kanban",
+                "Graph",
+                "Cost",
+                "Orchestrator",
+                "Review",
+            ],
             tab_index: 0,
             last_refresh: Instant::now(),
             status: Value::Null,
@@ -921,13 +943,9 @@ impl App {
         match self.adapter.draft_plan(&title, &details).await {
             Ok(draft) => {
                 let titles = draft_task_titles(&draft);
-                let preview: Vec<String> =
-                    titles.iter().take(3).cloned().collect();
-                let mut message = format!(
-                    "Draft: {} task(s) ({})",
-                    titles.len(),
-                    preview.join(", ")
-                );
+                let preview: Vec<String> = titles.iter().take(3).cloned().collect();
+                let mut message =
+                    format!("Draft: {} task(s) ({})", titles.len(), preview.join(", "));
                 if titles.len() > preview.len() {
                     message.push_str(", …");
                 }
@@ -970,10 +988,7 @@ impl App {
                 self.orchestrator_status = Some(CommandResult {
                     action: "orchestrator draft create".to_string(),
                     success: true,
-                    message: format!(
-                        "Created {} task(s) from draft — see Review.",
-                        ids.len()
-                    ),
+                    message: format!("Created {} task(s) from draft — see Review.", ids.len()),
                 });
             }
             Err(e) => {
@@ -1122,9 +1137,7 @@ impl App {
             return Err("No task selected.".to_string());
         };
         let detail = self.review_detail.clone().unwrap_or(Value::Null);
-        let Some(agent) =
-            review_dispatch_agent(&detail, self.orchestrator_selected_agent())
-        else {
+        let Some(agent) = review_dispatch_agent(&detail, self.orchestrator_selected_agent()) else {
             return Err(format!(
                 "Task {task_id} has no recorded agent and none is selected."
             ));
@@ -1166,13 +1179,7 @@ impl App {
                 } else {
                     let result = self.run_acp_dispatch(&task_id, &agent, &priors);
                     let resumed = priors.len();
-                    self.record_task_dispatch(
-                        "review resume",
-                        &task_id,
-                        &agent,
-                        result,
-                        resumed,
-                    )
+                    self.record_task_dispatch("review resume", &task_id, &agent, result, resumed)
                 }
             }
             Err(message) => CommandResult {
@@ -1341,8 +1348,7 @@ impl App {
                 if dispatch.success {
                     self.orchestrator_title.clear();
                     self.orchestrator_details.clear();
-                    let mut message =
-                        format!("Created task {task_id} and dispatched to {agent}.");
+                    let mut message = format!("Created task {task_id} and dispatched to {agent}.");
                     if let Some(run_id) = dispatch.run_id {
                         message.push_str(&format!(" (run {run_id})"));
                         self.orchestrator_last_run = Some(OrchestratorRun {
@@ -1362,7 +1368,10 @@ impl App {
                     CommandResult {
                         action: "orchestrator submit".to_string(),
                         success: false,
-                        message: format!("Created task {task_id}, but dispatch failed: {}", dispatch.message),
+                        message: format!(
+                            "Created task {task_id}, but dispatch failed: {}",
+                            dispatch.message
+                        ),
                     }
                 }
             }
@@ -1445,7 +1454,15 @@ mod tests {
         let app = app();
         let len = app.tabs.len();
         assert_eq!(app.tabs[len - 2], "Orchestrator");
-        eprintln!("len={}, orchestrator_index={}", len, app.orchestrator_tab_index().unwrap_or(999)); let idx = app.orchestrator_tab_index(); eprintln!("idx={:?}", idx); eprintln!("idx={:?}, len-2={:?}", idx, Some(len - 2)); assert_eq!(idx, Some(len - 2));
+        eprintln!(
+            "len={}, orchestrator_index={}",
+            len,
+            app.orchestrator_tab_index().unwrap_or(999)
+        );
+        let idx = app.orchestrator_tab_index();
+        eprintln!("idx={:?}", idx);
+        eprintln!("idx={:?}, len-2={:?}", idx, Some(len - 2));
+        assert_eq!(idx, Some(len - 2));
         assert_eq!(app.scroll_offsets.len(), app.tabs.len());
     }
 
@@ -1634,7 +1651,10 @@ mod tests {
             Some("codex")
         );
         assert_eq!(review_dispatch_agent(&no_agent, None), None);
-        assert_eq!(review_dispatch_agent(&Value::Null, Some("codex")).as_deref(), Some("codex"));
+        assert_eq!(
+            review_dispatch_agent(&Value::Null, Some("codex")).as_deref(),
+            Some("codex")
+        );
     }
 
     #[test]
@@ -1647,7 +1667,8 @@ mod tests {
     }
 
     #[test]
-    fn draft_task_titles_extract_in_order() {        let draft = json!({
+    fn draft_task_titles_extract_in_order() {
+        let draft = json!({
             "tasks": [
                 {"id": "t1", "title": "Alpha"},
                 {"id": "t2", "title": "Beta"},
@@ -1665,14 +1686,8 @@ mod tests {
     fn agent_cycle_starts_at_first_and_wraps() {
         let agents = vec!["a".to_string(), "b".to_string(), "c".to_string()];
         assert_eq!(next_agent_after(None, &agents).as_deref(), Some("a"));
-        assert_eq!(
-            next_agent_after(Some("a"), &agents).as_deref(),
-            Some("b")
-        );
-        assert_eq!(
-            next_agent_after(Some("c"), &agents).as_deref(),
-            Some("a")
-        );
+        assert_eq!(next_agent_after(Some("a"), &agents).as_deref(), Some("b"));
+        assert_eq!(next_agent_after(Some("c"), &agents).as_deref(), Some("a"));
     }
 
     #[test]

@@ -22,9 +22,7 @@ impl LinearTracker {
         let api_key = match key_override {
             Some(k) => k,
             None => std::env::var("LINEAR_API_KEY").map_err(|_| {
-                TrackerError::Config(
-                    "LINEAR_API_KEY must be set, or pass --token".into(),
-                )
+                TrackerError::Config("LINEAR_API_KEY must be set, or pass --token".into())
             })?,
         };
 
@@ -37,7 +35,11 @@ impl LinearTracker {
     }
 
     /// Execute a GraphQL query and return the JSON response data.
-    async fn graphql(&self, query: &str, variables: serde_json::Value) -> Result<serde_json::Value, TrackerError> {
+    async fn graphql(
+        &self,
+        query: &str,
+        variables: serde_json::Value,
+    ) -> Result<serde_json::Value, TrackerError> {
         let payload = serde_json::json!({
             "query": query,
             "variables": variables,
@@ -138,10 +140,15 @@ impl IssueTracker for LinearTracker {
             }
         "#;
 
-        let data = self.graphql(gql_query, serde_json::json!({
-            "teamId": team_id,
-            "first": first,
-        })).await?;
+        let data = self
+            .graphql(
+                gql_query,
+                serde_json::json!({
+                    "teamId": team_id,
+                    "first": first,
+                }),
+            )
+            .await?;
 
         let nodes = data["team"]["issues"]["nodes"].as_array().ok_or_else(|| {
             TrackerError::GitHubApi("expected team.issues.nodes in response".into())
@@ -161,10 +168,15 @@ impl IssueTracker for LinearTracker {
             }
         "#;
 
-        let data = self.graphql(query, serde_json::json!({
-            "issueId": id,
-            "body": body,
-        })).await?;
+        let data = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "issueId": id,
+                    "body": body,
+                }),
+            )
+            .await?;
 
         let success = data["commentCreate"]["success"].as_bool().unwrap_or(false);
         if !success {
@@ -186,7 +198,10 @@ fn linear_issue_to_model(val: &serde_json::Value) -> Issue {
         })
         .unwrap_or_default();
 
-    let state = val["state"]["name"].as_str().unwrap_or("unknown").to_string();
+    let state = val["state"]["name"]
+        .as_str()
+        .unwrap_or("unknown")
+        .to_string();
     let assignee = val["assignee"]["name"].as_str().map(|s| s.to_string());
     let html_url = val["url"].as_str().map(|s| s.to_string());
     let created_at = val["createdAt"].as_str().map(|s| s.to_string());

@@ -2,15 +2,8 @@ use crate::phases::{default_model_tier, next_phase};
 use crate::routing::{Classifier, DecisionEngine};
 use anyhow::{Context, Result};
 use loom_core::{
-    config::ConfigReader,
-    ComplexityLevel,
-    ModelTier,
-    PhaseHistoryEntry,
-    RoutingDecision,
-    Task,
-    TaskPhase,
-    TaskStatus,
-    types::WorkflowConfig,
+    config::ConfigReader, types::WorkflowConfig, ComplexityLevel, ModelTier, PhaseHistoryEntry,
+    RoutingDecision, Task, TaskPhase, TaskStatus,
 };
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -80,8 +73,8 @@ impl TaskManager {
 
         // Find repo root from current working directory
         let cwd = std::env::current_dir()?;
-        let repo_root = Self::find_repo_root(&cwd)
-            .ok_or_else(|| anyhow::anyhow!("Not in a git repository"))?;
+        let repo_root =
+            Self::find_repo_root(&cwd).ok_or_else(|| anyhow::anyhow!("Not in a git repository"))?;
 
         // Create base directory
         let base = self.worktree_base();
@@ -109,7 +102,11 @@ impl TaskManager {
             anyhow::bail!("git worktree add failed: {}", stderr.trim());
         }
 
-        tracing::info!("Created worktree '{}' at {}", worktree_name, worktree_path.display());
+        tracing::info!(
+            "Created worktree '{}' at {}",
+            worktree_name,
+            worktree_path.display()
+        );
 
         Ok(worktree_path)
     }
@@ -132,7 +129,13 @@ impl TaskManager {
         title
             .to_lowercase()
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '-'
+                }
+            })
             .collect::<String>()
             .trim_matches('-')
             .to_string()
@@ -177,7 +180,13 @@ impl TaskManager {
         Ok(())
     }
 
-    pub fn create_task(&self, title: &str, description: &str, worktree: bool, runtime: Option<String>) -> Result<Task> {
+    pub fn create_task(
+        &self,
+        title: &str,
+        description: &str,
+        worktree: bool,
+        runtime: Option<String>,
+    ) -> Result<Task> {
         let now = loom_core::rfc3339_now();
         let task_id = Uuid::new_v4().to_string();
 
@@ -429,11 +438,7 @@ impl TaskManager {
                     recommended_tier: model_entry
                         .as_ref()
                         .map(|m| m.tier)
-                        .or_else(|| {
-                            task.routing_decision
-                                .as_ref()
-                                .map(|d| d.recommended_tier)
-                        })
+                        .or_else(|| task.routing_decision.as_ref().map(|d| d.recommended_tier))
                         .unwrap_or(ModelTier::Mid),
                     recommended_provider: prov.to_string(),
                     recommended_model: model_id,
@@ -589,13 +594,21 @@ mod tests {
     #[test]
     fn set_tags_replaces_the_tag_set() {
         let (_tmp, manager) = manager();
-        let task = manager.create_task("title", "description", true, None).unwrap();
+        let task = manager
+            .create_task("title", "description", true, None)
+            .unwrap();
         assert!(task.tags.is_empty());
 
         let updated = manager
-            .set_tags(&task.task_id, &["plan".to_string(), "plan-task:t1".to_string()])
+            .set_tags(
+                &task.task_id,
+                &["plan".to_string(), "plan-task:t1".to_string()],
+            )
             .unwrap();
-        assert_eq!(updated.tags, vec!["plan".to_string(), "plan-task:t1".to_string()]);
+        assert_eq!(
+            updated.tags,
+            vec!["plan".to_string(), "plan-task:t1".to_string()]
+        );
 
         let reloaded = manager.get(&task.task_id).unwrap().unwrap();
         assert_eq!(reloaded.tags, updated.tags);
@@ -607,7 +620,9 @@ mod tests {
     fn remove_task_deletes_manifest_and_sidecars() {
         use std::io::Write;
         let (_tmp, manager) = manager();
-        let task = manager.create_task("title", "description", true, None).unwrap();
+        let task = manager
+            .create_task("title", "description", true, None)
+            .unwrap();
 
         let tasks_dir = _tmp.path().join("loom").join("workflow").join("tasks");
         let sidecar = tasks_dir.join(format!("{}.Plan.result.json", task.task_id));
@@ -649,7 +664,9 @@ mod tests {
     #[test]
     fn test_create_task_worktree_field_when_disabled() {
         let (_tmp, manager) = manager();
-        let task = manager.create_task("Test task", "Test description", false, None).unwrap();
+        let task = manager
+            .create_task("Test task", "Test description", false, None)
+            .unwrap();
         assert!(task.worktree_path.is_none());
     }
 }

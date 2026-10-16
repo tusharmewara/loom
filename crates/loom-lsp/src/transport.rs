@@ -19,7 +19,10 @@ impl LspTransport {
             .stderr(Stdio::piped())
             .spawn()
             .with_context(|| format!("Failed to spawn language server: {command}"))?;
-        Ok(Self { child, request_id: 0 })
+        Ok(Self {
+            child,
+            request_id: 0,
+        })
     }
 
     pub async fn notify(&mut self, method: &str, params: serde_json::Value) -> Result<()> {
@@ -71,8 +74,7 @@ impl LspTransport {
     }
 
     fn read_message(&mut self) -> Result<serde_json::Value> {
-        let stdout = self.child.stdout.as_mut()
-            .context("stdout not captured")?;
+        let stdout = self.child.stdout.as_mut().context("stdout not captured")?;
         let mut reader = std::io::BufReader::new(stdout);
 
         let mut content_length: usize = 0;
@@ -90,8 +92,7 @@ impl LspTransport {
 
         let mut body = vec![0u8; content_length];
         reader.read_exact(&mut body)?;
-        serde_json::from_slice(&body)
-            .context("Failed to parse LSP response JSON")
+        serde_json::from_slice(&body).context("Failed to parse LSP response JSON")
     }
 }
 

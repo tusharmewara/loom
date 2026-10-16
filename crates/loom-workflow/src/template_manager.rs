@@ -52,8 +52,8 @@ impl TemplateManager {
     /// Save a template (create or overwrite).
     pub fn save(&self, template: &WorkflowTemplate) -> std::io::Result<()> {
         let path = self.templates_dir.join(format!("{}.toml", template.name));
-        let toml_str = toml::to_string_pretty(template)
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        let toml_str =
+            toml::to_string_pretty(template).map_err(|e| std::io::Error::other(e.to_string()))?;
         std::fs::write(path, toml_str)
     }
 

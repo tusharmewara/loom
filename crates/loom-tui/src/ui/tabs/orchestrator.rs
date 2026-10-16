@@ -108,9 +108,7 @@ pub fn draw_orchestrator(frame: &mut Frame, area: Rect, app: &App, theme: &Theme
     let mut header = vec![Line::from(vec![
         Span::styled(
             "Focused intake: ",
-            Style::default()
-                .fg(theme.text)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             "create one workflow task and send it to one connected ACP tool.",
@@ -165,7 +163,11 @@ pub fn draw_orchestrator(frame: &mut Frame, area: Rect, app: &App, theme: &Theme
             "Task title, for example: Add dark mode to settings",
             theme,
         ))
-        .block(field_block("Title", app.orchestrator_field == OrchestratorField::Title, theme))
+        .block(field_block(
+            "Title",
+            app.orchestrator_field == OrchestratorField::Title,
+            theme,
+        ))
         .wrap(Wrap { trim: false }),
         chunks[1],
     );

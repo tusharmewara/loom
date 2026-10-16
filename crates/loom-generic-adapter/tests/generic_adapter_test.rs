@@ -159,8 +159,7 @@ fn test_adapter_from_toml_minimal() {
 
 #[test]
 fn test_adapter_from_toml_skills_only() {
-    let adapter =
-        GenericAdapter::from_toml("/tmp/.loom", "skill-only", SKILLS_ONLY_TOML).unwrap();
+    let adapter = GenericAdapter::from_toml("/tmp/.loom", "skill-only", SKILLS_ONLY_TOML).unwrap();
 
     assert!(adapter.has_skills());
     assert!(!adapter.has_mcp());

@@ -24,7 +24,7 @@ pub async fn run(loom_dir: &str, action: &TelemetryAction) -> Result<()> {
         TelemetryAction::Show { json } => {
             // Try to get metrics from daemon first
             let metrics = get_metrics_from_daemon(loom_dir).await?;
-            
+
             if *json {
                 println!("{}", serde_json::to_string_pretty(&metrics)?);
             } else {
@@ -61,7 +61,7 @@ async fn get_metrics_from_daemon(loom_dir: &str) -> Result<serde_json::Value> {
 
     let req = IpcRequest::new("telemetry.metrics").with_params(serde_json::json!({}));
     let resp = send_command(socket_path.to_str().unwrap(), req).await?;
-    
+
     if resp.status == "ok" {
         Ok(resp.data.unwrap_or(serde_json::json!({})))
     } else {
@@ -81,7 +81,7 @@ async fn reset_metrics_in_daemon(loom_dir: &str) -> Result<()> {
 
     let req = IpcRequest::new("telemetry.reset").with_params(serde_json::json!({}));
     let resp = send_command(socket_path.to_str().unwrap(), req).await?;
-    
+
     if resp.status != "ok" {
         anyhow::bail!("Failed to reset: {}", resp.error.unwrap_or_default());
     }

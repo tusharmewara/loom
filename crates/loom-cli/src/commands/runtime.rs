@@ -34,21 +34,24 @@ pub async fn run(loom_dir: &str, action: &RuntimeAction) -> Result<()> {
                 for rt in &runtimes {
                     let marker = if rt.current { "*" } else { " " };
                     let status = if rt.available { "✓" } else { "○" };
-                    println!("  {}{} {} ({}) - {}", marker, rt.name, status, rt.description, rt.current);
+                    println!(
+                        "  {}{} {} ({}) - {}",
+                        marker, rt.name, status, rt.description, rt.current
+                    );
                 }
             }
         }
         RuntimeAction::SetDefault { name } => {
             let mut config = config_reader.load()?;
             let mut workflow = config.workflow.unwrap_or_default();
-            
+
             if name != "process" && name != "docker" {
                 anyhow::bail!("Unknown runtime: '{}'. Available: process, docker", name);
             }
-            
+
             workflow.runtime = name.clone();
             config.workflow = Some(workflow);
-            
+
             config_reader.save(&config)?;
             println!("Default runtime set to '{}'", name);
         }
@@ -56,18 +59,25 @@ pub async fn run(loom_dir: &str, action: &RuntimeAction) -> Result<()> {
             let config = config_reader.load()?;
             let workflow = config.workflow.unwrap_or_default();
             let default_runtime = workflow.runtime.clone();
-            
+
             println!("Runtime Status:");
             println!("  Default: {}", default_runtime);
             println!("  Process: Available");
-            
+
             // Check Docker availability
             let docker_available = std::process::Command::new("docker")
                 .arg("version")
                 .output()
                 .map(|o| o.status.success())
                 .unwrap_or(false);
-            println!("  Docker: {}", if docker_available { "Available" } else { "Unavailable" });
+            println!(
+                "  Docker: {}",
+                if docker_available {
+                    "Available"
+                } else {
+                    "Unavailable"
+                }
+            );
         }
     }
     Ok(())
@@ -80,4 +90,3 @@ struct RuntimeInfo {
     current: bool,
     description: String,
 }
-

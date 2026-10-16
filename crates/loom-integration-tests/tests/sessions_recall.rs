@@ -71,8 +71,16 @@ fn test_recall_groups_multiple_sessions_with_same_topic() -> Result<()> {
         "routing-deep-dive",
         "routing internals",
         vec![
-            make_msg("a1", MessageRole::User, "How does routing decide which tier?"),
-            make_msg("a2", MessageRole::Assistant, "Routing uses complexity scoring."),
+            make_msg(
+                "a1",
+                MessageRole::User,
+                "How does routing decide which tier?",
+            ),
+            make_msg(
+                "a2",
+                MessageRole::Assistant,
+                "Routing uses complexity scoring.",
+            ),
             make_msg("a3", MessageRole::User, "Tune the routing threshold?"),
         ],
     )?;

@@ -29,7 +29,9 @@ impl MetricsCollector {
         counters.insert("container_runs_failure", AtomicU64::new(0));
         counters.insert("container_pull_total", AtomicU64::new(0));
         counters.insert("container_pull_failure", AtomicU64::new(0));
-        Self { counters: Arc::new(counters) }
+        Self {
+            counters: Arc::new(counters),
+        }
     }
 
     /// Increment a named counter by 1.

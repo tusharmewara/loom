@@ -74,7 +74,8 @@ impl Loomd {
                 }
                 #[cfg(feature = "kubernetes")]
                 {
-                    let _ = registry.register(Box::new(loom_runtime::ContainerRuntime::kubernetes()));
+                    let _ =
+                        registry.register(Box::new(loom_runtime::ContainerRuntime::kubernetes()));
                 }
                 Arc::new(registry)
             },
@@ -189,7 +190,10 @@ impl Loomd {
                                     &messages,
                                     &manifest.topic,
                                 ) {
-                                    tracing::warn!("Failed to index session '{}': {e}", manifest.session_id);
+                                    tracing::warn!(
+                                        "Failed to index session '{}': {e}",
+                                        manifest.session_id
+                                    );
                                 } else {
                                     total += messages.len();
                                 }
@@ -197,7 +201,11 @@ impl Loomd {
                         }
                     }
                     if total > 0 {
-                        tracing::info!("  ✅ Indexed {} messages from {} sessions into cross-session memory", total, manifests.len());
+                        tracing::info!(
+                            "  ✅ Indexed {} messages from {} sessions into cross-session memory",
+                            total,
+                            manifests.len()
+                        );
                     } else {
                         tracing::info!("  ✓ No sessions to index into cross-session memory");
                     }
@@ -221,23 +229,34 @@ impl Loomd {
                 // the transcript as a Loom session.
                 let loom_dir = self.loom_dir.clone();
                 let run_manager = self.run_manager.clone();
-                let default_handler: loom_sessions::DispatchFn = Arc::new(move |req: &loom_sessions::DispatchRequest| {
-                    let prompt = req.payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
-                    let timeout_secs = req.payload.get("timeout_secs").and_then(|v| v.as_u64()).unwrap_or(120);
-                    crate::capture::dispatch_acp_protocol(
-                        &loom_dir,
-                        &run_manager,
-                        &req.agent_id,
-                        &req.task_id,
-                        prompt,
-                        timeout_secs,
-                    )
-                    .map_err(|e| anyhow::anyhow!("Dispatch failed: {e}"))
-                });
+                let default_handler: loom_sessions::DispatchFn =
+                    Arc::new(move |req: &loom_sessions::DispatchRequest| {
+                        let prompt = req
+                            .payload
+                            .get("prompt")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let timeout_secs = req
+                            .payload
+                            .get("timeout_secs")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(120);
+                        crate::capture::dispatch_acp_protocol(
+                            &loom_dir,
+                            &run_manager,
+                            &req.agent_id,
+                            &req.task_id,
+                            prompt,
+                            timeout_secs,
+                        )
+                        .map_err(|e| anyhow::anyhow!("Dispatch failed: {e}"))
+                    });
 
                 // Set the default handler on the server before it starts
                 let server_arc_pre = server_arc.clone();
-                server_arc_pre.set_default_handler(Some(default_handler)).await;
+                server_arc_pre
+                    .set_default_handler(Some(default_handler))
+                    .await;
 
                 let server_arc_clone = server_arc.clone();
                 let loom_dir_clone = self.loom_dir.clone();
@@ -246,8 +265,14 @@ impl Loomd {
                 tokio::spawn(async move {
                     match server_arc_clone.start().await {
                         Ok(addr) => {
-                            tracing::info!("  ✅ ACP dispatch server listening on {addr} (key: {})",
-                                server_arc_clone.public_key_hex().chars().take(16).collect::<String>());
+                            tracing::info!(
+                                "  ✅ ACP dispatch server listening on {addr} (key: {})",
+                                server_arc_clone
+                                    .public_key_hex()
+                                    .chars()
+                                    .take(16)
+                                    .collect::<String>()
+                            );
                             let info = serde_json::json!({
                                 "listen_addr": addr.to_string(),
                                 "public_key": server_arc_clone.public_key_hex(),
@@ -357,15 +382,14 @@ impl Loomd {
 
         // ── gRPC server ──────────────────────────────────────────────
         let grpc_config = grpc_server::GrpcConfig {
-            listen_addr: std::env::var("LOOM_GRPC_ADDR").unwrap_or_else(|_| "127.0.0.1:50051".to_string()),
+            listen_addr: std::env::var("LOOM_GRPC_ADDR")
+                .unwrap_or_else(|_| "127.0.0.1:50051".to_string()),
             enable_tls: std::env::var("LOOM_GRPC_TLS").is_ok(),
             cert_path: std::env::var("LOOM_GRPC_CERT").ok(),
             key_path: std::env::var("LOOM_GRPC_KEY").ok(),
         };
-        let grpc_service = grpc_server::LoomGrpcService::new(
-            &self.loom_dir,
-            self.event_bus.clone(),
-        );
+        let grpc_service =
+            grpc_server::LoomGrpcService::new(&self.loom_dir, self.event_bus.clone());
         let grpc_handle = tokio::spawn(async move {
             if let Err(e) = grpc_server::start_grpc_server(grpc_config, grpc_service).await {
                 tracing::error!("gRPC server error: {e}");

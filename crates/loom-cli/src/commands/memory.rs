@@ -4,33 +4,19 @@ use std::path::Path;
 
 pub async fn run(loom_dir: &Path, action: &MemoryAction) -> anyhow::Result<()> {
     match action {
-        MemoryAction::Status { json } => {
-            handle_status(loom_dir, *json).await
-        }
-        MemoryAction::Start => {
-            handle_start(loom_dir).await
-        }
-        MemoryAction::Stop => {
-            handle_stop(loom_dir).await
-        }
+        MemoryAction::Status { json } => handle_status(loom_dir, *json).await,
+        MemoryAction::Start => handle_start(loom_dir).await,
+        MemoryAction::Stop => handle_stop(loom_dir).await,
         MemoryAction::Retain {
             fact,
             r#type,
             source,
             importance,
-        } => {
-            handle_retain(loom_dir, fact, r#type, source, *importance)
-        }
-        MemoryAction::Recall {
-            query,
-            limit,
-            json,
-        } => {
+        } => handle_retain(loom_dir, fact, r#type, source, *importance),
+        MemoryAction::Recall { query, limit, json } => {
             handle_recall(loom_dir, query, *limit, *json)
         }
-        MemoryAction::Reflect { question } => {
-            handle_reflect(loom_dir, question)
-        }
+        MemoryAction::Reflect { question } => handle_reflect(loom_dir, question),
     }
 }
 
@@ -59,9 +45,15 @@ async fn handle_status(loom_dir: &Path, json: bool) -> anyhow::Result<()> {
     match crate::ipc_client::send_daemon_command(loom_dir, req).await {
         Ok(resp) if resp.status == "ok" => {
             let data = resp.data.unwrap_or(serde_json::Value::Null);
-            let running = data.get("running").and_then(|v| v.as_bool()).unwrap_or(false);
+            let running = data
+                .get("running")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let port = data.get("port").and_then(|v| v.as_u64()).unwrap_or(3111);
-            let viewer_port = data.get("viewer_port").and_then(|v| v.as_u64()).unwrap_or(3113);
+            let viewer_port = data
+                .get("viewer_port")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(3113);
 
             if json {
                 println!(
@@ -132,7 +124,10 @@ async fn handle_start(loom_dir: &Path) -> anyhow::Result<()> {
     match crate::ipc_client::send_daemon_command(loom_dir, req).await {
         Ok(resp) if resp.status == "ok" => {
             let data = resp.data.unwrap_or(serde_json::Value::Null);
-            let started = data.get("started").and_then(|v| v.as_bool()).unwrap_or(false);
+            let started = data
+                .get("started")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             if started {
                 println!("✅ AgentMemory server started");
             } else {
@@ -159,7 +154,10 @@ async fn handle_stop(loom_dir: &Path) -> anyhow::Result<()> {
     match crate::ipc_client::send_daemon_command(loom_dir, req).await {
         Ok(resp) if resp.status == "ok" => {
             let data = resp.data.unwrap_or(serde_json::Value::Null);
-            let stopped = data.get("stopped").and_then(|v| v.as_bool()).unwrap_or(false);
+            let stopped = data
+                .get("stopped")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             if stopped {
                 println!("✅ AgentMemory server stopped");
             } else {

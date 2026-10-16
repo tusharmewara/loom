@@ -11,16 +11,21 @@ pub async fn run(action: &LspAction) -> anyhow::Result<()> {
         LspAction::Servers { json } => {
             let servers = discover_servers();
             if *json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "schema_version": 1,
-                    "command": "lsp.servers",
-                    "count": servers.len(),
-                    "servers": servers,
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "command": "lsp.servers",
+                        "count": servers.len(),
+                        "servers": servers,
+                    }))?
+                );
             } else {
                 if servers.is_empty() {
                     println!("No language servers found on PATH.");
-                    println!("  Install one: rust-analyzer, pyright, typescript-language-server, gopls");
+                    println!(
+                        "  Install one: rust-analyzer, pyright, typescript-language-server, gopls"
+                    );
                 } else {
                     println!("Available language servers:");
                     for s in &servers {
@@ -30,32 +35,64 @@ pub async fn run(action: &LspAction) -> anyhow::Result<()> {
                 }
             }
         }
-        LspAction::Rename { path, line, column, new_name, server } => {
+        LspAction::Rename {
+            path,
+            line,
+            column,
+            new_name,
+            server,
+        } => {
             let server_cmd = resolve_server(path, server.as_deref())?;
             let uri = format!("file://{}", std::path::absolute(path)?.display());
-            let mut client = LspClient::connect(&server_cmd.command, &server_cmd.args, &uri).await?;
+            let mut client =
+                LspClient::connect(&server_cmd.command, &server_cmd.args, &uri).await?;
             client.rename(&uri, *line, *column, new_name).await?;
-            println!("✓ Renamed symbol at {}:{}:{} to '{}'", path, line, column, new_name);
+            println!(
+                "✓ Renamed symbol at {}:{}:{} to '{}'",
+                path, line, column, new_name
+            );
             client.shutdown().await?;
         }
-        LspAction::FindReferences { path, symbol, server } => {
+        LspAction::FindReferences {
+            path,
+            symbol,
+            server,
+        } => {
             let server_cmd = resolve_server(path, server.as_deref())?;
             let uri = format!("file://{}", std::path::absolute(path)?.display());
-            let mut client = LspClient::connect(&server_cmd.command, &server_cmd.args, &uri).await?;
+            let mut client =
+                LspClient::connect(&server_cmd.command, &server_cmd.args, &uri).await?;
             let refs = client.find_references(&uri, 0, 0).await?;
             if refs.is_empty() {
                 println!("No references found for '{}'", symbol);
             } else {
                 println!("References for '{}' ({}):", symbol, refs.len());
                 for r in &refs {
-                    println!("  {}:{}:{}", r.uri.as_str(), r.range.start.line, r.range.start.character);
+                    println!(
+                        "  {}:{}:{}",
+                        r.uri.as_str(),
+                        r.range.start.line,
+                        r.range.start.character
+                    );
                 }
             }
             client.shutdown().await?;
         }
-        LspAction::Exec { tool, operation, path, symbol, line, column } => {
-            let adapter = adapter_for(tool)
-                .ok_or_else(|| anyhow::anyhow!("Unknown tool adapter: '{}'. Available: {}", tool, loom_adapters::supported_tools().join(", ")))?;
+        LspAction::Exec {
+            tool,
+            operation,
+            path,
+            symbol,
+            line,
+            column,
+        } => {
+            let adapter = adapter_for(tool).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Unknown tool adapter: '{}'. Available: {}",
+                    tool,
+                    loom_adapters::supported_tools().join(", ")
+                )
+            })?;
 
             let home = loom_core::home_dir();
             let servers = adapter.lsp_servers(&home);
@@ -67,13 +104,17 @@ pub async fn run(action: &LspAction) -> anyhow::Result<()> {
                 .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("");
-            let server_info = servers.into_iter()
+            let server_info = servers
+                .into_iter()
                 .find(|s| s.file_extensions.iter().any(|e| e == ext))
-                .ok_or_else(|| anyhow::anyhow!("No LSP server for '.{ext}' files in tool '{tool}' config"))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("No LSP server for '.{ext}' files in tool '{tool}' config")
+                })?;
 
             let abs_path = std::path::absolute(path)?.display().to_string();
             let uri = format!("file://{abs_path}");
-            let mut client = LspClient::connect(&server_info.command, &server_info.args, &uri).await?;
+            let mut client =
+                LspClient::connect(&server_info.command, &server_info.args, &uri).await?;
 
             match operation.as_str() {
                 "rename" | "rename-symbol" => {

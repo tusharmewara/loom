@@ -9,11 +9,7 @@ use loom_adapters::{adapter_for, supported_tools};
 ///
 /// When `--tool` is specified, only that tool is synced.
 /// Otherwise, all supported tools are synced.
-pub async fn run(
-    tool_filter: Option<&str>,
-    loom_dir: &str,
-    json: bool,
-) -> Result<()> {
+pub async fn run(tool_filter: Option<&str>, loom_dir: &str, json: bool) -> Result<()> {
     let home = loom_core::home_dir();
 
     let tools: Vec<&str> = if let Some(name) = tool_filter {
@@ -42,9 +38,9 @@ pub async fn run(
                         all_notes.extend(report.notes);
                     }
                     if !json {
-                        println!("✓ {tool_name}: {} MCP, {} skills synced",
-                            report.mcp_servers_synced,
-                            report.skills_synced,
+                        println!(
+                            "✓ {tool_name}: {} MCP, {} skills synced",
+                            report.mcp_servers_synced, report.skills_synced,
                         );
                     }
                 }

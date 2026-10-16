@@ -1,9 +1,7 @@
 use crate::{LoomToolAdapter, SyncReport};
 use anyhow::Result;
 use loom_core::RoutingDecision;
-use loom_generic_adapter::config::{
-    AuthSection, McpSection, SkillsSection, ToolSection, ToolToml,
-};
+use loom_generic_adapter::config::{AuthSection, McpSection, SkillsSection, ToolSection, ToolToml};
 use std::path::Path;
 
 pub struct ClaudeCodeAdapter;
@@ -41,8 +39,8 @@ impl LoomToolAdapter for ClaudeCodeAdapter {
             sessions: None,
             lsp: None,
             debug: None,
-                    launch: None,
-}
+            launch: None,
+        }
     }
 
     fn apply_routing_decision(&self, decision: &RoutingDecision) -> Result<()> {
@@ -56,9 +54,9 @@ impl LoomToolAdapter for ClaudeCodeAdapter {
         if creds.exists() {
             let mut auth = loom_auth::AuthManager::new(loom_dir);
             if auth.vault_is_locked() {
-                report.notes.push(
-                    "claude credentials found; unlock vault to import providers".into(),
-                );
+                report
+                    .notes
+                    .push("claude credentials found; unlock vault to import providers".into());
             } else if let Ok(providers) = auth.import_from_auth_store(creds.to_str().unwrap()) {
                 report.providers_imported = providers.len();
             }

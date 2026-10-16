@@ -20,5 +20,5 @@ pub mod discover;
 pub mod transport;
 
 pub use client::{DapClient, DebugAdapterType};
-pub use discover::{DebugAdapter, discover_adapters, resolve_for_language};
+pub use discover::{discover_adapters, resolve_for_language, DebugAdapter};
 pub use transport::DapTransport;

@@ -51,7 +51,8 @@ pub async fn run(loom_dir: &str, action: &KnowledgeAction) -> anyhow::Result<()>
                                             tracing::info!(
                                                 "[{}] LLM extracted: {} entities, {} relationships",
                                                 &session_id[..session_id.len().min(12)],
-                                                e, r
+                                                e,
+                                                r
                                             );
                                         }
                                         Err(parse_err) => {
@@ -111,11 +112,9 @@ pub async fn run(loom_dir: &str, action: &KnowledgeAction) -> anyhow::Result<()>
                             if path.is_dir() {
                                 for sub in std::fs::read_dir(&path)? {
                                     let sub = sub?;
-                                    if sub.path().extension().and_then(|e| e.to_str()) == Some("jsonl")
-                                        || sub
-                                            .path()
-                                            .extension()
-                                            .and_then(|e| e.to_str())
+                                    if sub.path().extension().and_then(|e| e.to_str())
+                                        == Some("jsonl")
+                                        || sub.path().extension().and_then(|e| e.to_str())
                                             == Some("json")
                                     {
                                         let content = std::fs::read_to_string(sub.path())?;
@@ -205,10 +204,7 @@ pub async fn run(loom_dir: &str, action: &KnowledgeAction) -> anyhow::Result<()>
             } else {
                 println!("📊 Knowledge: {}", subgraph.entity.name);
                 println!("   Type: {}", subgraph.entity.entity_type);
-                println!(
-                    "   Connections: {}",
-                    subgraph.related.len()
-                );
+                println!("   Connections: {}", subgraph.related.len());
                 println!();
                 for r in &subgraph.related {
                     let arrow = if r.relationship.subject_id == subgraph.entity.id {
@@ -282,8 +278,16 @@ pub async fn run(loom_dir: &str, action: &KnowledgeAction) -> anyhow::Result<()>
                 return Ok(());
             }
 
-            let id = kg.add_entity(name, entity_type, canonical.as_deref(), serde_json::json!({"manual": true}))?;
-            println!("✅ Added entity '{}' (type: {}) with id: {}", name, entity_type, id);
+            let id = kg.add_entity(
+                name,
+                entity_type,
+                canonical.as_deref(),
+                serde_json::json!({"manual": true}),
+            )?;
+            println!(
+                "✅ Added entity '{}' (type: {}) with id: {}",
+                name, entity_type, id
+            );
         }
 
         KnowledgeAction::Relate {
@@ -297,8 +301,12 @@ pub async fn run(loom_dir: &str, action: &KnowledgeAction) -> anyhow::Result<()>
             let from_id = resolve_entity(&kg, from)?;
             let to_id = resolve_entity(&kg, to)?;
 
-            let rel_id = kg.add_relationship(&from_id, predicate, &to_id, *weight, Some("manual"))?;
-            println!("✅ Added relationship: {} --{}--> {} (id: {})", from, predicate, to, rel_id);
+            let rel_id =
+                kg.add_relationship(&from_id, predicate, &to_id, *weight, Some("manual"))?;
+            println!(
+                "✅ Added relationship: {} --{}--> {} (id: {})",
+                from, predicate, to, rel_id
+            );
         }
 
         KnowledgeAction::Search { query, limit, json } => {
@@ -354,7 +362,10 @@ fn resolve_entity(kg: &KnowledgeGraph, name_or_id: &str) -> anyhow::Result<Strin
     if let Some(e) = kg.find_entity(name_or_id)? {
         return Ok(e.id);
     }
-    anyhow::bail!("Entity '{}' not found. Use `loom knowledge add` first.", name_or_id)
+    anyhow::bail!(
+        "Entity '{}' not found. Use `loom knowledge add` first.",
+        name_or_id
+    )
 }
 
 /// Parse session content (JSONL or JSON array) into loom_core::Message slices.
@@ -418,8 +429,9 @@ async fn call_llm_for_extraction(prompt: &str) -> anyhow::Result<String> {
     if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
         return call_anthropic_extraction(&api_key, prompt).await;
     }
-    let api_key = std::env::var("OPENAI_API_KEY")
-        .map_err(|_| anyhow::anyhow!("Set OPENAI_API_KEY or ANTHROPIC_API_KEY for LLM extraction"))?;
+    let api_key = std::env::var("OPENAI_API_KEY").map_err(|_| {
+        anyhow::anyhow!("Set OPENAI_API_KEY or ANTHROPIC_API_KEY for LLM extraction")
+    })?;
     call_openai_extraction(&api_key, prompt).await
 }
 

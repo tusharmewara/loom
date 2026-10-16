@@ -64,8 +64,13 @@ impl WorktreeManager {
         ensure_git_available()?;
 
         let sanitized = sanitise_name(agent_name);
-        let branch_name = format!("loom-parallel/{sanitized}-{}", chrono::Utc::now().format("%Y%m%d%H%M%S"));
-        let worktree_path = self.repo_path.parent()
+        let branch_name = format!(
+            "loom-parallel/{sanitized}-{}",
+            chrono::Utc::now().format("%Y%m%d%H%M%S")
+        );
+        let worktree_path = self
+            .repo_path
+            .parent()
             .map(|p| p.join(&branch_name))
             .unwrap_or_else(|| {
                 let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -177,7 +182,13 @@ fn ensure_git_available() -> Result<()> {
 fn sanitise_name(name: &str) -> String {
     name.to_lowercase()
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .trim_matches('-')
         .to_string()

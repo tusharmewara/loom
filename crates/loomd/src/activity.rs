@@ -19,7 +19,10 @@ pub struct ActivityHandler<H> {
 impl<H> ActivityHandler<H> {
     pub fn new(inner: H, last_activity: Arc<AtomicU64>) -> Self {
         last_activity.store(now_ms(), Ordering::Relaxed);
-        Self { inner, last_activity }
+        Self {
+            inner,
+            last_activity,
+        }
     }
 }
 

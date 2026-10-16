@@ -59,7 +59,8 @@ impl RoutingMetrics {
 
     /// Record a latency measurement in microseconds.
     pub fn record_latency(&self, latency_us: u64) {
-        self.total_latency_us.fetch_add(latency_us, Ordering::Relaxed);
+        self.total_latency_us
+            .fetch_add(latency_us, Ordering::Relaxed);
         self.latency_samples.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -82,12 +83,24 @@ impl RoutingMetrics {
         let avg_latency = total_lat.checked_div(samples).unwrap_or(0);
 
         let mut h = std::collections::HashMap::new();
-        h.insert("routing_classifications".into(), self.total_classifications.load(Ordering::Relaxed));
-        h.insert("routing_decisions".into(), self.total_decisions.load(Ordering::Relaxed));
+        h.insert(
+            "routing_classifications".into(),
+            self.total_classifications.load(Ordering::Relaxed),
+        );
+        h.insert(
+            "routing_decisions".into(),
+            self.total_decisions.load(Ordering::Relaxed),
+        );
         h.insert("routing_slm".into(), self.slm_count.load(Ordering::Relaxed));
         h.insert("routing_mid".into(), self.mid_count.load(Ordering::Relaxed));
-        h.insert("routing_flagship".into(), self.flagship_count.load(Ordering::Relaxed));
-        h.insert("routing_errors".into(), self.error_count.load(Ordering::Relaxed));
+        h.insert(
+            "routing_flagship".into(),
+            self.flagship_count.load(Ordering::Relaxed),
+        );
+        h.insert(
+            "routing_errors".into(),
+            self.error_count.load(Ordering::Relaxed),
+        );
         h.insert("routing_avg_latency_us".into(), avg_latency);
         h.insert("routing_latency_samples".into(), samples);
         h

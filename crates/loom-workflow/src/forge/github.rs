@@ -79,22 +79,30 @@ impl GitHubForge {
     /// Create from environment variables.
     pub fn from_env(loom_dir: &str) -> Result<Self> {
         // Try to read from ~/.loom/config.toml or env
-        let token = env::var("GITHUB_TOKEN").ok()
-            .or_else(|| {
-                // Could read from loom config
-                std::fs::read_to_string(format!("{}/config.toml", loom_dir))
-                    .ok()
-                    .and_then(|c| toml::from_str::<toml::Value>(&c).ok())
-                    .and_then(|v| v.get("github")?.get("token")?.as_str().map(|s| s.to_string()))
-            });
+        let token = env::var("GITHUB_TOKEN").ok().or_else(|| {
+            // Could read from loom config
+            std::fs::read_to_string(format!("{}/config.toml", loom_dir))
+                .ok()
+                .and_then(|c| toml::from_str::<toml::Value>(&c).ok())
+                .and_then(|v| {
+                    v.get("github")?
+                        .get("token")?
+                        .as_str()
+                        .map(|s| s.to_string())
+                })
+        });
 
-        let webhook_secret = env::var("GITHUB_WEBHOOK_SECRET").ok()
-            .or_else(|| {
-                std::fs::read_to_string(format!("{}/config.toml", loom_dir))
-                    .ok()
-                    .and_then(|c| toml::from_str::<toml::Value>(&c).ok())
-                    .and_then(|v| v.get("github")?.get("webhook_secret")?.as_str().map(|s| s.to_string()))
-            });
+        let webhook_secret = env::var("GITHUB_WEBHOOK_SECRET").ok().or_else(|| {
+            std::fs::read_to_string(format!("{}/config.toml", loom_dir))
+                .ok()
+                .and_then(|c| toml::from_str::<toml::Value>(&c).ok())
+                .and_then(|v| {
+                    v.get("github")?
+                        .get("webhook_secret")?
+                        .as_str()
+                        .map(|s| s.to_string())
+                })
+        });
 
         Ok(Self {
             client: Client::new(),
@@ -125,11 +133,14 @@ impl Forge for GitHubForge {
     }
 
     fn parse_pr_payload(&self, payload: &[u8]) -> Result<Option<PrInfo>> {
-        let gh_payload: GitHubPrPayload = serde_json::from_slice(payload)
-            .context("Failed to parse GitHub webhook payload")?;
+        let gh_payload: GitHubPrPayload =
+            serde_json::from_slice(payload).context("Failed to parse GitHub webhook payload")?;
 
         // Only handle relevant actions
-        if !matches!(gh_payload.action.as_str(), "opened" | "reopened" | "synchronize" | "ready_for_review") {
+        if !matches!(
+            gh_payload.action.as_str(),
+            "opened" | "reopened" | "synchronize" | "ready_for_review"
+        ) {
             return Ok(None);
         }
 
@@ -157,7 +168,9 @@ impl Forge for GitHubForge {
     }
 
     async fn post_review(&self, pr: &PrInfo, body: &str) -> Result<()> {
-        let token = self.token.as_ref()
+        let token = self
+            .token
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("GitHub token not configured"))?;
 
         let url = format!(
@@ -170,7 +183,8 @@ impl Forge for GitHubForge {
             "event": "COMMENT"
         });
 
-        let resp = self.client
+        let resp = self
+            .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", token))
             .header("User-Agent", "Loom")

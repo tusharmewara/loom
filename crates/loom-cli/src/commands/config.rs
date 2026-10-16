@@ -7,18 +7,26 @@ use std::path::Path;
 
 pub async fn run(loom_dir: &str, action: &ConfigAction) -> anyhow::Result<()> {
     match action {
-        ConfigAction::Show { json, extends, no_extend, no_remote } => {
-            cmd_show(loom_dir, *json, *extends, *no_extend, *no_remote).await
-        }
-        ConfigAction::Validate { no_extend, no_remote } => {
-            cmd_validate(loom_dir, *no_extend, *no_remote).await
-        }
+        ConfigAction::Show {
+            json,
+            extends,
+            no_extend,
+            no_remote,
+        } => cmd_show(loom_dir, *json, *extends, *no_extend, *no_remote).await,
+        ConfigAction::Validate {
+            no_extend,
+            no_remote,
+        } => cmd_validate(loom_dir, *no_extend, *no_remote).await,
         ConfigAction::Fetch { url } => cmd_fetch(loom_dir, url.as_deref()).await,
     }
 }
 
 fn build_options(no_extend: bool, no_remote: bool) -> ConfigOptions {
-    ConfigOptions { skip_extends: no_extend, skip_remote: no_remote }.from_env()
+    ConfigOptions {
+        skip_extends: no_extend,
+        skip_remote: no_remote,
+    }
+    .from_env()
 }
 
 async fn cmd_show(
@@ -139,8 +147,7 @@ async fn cmd_validate(loom_dir: &str, no_extend: bool, no_remote: bool) -> anyho
 
             // Check for common issues
             if let Some(routing) = &config.routing {
-                if routing.complexity_thresholds.low_max >= routing.complexity_thresholds.high_min
-                {
+                if routing.complexity_thresholds.low_max >= routing.complexity_thresholds.high_min {
                     println!(
                         "  ⚠ Routing thresholds: low_max ({}) >= high_min ({}); all traffic will route to one tier",
                         routing.complexity_thresholds.low_max,
@@ -161,7 +168,9 @@ async fn cmd_validate(loom_dir: &str, no_extend: bool, no_remote: bool) -> anyho
                 if no_remote {
                     println!("  ℹ Remote config URL is configured but was skipped (--no-remote).");
                 } else {
-                    println!("  ℹ Remote config URL is configured. Run `loom config fetch` to update.");
+                    println!(
+                        "  ℹ Remote config URL is configured. Run `loom config fetch` to update."
+                    );
                 }
             }
 
@@ -205,10 +214,7 @@ async fn cmd_fetch(loom_dir: &str, url: Option<&str>) -> anyhow::Result<()> {
     let response = client.get(&remote_url).send().await?;
 
     if !response.status().is_success() {
-        anyhow::bail!(
-            "Failed to fetch remote config: HTTP {}",
-            response.status()
-        );
+        anyhow::bail!("Failed to fetch remote config: HTTP {}", response.status());
     }
 
     let body = response.text().await?;
@@ -261,7 +267,10 @@ async fn cmd_fetch(loom_dir: &str, url: Option<&str>) -> anyhow::Result<()> {
     match body.parse::<toml::Value>() {
         Ok(toml_val) => {
             let json_val = toml_value_to_json(toml_val);
-            println!("  ✓ Remote config has {} top-level key(s)", json_val.as_object().map(|o| o.len()).unwrap_or(0));
+            println!(
+                "  ✓ Remote config has {} top-level key(s)",
+                json_val.as_object().map(|o| o.len()).unwrap_or(0)
+            );
         }
         Err(e) => {
             println!("  ⚠ Remote content is not valid TOML: {e}");
@@ -276,11 +285,9 @@ fn toml_value_to_json(v: toml::Value) -> serde_json::Value {
     match v {
         toml::Value::String(s) => serde_json::Value::String(s),
         toml::Value::Integer(i) => serde_json::Value::Number(i.into()),
-        toml::Value::Float(f) => {
-            serde_json::Number::from_f64(f)
-                .map(serde_json::Value::Number)
-                .unwrap_or(serde_json::Value::Null)
-        }
+        toml::Value::Float(f) => serde_json::Number::from_f64(f)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
         toml::Value::Boolean(b) => serde_json::Value::Bool(b),
         toml::Value::Datetime(dt) => serde_json::Value::String(dt.to_string()),
         toml::Value::Array(arr) => {

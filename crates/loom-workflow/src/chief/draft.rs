@@ -42,10 +42,7 @@ fn strip_marker(line: &str) -> Option<&str> {
     }
     if digits_end > 0 {
         let rest = &text[digits_end..];
-        if let Some(stripped) = rest
-            .strip_prefix(". ")
-            .or_else(|| rest.strip_prefix(") "))
-        {
+        if let Some(stripped) = rest.strip_prefix(". ").or_else(|| rest.strip_prefix(") ")) {
             return Some(stripped);
         }
     }
@@ -163,10 +160,7 @@ mod tests {
         let plan = draft_plan("Goal", "just some prose without markers").unwrap();
         assert_eq!(plan.tasks.len(), 1);
         assert_eq!(plan.tasks[0].title, "Goal");
-        assert_eq!(
-            plan.tasks[0].description,
-            "just some prose without markers"
-        );
+        assert_eq!(plan.tasks[0].description, "just some prose without markers");
     }
 
     #[test]

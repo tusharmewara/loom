@@ -61,10 +61,7 @@ impl AddArgs {
                     toml::Value::String(runner_key.clone()),
                 );
                 if let Some(pkg) = val.get("package").and_then(|v| v.as_str()) {
-                    agent_entry.insert(
-                        "package".to_string(),
-                        toml::Value::String(pkg.to_string()),
-                    );
+                    agent_entry.insert("package".to_string(), toml::Value::String(pkg.to_string()));
                 }
                 if let Some(args) = val.get("args").and_then(|v| v.as_array()) {
                     let args_vec: Vec<String> = args
@@ -84,10 +81,7 @@ impl AddArgs {
             }
         }
 
-        agent_servers.insert(
-            entry.id.clone(),
-            toml::Value::Table(agent_entry),
-        );
+        agent_servers.insert(entry.id.clone(), toml::Value::Table(agent_entry));
         let toml_str = toml::to_string(&agent_servers)?;
         std::fs::write(agent_servers_path, toml_str)?;
 

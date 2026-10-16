@@ -129,7 +129,9 @@ pub const ALL: &[KnownMcpServer] = &[
 
 /// Convenience: return only servers tagged `"recommended"`.
 pub fn recommended() -> Vec<&'static KnownMcpServer> {
-    ALL.iter().filter(|s| s.tags.contains(&"recommended")).collect()
+    ALL.iter()
+        .filter(|s| s.tags.contains(&"recommended"))
+        .collect()
 }
 
 /// Look up a known server by id (case-insensitive).
@@ -163,5 +165,8 @@ impl KnownMcpServer {
 }
 
 fn sanitise_id(s: &str) -> String {
-    s.replace(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_', "-")
+    s.replace(
+        |c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_',
+        "-",
+    )
 }

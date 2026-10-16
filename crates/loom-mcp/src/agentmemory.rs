@@ -55,10 +55,7 @@ impl AgentMemoryManager {
                 match child.try_wait() {
                     Ok(Some(status)) => {
                         // Process exited; clear the slot and re-spawn.
-                        warn!(
-                            "agentmemory process exited (status={}); restarting",
-                            status
-                        );
+                        warn!("agentmemory process exited (status={}); restarting", status);
                         *guard = None;
                     }
                     Ok(None) => {
@@ -85,9 +82,11 @@ impl AgentMemoryManager {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .context("Failed to spawn agentmemory via `npx @agentmemory/agentmemory`.
+            .context(
+                "Failed to spawn agentmemory via `npx @agentmemory/agentmemory`.
 Make sure Node.js >= 20 and npx are on PATH.
-Install: `npm install -g @agentmemory/agentmemory` or just run `npx @agentmemory/agentmemory`")?;
+Install: `npm install -g @agentmemory/agentmemory` or just run `npx @agentmemory/agentmemory`",
+            )?;
 
         info!("Started agentmemory memory server (pid {})", child.id());
         *guard = Some(child);
@@ -149,8 +148,9 @@ impl Drop for AgentMemoryManager {
 /// Perform a network-level health check by probing the agentmemory REST API port.
 pub fn health_check(port: u16) -> Result<()> {
     let addr = format!("127.0.0.1:{}", port);
-    TcpStream::connect_timeout(&addr.parse().unwrap(), Duration::from_secs(3))
-        .context(format!("agentmemory not reachable at {addr} (is it running?)"))?;
+    TcpStream::connect_timeout(&addr.parse().unwrap(), Duration::from_secs(3)).context(format!(
+        "agentmemory not reachable at {addr} (is it running?)"
+    ))?;
     Ok(())
 }
 
@@ -176,7 +176,6 @@ fn check_npx() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[test]
     fn test_new_returns_not_running() {

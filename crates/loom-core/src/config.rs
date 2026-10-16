@@ -33,10 +33,12 @@ impl ConfigOptions {
     /// - `LOOM_NO_EXTEND=1` → `skip_extends = true`
     /// - `LOOM_NO_REMOTE=1` → `skip_remote = true`
     pub fn from_env(mut self) -> Self {
-        if std::env::var("LOOM_NO_EXTEND").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")) {
+        if std::env::var("LOOM_NO_EXTEND").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        {
             self.skip_extends = true;
         }
-        if std::env::var("LOOM_NO_REMOTE").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")) {
+        if std::env::var("LOOM_NO_REMOTE").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        {
             self.skip_remote = true;
         }
         self
@@ -107,10 +109,7 @@ impl ConfigReader {
 
     /// Load the config and capture the resolved source chain (each layer
     /// that contributed, in order). Used by `loom config show --extends`.
-    pub fn load_with_diagnostics(
-        &self,
-        options: ConfigOptions,
-    ) -> Result<ConfigDiagnostics> {
+    pub fn load_with_diagnostics(&self, options: ConfigOptions) -> Result<ConfigDiagnostics> {
         let mut steps: Vec<ConfigSourceStep> = Vec::new();
         let config = self.load_inner(options, Some(&mut steps))?;
         Ok(ConfigDiagnostics { config, steps })
@@ -150,7 +149,9 @@ impl ConfigReader {
             if let Some(extends_paths) = local_value.get("extends").and_then(|v| v.as_array()) {
                 for extends_path in extends_paths {
                     if let Some(path_str) = extends_path.as_str() {
-                        if let Some((base_val, step)) = self.resolve_extends_with_step(path_str, &mut HashSet::new())? {
+                        if let Some((base_val, step)) =
+                            self.resolve_extends_with_step(path_str, &mut HashSet::new())?
+                        {
                             if let Some(steps) = steps.as_deref_mut() {
                                 steps.push(step);
                             }
@@ -273,7 +274,9 @@ impl ConfigReader {
         }
 
         // Look up the URL → hash mapping in the cache index
-        let cache_dir = Path::new(&self.loom_dir).join(".cache").join("remote_config");
+        let cache_dir = Path::new(&self.loom_dir)
+            .join(".cache")
+            .join("remote_config");
         let index_path = cache_dir.join("index.json");
         if !index_path.exists() {
             // No fetch has happened yet. Don't fail — just skip.
@@ -389,11 +392,9 @@ fn toml_value_to_json(v: toml::Value) -> serde_json::Value {
     match v {
         toml::Value::String(s) => serde_json::Value::String(s),
         toml::Value::Integer(i) => serde_json::Value::Number(i.into()),
-        toml::Value::Float(f) => {
-            serde_json::Number::from_f64(f)
-                .map(serde_json::Value::Number)
-                .unwrap_or(serde_json::Value::Null)
-        }
+        toml::Value::Float(f) => serde_json::Number::from_f64(f)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
         toml::Value::Boolean(b) => serde_json::Value::Bool(b),
         toml::Value::Datetime(dt) => serde_json::Value::String(dt.to_string()),
         toml::Value::Array(arr) => {
@@ -588,14 +589,8 @@ mod tests {
         deep_merge(&mut base, &overlay);
         assert_eq!(base["routing"]["strategy"], "cost");
         assert_eq!(base["routing"]["default_tier"], "mid");
-        assert_eq!(
-            base["routing"]["complexity_thresholds"]["low_max"],
-            0.5
-        );
-        assert_eq!(
-            base["routing"]["complexity_thresholds"]["high_min"],
-            0.7
-        );
+        assert_eq!(base["routing"]["complexity_thresholds"]["low_max"], 0.5);
+        assert_eq!(base["routing"]["complexity_thresholds"]["high_min"], 0.7);
     }
 
     #[test]
@@ -725,20 +720,29 @@ strategy = "QualityOptimize"
 
         std::fs::write(
             &a_path,
-            format!("extends = [\"{}\"]\n[ecosystem]\nversion = \"1.0.0\"\n", b_path.to_string_lossy().replace('\\', "\\\\")),
+            format!(
+                "extends = [\"{}\"]\n[ecosystem]\nversion = \"1.0.0\"\n",
+                b_path.to_string_lossy().replace('\\', "\\\\")
+            ),
         )
         .unwrap();
 
         std::fs::write(
             &b_path,
-            format!("extends = [\"{}\"]\n[ecosystem]\nversion = \"2.0.0\"\n", a_path.to_string_lossy().replace('\\', "\\\\")),
+            format!(
+                "extends = [\"{}\"]\n[ecosystem]\nversion = \"2.0.0\"\n",
+                a_path.to_string_lossy().replace('\\', "\\\\")
+            ),
         )
         .unwrap();
 
         // Main config extends a
         std::fs::write(
             dir.path().join("config.toml"),
-            format!("extends = [\"{}\"]\n", a_path.to_string_lossy().replace('\\', "\\\\")),
+            format!(
+                "extends = [\"{}\"]\n",
+                a_path.to_string_lossy().replace('\\', "\\\\")
+            ),
         )
         .unwrap();
 
@@ -746,7 +750,10 @@ strategy = "QualityOptimize"
         let result = reader.load();
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("cycle") || err.contains("depth") || err.contains("already visited"), "Error should mention cycle/depth: {err}");
+        assert!(
+            err.contains("cycle") || err.contains("depth") || err.contains("already visited"),
+            "Error should mention cycle/depth: {err}"
+        );
     }
 
     #[test]
@@ -969,16 +976,28 @@ version = "0.2.0"
         .unwrap();
 
         let reader = ConfigReader::new(&loom_dir);
-        let diag = reader.load_with_diagnostics(ConfigOptions::default()).unwrap();
+        let diag = reader
+            .load_with_diagnostics(ConfigOptions::default())
+            .unwrap();
 
         // The steps should include "defaults", "extends:...", "local".
         let labels: Vec<&str> = diag.steps.iter().map(|s| s.label.as_str()).collect();
-        assert!(labels.iter().any(|l| l.starts_with("defaults")), "steps: {labels:?}");
-        assert!(labels.iter().any(|l| l.starts_with("extends:")), "steps: {labels:?}");
+        assert!(
+            labels.iter().any(|l| l.starts_with("defaults")),
+            "steps: {labels:?}"
+        );
+        assert!(
+            labels.iter().any(|l| l.starts_with("extends:")),
+            "steps: {labels:?}"
+        );
         assert!(labels.contains(&"local"), "steps: {labels:?}");
 
         // The extends step should report a path.
-        let extends_step = diag.steps.iter().find(|s| s.label.starts_with("extends:")).unwrap();
+        let extends_step = diag
+            .steps
+            .iter()
+            .find(|s| s.label.starts_with("extends:"))
+            .unwrap();
         assert!(extends_step.path.is_some());
     }
 

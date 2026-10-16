@@ -84,73 +84,89 @@ impl IpcHandler for LoomdIpcHandler {
                     }
                 }
             }
-            "mcp.list" => {
-                match self.mcp.registry().list() {
-                    Ok(servers) => IpcResponse::ok(req.request_id, json!({ "servers": servers })),
-                    Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+            "mcp.list" => match self.mcp.registry().list() {
+                Ok(servers) => IpcResponse::ok(req.request_id, json!({ "servers": servers })),
+                Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+            },
+            "mcp.health" => match self.mcp.registry().list() {
+                Ok(servers) => {
+                    let all_healthy = servers
+                        .iter()
+                        .all(|s| matches!(s.health_status, loom_core::HealthStatusStr::Healthy));
+                    IpcResponse::ok(
+                        req.request_id,
+                        json!({ "servers": servers, "all_healthy": all_healthy }),
+                    )
                 }
-            }
-            "mcp.health" => {
-                match self.mcp.registry().list() {
-                    Ok(servers) => {
-                        let all_healthy = servers.iter().all(|s| {
-                            matches!(s.health_status, loom_core::HealthStatusStr::Healthy)
-                        });
-                        IpcResponse::ok(
-                            req.request_id,
-                            json!({ "servers": servers, "all_healthy": all_healthy }),
-                        )
-                    }
-                    Err(e) => IpcResponse::error(req.request_id, e.to_string()),
-                }
-            }
+                Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+            },
             "sessions.list" => {
                 let sessions = self.sessions.store().list();
                 IpcResponse::ok(req.request_id, json!({ "sessions": sessions }))
             }
             "sessions.search" => {
-                let query = req.params.get("query").and_then(|v| v.as_str()).unwrap_or("");
-                let limit = req.params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+                let query = req
+                    .params
+                    .get("query")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let limit = req
+                    .params
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(10) as usize;
                 let tag_filter = parse_tag_filter(req.params.get("tag"));
                 if query.is_empty() {
                     return IpcResponse::error(req.request_id, "query parameter required");
                 }
                 match loom_sessions::memory::CrossSessionMemory::new(&self.loom_dir) {
-                    Ok(memory) => match memory.search_with_tags(query, limit, tag_filter.as_deref()) {
-                        Ok(results) => IpcResponse::ok(
-                            req.request_id,
-                            json!({
-                                "results": results,
-                                "count": results.len(),
-                                "query": query,
-                                "tag_filter": req.params.get("tag").cloned().unwrap_or(json!([])),
-                            }),
-                        ),
-                        Err(e) => IpcResponse::error(req.request_id, e.to_string()),
-                    },
+                    Ok(memory) => {
+                        match memory.search_with_tags(query, limit, tag_filter.as_deref()) {
+                            Ok(results) => IpcResponse::ok(
+                                req.request_id,
+                                json!({
+                                    "results": results,
+                                    "count": results.len(),
+                                    "query": query,
+                                    "tag_filter": req.params.get("tag").cloned().unwrap_or(json!([])),
+                                }),
+                            ),
+                            Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                        }
+                    }
                     Err(e) => IpcResponse::error(req.request_id, e.to_string()),
                 }
             }
             "sessions.recall" => {
-                let query = req.params.get("query").and_then(|v| v.as_str()).unwrap_or("");
-                let limit = req.params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+                let query = req
+                    .params
+                    .get("query")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let limit = req
+                    .params
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(10) as usize;
                 let tag_filter = parse_tag_filter(req.params.get("tag"));
                 if query.is_empty() {
                     return IpcResponse::error(req.request_id, "query parameter required");
                 }
                 match loom_sessions::memory::CrossSessionMemory::new(&self.loom_dir) {
-                    Ok(memory) => match memory.recall_with_tags(query, limit, tag_filter.as_deref()) {
-                        Ok(results) => IpcResponse::ok(
-                            req.request_id,
-                            json!({
-                                "results": results,
-                                "count": results.len(),
-                                "query": query,
-                                "tag_filter": req.params.get("tag").cloned().unwrap_or(json!([])),
-                            }),
-                        ),
-                        Err(e) => IpcResponse::error(req.request_id, e.to_string()),
-                    },
+                    Ok(memory) => {
+                        match memory.recall_with_tags(query, limit, tag_filter.as_deref()) {
+                            Ok(results) => IpcResponse::ok(
+                                req.request_id,
+                                json!({
+                                    "results": results,
+                                    "count": results.len(),
+                                    "query": query,
+                                    "tag_filter": req.params.get("tag").cloned().unwrap_or(json!([])),
+                                }),
+                            ),
+                            Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                        }
+                    }
                     Err(e) => IpcResponse::error(req.request_id, e.to_string()),
                 }
             }
@@ -162,10 +178,9 @@ impl IpcHandler for LoomdIpcHandler {
                 if id.is_empty() {
                     return IpcResponse::error(req.request_id, "id parameter required");
                 }
-                let add: Vec<String> = parse_tag_filter(req.params.get("add"))
-                    .unwrap_or_default();
-                let remove: Vec<String> = parse_tag_filter(req.params.get("remove"))
-                    .unwrap_or_default();
+                let add: Vec<String> = parse_tag_filter(req.params.get("add")).unwrap_or_default();
+                let remove: Vec<String> =
+                    parse_tag_filter(req.params.get("remove")).unwrap_or_default();
                 let store = self.sessions.store();
                 let mut manifest = match store.get(id) {
                     Some(m) => m.clone(),
@@ -249,8 +264,7 @@ impl IpcHandler for LoomdIpcHandler {
                     );
                 }
                 if !force
-                    && (pre.message_count as usize)
-                        <= loom_core::SESSION_COMPRESSION_THRESHOLD
+                    && (pre.message_count as usize) <= loom_core::SESSION_COMPRESSION_THRESHOLD
                 {
                     return IpcResponse::ok(
                         req.request_id,
@@ -279,12 +293,9 @@ impl IpcHandler for LoomdIpcHandler {
                         {
                             if let Some(m) = post.as_ref() {
                                 if let Ok(msgs) = store.load_messages(id) {
-                                    if let Err(e) = memory.index_session_with_tags(
-                                        id,
-                                        &msgs,
-                                        &m.topic,
-                                        &m.tags,
-                                    ) {
+                                    if let Err(e) =
+                                        memory.index_session_with_tags(id, &msgs, &m.topic, &m.tags)
+                                    {
                                         eprintln!(
                                             "  Warning: failed to re-index compressed session in memory: {e}"
                                         );
@@ -314,7 +325,9 @@ impl IpcHandler for LoomdIpcHandler {
                         let sessions = self.sessions.store().list();
                         let mut total = 0usize;
                         for manifest in &sessions {
-                            if let Ok(messages) = self.sessions.store().load_messages(&manifest.session_id) {
+                            if let Ok(messages) =
+                                self.sessions.store().load_messages(&manifest.session_id)
+                            {
                                 if !messages.is_empty() {
                                     if let Err(e) = memory.index_session_with_tags(
                                         &manifest.session_id,
@@ -322,14 +335,20 @@ impl IpcHandler for LoomdIpcHandler {
                                         &manifest.topic,
                                         &manifest.tags,
                                     ) {
-                                        tracing::warn!("Failed to index session '{}': {e}", manifest.session_id);
+                                        tracing::warn!(
+                                            "Failed to index session '{}': {e}",
+                                            manifest.session_id
+                                        );
                                     } else {
                                         total += messages.len();
                                     }
                                 }
                             }
                         }
-                        IpcResponse::ok(req.request_id, json!({ "indexed_messages": total, "sessions_count": sessions.len() }))
+                        IpcResponse::ok(
+                            req.request_id,
+                            json!({ "indexed_messages": total, "sessions_count": sessions.len() }),
+                        )
                     }
                     Err(e) => IpcResponse::error(req.request_id, e.to_string()),
                 }
@@ -366,8 +385,7 @@ impl IpcHandler for LoomdIpcHandler {
                         &home,
                     );
                     let _ = adapter.sync_from_native(&self.loom_dir, &home);
-                    if let Ok(ga) =
-                        loom_generic_adapter::GenericAdapter::new(&self.loom_dir, name)
+                    if let Ok(ga) = loom_generic_adapter::GenericAdapter::new(&self.loom_dir, name)
                     {
                         features = ga
                             .present_features()
@@ -398,7 +416,9 @@ impl IpcHandler for LoomdIpcHandler {
                     .into_iter()
                     .map(|name| {
                         let runtime = self.runtime_registry.get(&name);
-                        let available = runtime.map(|r| rt.block_on(r.is_available())).unwrap_or(false);
+                        let available = runtime
+                            .map(|r| rt.block_on(r.is_available()))
+                            .unwrap_or(false);
                         json!({
                             "name": name,
                             "available": available,
@@ -416,7 +436,9 @@ impl IpcHandler for LoomdIpcHandler {
                     .into_iter()
                     .map(|name| {
                         let runtime = self.runtime_registry.get(&name);
-                        let available = runtime.map(|r| rt.block_on(r.is_available())).unwrap_or(false);
+                        let available = runtime
+                            .map(|r| rt.block_on(r.is_available()))
+                            .unwrap_or(false);
                         json!({
                             "name": name,
                             "available": available,
@@ -442,33 +464,37 @@ impl IpcHandler for LoomdIpcHandler {
                     }),
                 )
             }
-            "memory.start" => {
-                match self.memory_mgr.start() {
-                    Ok(true) => IpcResponse::ok(req.request_id, json!({ "started": true })),
-                    Ok(false) => IpcResponse::ok(req.request_id, json!({ "started": false, "reason": "already running" })),
-                    Err(e) => IpcResponse::error(req.request_id, format!("failed to start: {e}")),
-                }
-            }
-            "memory.stop" => {
-                match self.memory_mgr.stop() {
-                    Ok(true) => IpcResponse::ok(req.request_id, json!({ "stopped": true })),
-                    Ok(false) => IpcResponse::ok(req.request_id, json!({ "stopped": false, "reason": "not running" })),
-                    Err(e) => IpcResponse::error(req.request_id, format!("failed to stop: {e}")),
-                }
-            }
+            "memory.start" => match self.memory_mgr.start() {
+                Ok(true) => IpcResponse::ok(req.request_id, json!({ "started": true })),
+                Ok(false) => IpcResponse::ok(
+                    req.request_id,
+                    json!({ "started": false, "reason": "already running" }),
+                ),
+                Err(e) => IpcResponse::error(req.request_id, format!("failed to start: {e}")),
+            },
+            "memory.stop" => match self.memory_mgr.stop() {
+                Ok(true) => IpcResponse::ok(req.request_id, json!({ "stopped": true })),
+                Ok(false) => IpcResponse::ok(
+                    req.request_id,
+                    json!({ "stopped": false, "reason": "not running" }),
+                ),
+                Err(e) => IpcResponse::error(req.request_id, format!("failed to stop: {e}")),
+            },
             "acp.status" => {
                 tracing::debug!("acp.status: entering handler");
                 let req_id = req.request_id.clone();
                 // Use current runtime handle instead of creating new runtime
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    let handle = tokio::runtime::Handle::try_current()
-                        .unwrap_or_else(|_| {
-                            tracing::debug!("acp.status: no current runtime, creating new");
-                            tokio::runtime::Runtime::new().unwrap().handle().clone()
-                        });
+                    let handle = tokio::runtime::Handle::try_current().unwrap_or_else(|_| {
+                        tracing::debug!("acp.status: no current runtime, creating new");
+                        tokio::runtime::Runtime::new().unwrap().handle().clone()
+                    });
                     tracing::debug!("acp.status: got handle, attempting to acquire lock");
                     let server = handle.block_on(self.acp_server.read());
-                    tracing::debug!("acp.status: got server lock, server is_some={}", server.is_some());
+                    tracing::debug!(
+                        "acp.status: got server lock, server is_some={}",
+                        server.is_some()
+                    );
                     match server.as_ref() {
                         Some(srv) => {
                             tracing::debug!("acp.status: calling srv.status()");
@@ -478,10 +504,13 @@ impl IpcHandler for LoomdIpcHandler {
                         }
                         None => {
                             tracing::debug!("acp.status: server is None");
-                            IpcResponse::ok(req_id.clone(), json!({
-                                "running": false,
-                                "message": "ACP dispatch server not initialized"
-                            }))
+                            IpcResponse::ok(
+                                req_id.clone(),
+                                json!({
+                                    "running": false,
+                                    "message": "ACP dispatch server not initialized"
+                                }),
+                            )
                         }
                     }
                 }));
@@ -489,13 +518,18 @@ impl IpcHandler for LoomdIpcHandler {
                     Ok(resp) => resp,
                     Err(e) => {
                         tracing::error!("acp.status: handler panicked: {:?}", e);
-                        IpcResponse::error(req_id, "Internal server error: handler panicked".to_string())
+                        IpcResponse::error(
+                            req_id,
+                            "Internal server error: handler panicked".to_string(),
+                        )
                     }
                 }
             }
-            "acp.start" => {
-                IpcResponse::error(req.request_id, "ACP dispatch server auto-starts with daemon; use `loom daemon restart` to restart".to_string())
-            }
+            "acp.start" => IpcResponse::error(
+                req.request_id,
+                "ACP dispatch server auto-starts with daemon; use `loom daemon restart` to restart"
+                    .to_string(),
+            ),
             "acp.stop" => {
                 let runtime = tokio::runtime::Runtime::new().unwrap();
                 let server = runtime.block_on(self.acp_server.read());
@@ -504,17 +538,36 @@ impl IpcHandler for LoomdIpcHandler {
                         runtime.block_on(srv.stop());
                         IpcResponse::ok(req.request_id, json!({ "stopped": true }))
                     }
-                    None => IpcResponse::ok(req.request_id, json!({
-                        "stopped": false,
-                        "message": "ACP dispatch server not running"
-                    })),
+                    None => IpcResponse::ok(
+                        req.request_id,
+                        json!({
+                            "stopped": false,
+                            "message": "ACP dispatch server not running"
+                        }),
+                    ),
                 }
             }
             "acp.dispatch" => {
-                let task_id = req.params.get("task_id").and_then(|v| v.as_str()).unwrap_or("");
-                let agent_id = req.params.get("agent_id").and_then(|v| v.as_str()).unwrap_or("");
-                let prompt = req.params.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
-                let timeout_secs = req.params.get("timeout_secs").and_then(|v| v.as_u64()).unwrap_or(120);
+                let task_id = req
+                    .params
+                    .get("task_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let agent_id = req
+                    .params
+                    .get("agent_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let prompt = req
+                    .params
+                    .get("prompt")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let timeout_secs = req
+                    .params
+                    .get("timeout_secs")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(120);
                 // ACP protocol dispatch: runs initialize → session/new → session/prompt
                 // and captures the transcript as a Loom session.
                 match crate::capture::dispatch_acp_protocol(
@@ -526,11 +579,17 @@ impl IpcHandler for LoomdIpcHandler {
                     timeout_secs,
                 ) {
                     Ok(data) => IpcResponse::ok(req.request_id, data),
-                    Err(e) => IpcResponse::error(req.request_id, format!("ACP dispatch failed: {e}")),
+                    Err(e) => {
+                        IpcResponse::error(req.request_id, format!("ACP dispatch failed: {e}"))
+                    }
                 }
             }
             "run.status" => {
-                let run_id = req.params.get("run_id").and_then(|v| v.as_str()).unwrap_or("");
+                let run_id = req
+                    .params
+                    .get("run_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if run_id.is_empty() {
                     return IpcResponse::error(req.request_id, "run_id parameter required");
                 }
@@ -543,48 +602,71 @@ impl IpcHandler for LoomdIpcHandler {
                 }
             }
             "knowledge.query" => {
-                let entity_name = req.params.get("entity").and_then(|v| v.as_str()).unwrap_or("");
+                let entity_name = req
+                    .params
+                    .get("entity")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if entity_name.is_empty() {
                     return IpcResponse::error(req.request_id, "entity parameter required");
                 }
-                let depth = req.params.get("depth").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
+                let depth = req
+                    .params
+                    .get("depth")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(1) as u32;
                 match loom_knowledge::KnowledgeGraph::new(&self.loom_dir) {
                     Ok(kg) => match kg.get_entity(entity_name) {
                         Ok(Some(entity)) => match kg.subgraph(&entity.id, depth) {
-                            Ok(subgraph) => IpcResponse::ok(req.request_id, json!({
-                                "entity": entity, "subgraph": subgraph, "found": true
-                            })),
+                            Ok(subgraph) => IpcResponse::ok(
+                                req.request_id,
+                                json!({
+                                    "entity": entity, "subgraph": subgraph, "found": true
+                                }),
+                            ),
                             Err(e) => IpcResponse::error(req.request_id, e.to_string()),
                         },
-                        Ok(None) => IpcResponse::ok(req.request_id, json!({ "entity": null, "found": false })),
+                        Ok(None) => IpcResponse::ok(
+                            req.request_id,
+                            json!({ "entity": null, "found": false }),
+                        ),
                         Err(e) => IpcResponse::error(req.request_id, e.to_string()),
                     },
                     Err(e) => IpcResponse::error(req.request_id, e.to_string()),
                 }
             }
             "knowledge.search" => {
-                let query = req.params.get("query").and_then(|v| v.as_str()).unwrap_or("");
-                let limit = req.params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+                let query = req
+                    .params
+                    .get("query")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let limit = req
+                    .params
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(10) as usize;
                 if query.is_empty() {
                     return IpcResponse::error(req.request_id, "query parameter required");
                 }
                 match loom_knowledge::KnowledgeGraph::new(&self.loom_dir) {
                     Ok(kg) => match kg.search_entities(query, limit) {
-                        Ok(results) => IpcResponse::ok(req.request_id, json!({ "results": results, "count": results.len(), "query": query })),
+                        Ok(results) => IpcResponse::ok(
+                            req.request_id,
+                            json!({ "results": results, "count": results.len(), "query": query }),
+                        ),
                         Err(e) => IpcResponse::error(req.request_id, e.to_string()),
                     },
                     Err(e) => IpcResponse::error(req.request_id, e.to_string()),
                 }
             }
-            "knowledge.stats" => {
-                match loom_knowledge::KnowledgeGraph::new(&self.loom_dir) {
-                    Ok(kg) => match kg.stats() {
-                        Ok(stats) => IpcResponse::ok(req.request_id, json!(stats)),
-                        Err(e) => IpcResponse::error(req.request_id, e.to_string()),
-                    },
+            "knowledge.stats" => match loom_knowledge::KnowledgeGraph::new(&self.loom_dir) {
+                Ok(kg) => match kg.stats() {
+                    Ok(stats) => IpcResponse::ok(req.request_id, json!(stats)),
                     Err(e) => IpcResponse::error(req.request_id, e.to_string()),
-                }
-            }
+                },
+                Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+            },
             "knowledge.build" => {
                 match loom_knowledge::KnowledgeGraph::new(&self.loom_dir) {
                     Ok(kg) => {
@@ -598,13 +680,23 @@ impl IpcHandler for LoomdIpcHandler {
                             if let Ok(dir) = std::fs::read_dir(&sessions_dir) {
                                 for entry in dir.flatten() {
                                     let path = entry.path();
-                                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_string();
+                                    let ext = path
+                                        .extension()
+                                        .and_then(|e| e.to_str())
+                                        .unwrap_or("")
+                                        .to_string();
                                     if ext == "jsonl" || ext == "json" {
                                         if let Ok(content) = std::fs::read_to_string(&path) {
-                                            let session_id = path.file_stem().and_then(|s| s.to_str()).map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string());
+                                            let session_id = path
+                                                .file_stem()
+                                                .and_then(|s| s.to_str())
+                                                .map(|s| s.to_string())
+                                                .unwrap_or_else(|| "unknown".to_string());
                                             let messages = parse_session_content(&content);
                                             if !messages.is_empty() {
-                                                if let Ok((e, r)) = kg.extract_from_messages(&messages, &session_id) {
+                                                if let Ok((e, r)) =
+                                                    kg.extract_from_messages(&messages, &session_id)
+                                                {
                                                     total_entities += e;
                                                     total_rels += r;
                                                     session_count += 1;
@@ -623,13 +715,31 @@ impl IpcHandler for LoomdIpcHandler {
                                             if let Ok(sub) = std::fs::read_dir(&path) {
                                                 for sub_entry in sub.flatten() {
                                                     let sub_path = sub_entry.path();
-                                                    let ext = sub_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_string();
+                                                    let ext = sub_path
+                                                        .extension()
+                                                        .and_then(|e| e.to_str())
+                                                        .unwrap_or("")
+                                                        .to_string();
                                                     if ext == "jsonl" || ext == "json" {
-                                                        if let Ok(content) = std::fs::read_to_string(&sub_path) {
-                                                            let session_id = path.file_name().and_then(|s| s.to_str()).map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string());
-                                                            let messages = parse_session_content(&content);
+                                                        if let Ok(content) =
+                                                            std::fs::read_to_string(&sub_path)
+                                                        {
+                                                            let session_id = path
+                                                                .file_name()
+                                                                .and_then(|s| s.to_str())
+                                                                .map(|s| s.to_string())
+                                                                .unwrap_or_else(|| {
+                                                                    "unknown".to_string()
+                                                                });
+                                                            let messages =
+                                                                parse_session_content(&content);
                                                             if !messages.is_empty() {
-                                                                if let Ok((e, r)) = kg.extract_from_messages(&messages, &session_id) {
+                                                                if let Ok((e, r)) = kg
+                                                                    .extract_from_messages(
+                                                                        &messages,
+                                                                        &session_id,
+                                                                    )
+                                                                {
                                                                     total_entities += e;
                                                                     total_rels += r;
                                                                     session_count += 1;
@@ -645,11 +755,14 @@ impl IpcHandler for LoomdIpcHandler {
                             }
                         }
 
-                        IpcResponse::ok(req.request_id, json!({
-                            "entities_added": total_entities,
-                            "relationships_added": total_rels,
-                            "sessions_processed": session_count
-                        }))
+                        IpcResponse::ok(
+                            req.request_id,
+                            json!({
+                                "entities_added": total_entities,
+                                "relationships_added": total_rels,
+                                "sessions_processed": session_count
+                            }),
+                        )
                     }
                     Err(e) => IpcResponse::error(req.request_id, e.to_string()),
                 }

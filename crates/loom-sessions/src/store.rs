@@ -1,5 +1,7 @@
 use anyhow::Result;
-use loom_core::{Message, SessionManifest, SESSION_COMPRESSION_THRESHOLD, SESSION_FULL_FIDELITY_COUNT};
+use loom_core::{
+    Message, SessionManifest, SESSION_COMPRESSION_THRESHOLD, SESSION_FULL_FIDELITY_COUNT,
+};
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -154,7 +156,8 @@ impl SessionStore {
         let mut manifest = self
             .read_manifest(session_id)
             .map_err(|_| anyhow::anyhow!("session '{session_id}' not found"))?;
-        let to_remove: std::collections::HashSet<String> = normalize_tags(tags).into_iter().collect();
+        let to_remove: std::collections::HashSet<String> =
+            normalize_tags(tags).into_iter().collect();
         manifest.tags = manifest
             .tags
             .iter()
@@ -424,7 +427,13 @@ mod tests {
 
     #[test]
     fn test_normalize_tags_trims_and_dedupes() {
-        let input = vec!["foo".into(), "  bar  ".into(), "foo".into(), "".into(), "  ".into()];
+        let input = vec![
+            "foo".into(),
+            "  bar  ".into(),
+            "foo".into(),
+            "".into(),
+            "  ".into(),
+        ];
         let out = normalize_tags(&input);
         assert_eq!(out, vec!["foo".to_string(), "bar".to_string()]);
     }
@@ -445,7 +454,12 @@ mod tests {
         let merged = merge_tag_sets(&existing, &additions);
         assert_eq!(
             merged,
-            vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()]
+            vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string()
+            ]
         );
     }
 
@@ -454,6 +468,9 @@ mod tests {
         let existing = vec!["a".into(), "b".into()];
         let additions = vec!["b".into(), "c".into(), "  a  ".into()];
         let merged = merge_tag_sets(&existing, &additions);
-        assert_eq!(merged, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        assert_eq!(
+            merged,
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
     }
 }

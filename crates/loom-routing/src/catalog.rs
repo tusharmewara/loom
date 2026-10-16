@@ -45,21 +45,105 @@ struct ModelRecord {
 // ─── Default catalog (fallback) ─────────────────────────────────────
 
 const DEFAULT_CATALOG: &[(&str, &str, ModelTier, f64, f64, u32)] = &[
-    ("gpt-4o-mini", "openai", ModelTier::Slm, 0.00015, 0.0006, 128_000),
+    (
+        "gpt-4o-mini",
+        "openai",
+        ModelTier::Slm,
+        0.00015,
+        0.0006,
+        128_000,
+    ),
     ("gpt-4o", "openai", ModelTier::Mid, 0.0025, 0.01, 128_000),
     ("gpt-4", "openai", ModelTier::Mid, 0.03, 0.06, 8_192),
     ("o1", "openai", ModelTier::Flagship, 0.015, 0.06, 200_000),
-    ("o3-mini", "openai", ModelTier::Flagship, 0.0011, 0.0044, 200_000),
-    ("claude-sonnet-4", "anthropic", ModelTier::Mid, 0.003, 0.015, 200_000),
-    ("claude-3-5-sonnet-latest", "anthropic", ModelTier::Mid, 0.003, 0.015, 200_000),
-    ("claude-3-5-haiku-latest", "anthropic", ModelTier::Slm, 0.0008, 0.004, 200_000),
-    ("claude-opus-4", "anthropic", ModelTier::Flagship, 0.015, 0.075, 200_000),
-    ("claude-3-opus-latest", "anthropic", ModelTier::Flagship, 0.015, 0.075, 200_000),
-    ("gemini-2.0-flash", "google", ModelTier::Slm, 0.0001, 0.0004, 1_048_576),
-    ("gemini-2.0-flash-lite", "google", ModelTier::Slm, 0.000075, 0.0003, 1_048_576),
-    ("gemini-2.5-pro-exp-03-25", "google", ModelTier::Flagship, 0.00125, 0.01, 1_048_576),
-    ("deepseek-chat", "deepseek", ModelTier::Mid, 0.00027, 0.0011, 128_000),
-    ("deepseek-reasoner", "deepseek", ModelTier::Flagship, 0.00055, 0.00219, 128_000),
+    (
+        "o3-mini",
+        "openai",
+        ModelTier::Flagship,
+        0.0011,
+        0.0044,
+        200_000,
+    ),
+    (
+        "claude-sonnet-4",
+        "anthropic",
+        ModelTier::Mid,
+        0.003,
+        0.015,
+        200_000,
+    ),
+    (
+        "claude-3-5-sonnet-latest",
+        "anthropic",
+        ModelTier::Mid,
+        0.003,
+        0.015,
+        200_000,
+    ),
+    (
+        "claude-3-5-haiku-latest",
+        "anthropic",
+        ModelTier::Slm,
+        0.0008,
+        0.004,
+        200_000,
+    ),
+    (
+        "claude-opus-4",
+        "anthropic",
+        ModelTier::Flagship,
+        0.015,
+        0.075,
+        200_000,
+    ),
+    (
+        "claude-3-opus-latest",
+        "anthropic",
+        ModelTier::Flagship,
+        0.015,
+        0.075,
+        200_000,
+    ),
+    (
+        "gemini-2.0-flash",
+        "google",
+        ModelTier::Slm,
+        0.0001,
+        0.0004,
+        1_048_576,
+    ),
+    (
+        "gemini-2.0-flash-lite",
+        "google",
+        ModelTier::Slm,
+        0.000075,
+        0.0003,
+        1_048_576,
+    ),
+    (
+        "gemini-2.5-pro-exp-03-25",
+        "google",
+        ModelTier::Flagship,
+        0.00125,
+        0.01,
+        1_048_576,
+    ),
+    (
+        "deepseek-chat",
+        "deepseek",
+        ModelTier::Mid,
+        0.00027,
+        0.0011,
+        128_000,
+    ),
+    (
+        "deepseek-reasoner",
+        "deepseek",
+        ModelTier::Flagship,
+        0.00055,
+        0.00219,
+        128_000,
+    ),
 ];
 
 // ─── CatalogManager ─────────────────────────────────────────────────
@@ -187,7 +271,11 @@ impl CatalogManager {
             // Replace default entries with same model_id (keep default pricing)
             // and append truly new models
             for m in models {
-                if !merged.models.iter().any(|existing| existing.model_id == m.model_id) {
+                if !merged
+                    .models
+                    .iter()
+                    .any(|existing| existing.model_id == m.model_id)
+                {
                     merged.models.push(m.clone());
                 }
             }
@@ -195,7 +283,11 @@ impl CatalogManager {
 
         // Remove unavailable entries
         merged.models.retain(|m| m.available);
-        merged.models.sort_by(|a, b| a.provider_id.cmp(&b.provider_id).then(a.model_id.cmp(&b.model_id)));
+        merged.models.sort_by(|a, b| {
+            a.provider_id
+                .cmp(&b.provider_id)
+                .then(a.model_id.cmp(&b.model_id))
+        });
 
         write_catalog(loom_dir, &merged)?;
         Ok(())
@@ -221,9 +313,11 @@ fn resolve_api_key(provider_id: &str) -> Option<String> {
         "anthropic" | "claude" => std::env::var("ANTHROPIC_API_KEY").ok(),
         "openai" | "gpt" => std::env::var("OPENAI_API_KEY").ok(),
         "google" | "gemini" => std::env::var("GOOGLE_API_KEY").ok(),
-        "deepseek" => std::env::var("DEEPSEEK_API_KEY").ok()
+        "deepseek" => std::env::var("DEEPSEEK_API_KEY")
+            .ok()
             .or_else(|| std::env::var("OPENAI_API_KEY").ok()),
-        _ => std::env::var("OPENAI_API_KEY").ok()
+        _ => std::env::var("OPENAI_API_KEY")
+            .ok()
             .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok()),
     }
 }
@@ -282,7 +376,12 @@ fn infer_context_window(model_id: &str, provider_id: &str) -> u32 {
         "google" | "gemini" => 1_048_576,
         "deepseek" => 128_000,
         _ => {
-            if lower.contains("gpt-3.5") || lower.contains("gpt-4") && !lower.contains("turbo") && !lower.contains("o1") && !lower.contains("o3") {
+            if lower.contains("gpt-3.5")
+                || lower.contains("gpt-4")
+                    && !lower.contains("turbo")
+                    && !lower.contains("o1")
+                    && !lower.contains("o3")
+            {
                 8_192
             } else if lower.contains("o1") || lower.contains("o3") {
                 200_000
@@ -333,6 +432,9 @@ pub fn filter_active_providers(
 }
 
 /// Placeholder for provider status filtering when no live registry is attached.
-pub fn filter_by_status(catalog: &ModelCatalog, _status: loom_core::ProviderStatus) -> ModelCatalog {
+pub fn filter_by_status(
+    catalog: &ModelCatalog,
+    _status: loom_core::ProviderStatus,
+) -> ModelCatalog {
     catalog.clone()
 }

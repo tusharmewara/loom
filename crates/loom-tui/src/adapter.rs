@@ -77,11 +77,7 @@ impl LoomCliAdapter {
     }
 
     /// Draft a plan and import it as tasks; returns created task ids.
-    pub async fn draft_plan_create(
-        &self,
-        title: &str,
-        description: &str,
-    ) -> Result<Vec<String>> {
+    pub async fn draft_plan_create(&self, title: &str, description: &str) -> Result<Vec<String>> {
         let value = self
             .run_json(&[
                 "workflow",
@@ -139,20 +135,21 @@ impl LoomCliAdapter {
 
     /// Fetch a tracked ACP run's status from the daemon.
     pub async fn fetch_run_status(&self, run_id: &str) -> Result<Value> {
-        self.run_json(&["acp", "run-status", "--run-id", run_id]).await
+        self.run_json(&["acp", "run-status", "--run-id", run_id])
+            .await
     }
 
     /// Create a pull request from the current branch (`gh pr create
     /// --fill`). Returns the PR URL.
     pub async fn create_pull_request(&self, repo: &str) -> Result<String> {
-        let value = self.run_json(&["issues", "create-pr", "--repo", repo]).await?;
+        let value = self
+            .run_json(&["issues", "create-pr", "--repo", repo])
+            .await?;
         value
             .get("url")
             .and_then(Value::as_str)
             .map(str::to_string)
-            .ok_or_else(|| {
-                anyhow::anyhow!("`loom issues create-pr` returned no PR URL")
-            })
+            .ok_or_else(|| anyhow::anyhow!("`loom issues create-pr` returned no PR URL"))
     }
 
     /// Create a workflow task from Orchestrator title/details input.
@@ -189,15 +186,34 @@ impl LoomCliAdapter {
     }
 
     pub async fn fetch_pulls_list(&self) -> Result<Value> {
-        self.run_json(&["issues", "list", "--json", "--state", "all", "--repo", ""]).await
+        self.run_json(&["issues", "list", "--json", "--state", "all", "--repo", ""])
+            .await
     }
 
     pub async fn fetch_pull_requests(&self, repo: &str, state: &str) -> Result<Value> {
-        self.run_json(&["issues", "pull-requests", "--json", "--repo", repo, "--state", state]).await
+        self.run_json(&[
+            "issues",
+            "pull-requests",
+            "--json",
+            "--repo",
+            repo,
+            "--state",
+            state,
+        ])
+        .await
     }
 
     pub async fn fetch_pr_ci_status(&self, repo: &str, pr: u64) -> Result<Value> {
-        self.run_json(&["issues", "ci-status", "--json", "--repo", repo, "--pr", &pr.to_string()]).await
+        self.run_json(&[
+            "issues",
+            "ci-status",
+            "--json",
+            "--repo",
+            repo,
+            "--pr",
+            &pr.to_string(),
+        ])
+        .await
     }
 
     pub async fn fetch_pr_diff(&self, repo: &str, pr: u64) -> Result<String> {
@@ -243,15 +259,18 @@ impl LoomCliAdapter {
     }
 
     pub async fn daemon_restart(&self) -> CommandResult {
-        self.run_daemon_action("restart", &["daemon", "restart"]).await
+        self.run_daemon_action("restart", &["daemon", "restart"])
+            .await
     }
 
     pub async fn daemon_install_service(&self) -> CommandResult {
-        self.run_daemon_action("install-service", &["daemon", "install-service"]).await
+        self.run_daemon_action("install-service", &["daemon", "install-service"])
+            .await
     }
 
     pub async fn daemon_uninstall_service(&self) -> CommandResult {
-        self.run_daemon_action("uninstall-service", &["daemon", "uninstall-service"]).await
+        self.run_daemon_action("uninstall-service", &["daemon", "uninstall-service"])
+            .await
     }
 
     pub async fn run_scan(&self) -> CommandResult {
@@ -370,9 +389,7 @@ impl LoomCliAdapter {
             .spawn()
             .with_context(|| format!("failed to spawn `{}`", self.bin))?;
 
-        let stdin = child
-            .stdin
-            .take();
+        let stdin = child.stdin.take();
 
         let stdout = child
             .stdout
@@ -395,7 +412,11 @@ impl LoomCliAdapter {
     }
 
     /// Spawn an agent tool for a task and return a receiver for stdout lines.
-    pub fn stream_background(&self, agent: &str, task_id: &str) -> (Option<Child>, mpsc::Receiver<String>, Option<ChildStdin>) {
+    pub fn stream_background(
+        &self,
+        agent: &str,
+        task_id: &str,
+    ) -> (Option<Child>, mpsc::Receiver<String>, Option<ChildStdin>) {
         match self.stream_command(&["workflow", "dispatch", task_id, "--agent", agent]) {
             Ok((child, rx, stdin)) => (Some(child), rx, stdin),
             Err(_) => {
@@ -544,7 +565,8 @@ mod tests {
 
     #[test]
     fn test_parse_created_task_id_prefers_prefix_over_payload() {
-        let output = "Created task 123e4567-e89b-12d3-a456-426614174000\n{\"task_id\": \"ignored\"}";
+        let output =
+            "Created task 123e4567-e89b-12d3-a456-426614174000\n{\"task_id\": \"ignored\"}";
         assert_eq!(
             parse_created_task_id(output).as_deref(),
             Some("123e4567-e89b-12d3-a456-426614174000")

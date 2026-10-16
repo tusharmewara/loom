@@ -1,5 +1,5 @@
-pub mod dispatch;
 pub mod chief;
+pub mod dispatch;
 pub mod forge;
 pub mod orchestrator;
 pub mod phases;
@@ -8,11 +8,11 @@ pub mod task;
 pub mod task_manager;
 pub mod template_manager;
 
+pub use forge::{ForgeManager, PrInfo, WebhookResult};
 use loom_core::HealthCheck;
 pub use orchestrator::TaskOrchestrator;
-pub use template_manager::TemplateManager;
 pub use task_manager::TaskManager;
-pub use forge::{ForgeManager, PrInfo, WebhookResult};
+pub use template_manager::TemplateManager;
 
 pub struct WorkflowEngine {
     #[allow(dead_code)]

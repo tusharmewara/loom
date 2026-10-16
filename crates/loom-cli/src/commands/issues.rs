@@ -21,7 +21,16 @@ pub async fn run(_loom_dir: &Path, action: &IssuesAction) -> anyhow::Result<()> 
             provider,
             host,
         } => {
-            cmd_list(provider, repo, state.as_deref(), labels.as_deref(), *json, token.as_deref(), host.as_deref()).await
+            cmd_list(
+                provider,
+                repo,
+                state.as_deref(),
+                labels.as_deref(),
+                *json,
+                token.as_deref(),
+                host.as_deref(),
+            )
+            .await
         }
         IssuesAction::Show {
             id,
@@ -45,34 +54,60 @@ pub async fn run(_loom_dir: &Path, action: &IssuesAction) -> anyhow::Result<()> 
             token,
             provider,
             host,
-        } => cmd_link_pr(provider, id, pr_url, repo, token.as_deref(), host.as_deref()).await,
-        IssuesAction::Diff { pr, repo, token } => {
-            cmd_diff(*pr, repo, token.as_deref()).await
+        } => {
+            cmd_link_pr(
+                provider,
+                id,
+                pr_url,
+                repo,
+                token.as_deref(),
+                host.as_deref(),
+            )
+            .await
         }
-        IssuesAction::CiStatus { pr, repo, token, json } => {
-            cmd_ci_status(*pr, repo, token.as_deref(), *json).await
-        }
-        IssuesAction::CreatePr { repo, title, body, json } => {
-            cmd_create_pr(repo, title.as_deref(), body.as_deref(), *json).await
-        }
-        IssuesAction::PullRequests { repo, state, json, token } => {
-            cmd_pull_requests(repo, state, *json, token.as_deref()).await
-        }
+        IssuesAction::Diff { pr, repo, token } => cmd_diff(*pr, repo, token.as_deref()).await,
+        IssuesAction::CiStatus {
+            pr,
+            repo,
+            token,
+            json,
+        } => cmd_ci_status(*pr, repo, token.as_deref(), *json).await,
+        IssuesAction::CreatePr {
+            repo,
+            title,
+            body,
+            json,
+        } => cmd_create_pr(repo, title.as_deref(), body.as_deref(), *json).await,
+        IssuesAction::PullRequests {
+            repo,
+            state,
+            json,
+            token,
+        } => cmd_pull_requests(repo, state, *json, token.as_deref()).await,
     }
 }
 
 /// Create a tracker instance from the provider name.
-fn create_tracker(provider: &str, token: Option<&str>, host: Option<&str>) -> anyhow::Result<Box<dyn IssueTracker>> {
+fn create_tracker(
+    provider: &str,
+    token: Option<&str>,
+    host: Option<&str>,
+) -> anyhow::Result<Box<dyn IssueTracker>> {
     match provider {
         "github" => Ok(Box::new(GitHubTracker::new(token.map(|s| s.to_string()))?)),
-        "gitlab" => Ok(Box::new(GitLabTracker::new(host.map(|s| s.to_string()), token.map(|s| s.to_string()))?)),
+        "gitlab" => Ok(Box::new(GitLabTracker::new(
+            host.map(|s| s.to_string()),
+            token.map(|s| s.to_string()),
+        )?)),
         "linear" => Ok(Box::new(LinearTracker::new(token.map(|s| s.to_string()))?)),
         "jira" => Ok(Box::new(JiraTracker::new(
             host.map(|s| s.to_string()),
             None,
             token.map(|s| s.to_string()),
         )?)),
-        other => anyhow::bail!("Unknown provider '{other}'. Use 'github', 'gitlab', 'linear', or 'jira'."),
+        other => anyhow::bail!(
+            "Unknown provider '{other}'. Use 'github', 'gitlab', 'linear', or 'jira'."
+        ),
     }
 }
 
@@ -110,10 +145,18 @@ async fn cmd_list(
         );
     } else {
         if issues.is_empty() {
-            println!("No issues found for {repo} on {provider} (state={})", state.unwrap_or("open"));
+            println!(
+                "No issues found for {repo} on {provider} (state={})",
+                state.unwrap_or("open")
+            );
             return Ok(());
         }
-        println!("Issues for {} on {} (state={}):", repo, provider, state.unwrap_or("open"));
+        println!(
+            "Issues for {} on {} (state={}):",
+            repo,
+            provider,
+            state.unwrap_or("open")
+        );
         for issue in &issues {
             let labels_str = if issue.labels.is_empty() {
                 String::new()
@@ -123,7 +166,11 @@ async fn cmd_list(
             println!(
                 "  {}  {}{}  {}",
                 issue.id,
-                if issue.state == "open" { "🔴" } else { "🟢" },
+                if issue.state == "open" {
+                    "🔴"
+                } else {
+                    "🟢"
+                },
                 labels_str,
                 issue.title,
             );
@@ -143,11 +190,12 @@ async fn cmd_show(
     let tracker = create_tracker(provider, token, host)?;
 
     // For GitHub, if id is just a number, prepend the repo
-    let issue_id = if provider == "github" && id.chars().all(|c| c.is_ascii_digit()) && !repo.is_empty() {
-        format!("{}#{}", repo, id)
-    } else {
-        id.to_string()
-    };
+    let issue_id =
+        if provider == "github" && id.chars().all(|c| c.is_ascii_digit()) && !repo.is_empty() {
+            format!("{}#{}", repo, id)
+        } else {
+            id.to_string()
+        };
 
     let issue = tracker.get_issue(&issue_id).await?;
 
@@ -195,11 +243,12 @@ async fn cmd_create_branch(
 ) -> anyhow::Result<()> {
     let tracker = create_tracker(provider, token, host)?;
 
-    let issue_id = if provider == "github" && id.chars().all(|c| c.is_ascii_digit()) && !repo.is_empty() {
-        format!("{}#{}", repo, id)
-    } else {
-        id.to_string()
-    };
+    let issue_id =
+        if provider == "github" && id.chars().all(|c| c.is_ascii_digit()) && !repo.is_empty() {
+            format!("{}#{}", repo, id)
+        } else {
+            id.to_string()
+        };
 
     let issue = tracker.get_issue(&issue_id).await?;
     let branch_name = tracker
@@ -232,11 +281,12 @@ async fn cmd_link_pr(
 ) -> anyhow::Result<()> {
     let tracker = create_tracker(provider, token, host)?;
 
-    let issue_id = if provider == "github" && id.chars().all(|c| c.is_ascii_digit()) && !repo.is_empty() {
-        format!("{}#{}", repo, id)
-    } else {
-        id.to_string()
-    };
+    let issue_id =
+        if provider == "github" && id.chars().all(|c| c.is_ascii_digit()) && !repo.is_empty() {
+            format!("{}#{}", repo, id)
+        } else {
+            id.to_string()
+        };
 
     tracker.link_pr(&issue_id, pr_url).await?;
     println!("✓ Linked PR to {provider} issue {issue_id}: {pr_url}");
@@ -268,14 +318,17 @@ async fn cmd_ci_status(pr: u64, repo: &str, token: Option<&str>, json: bool) -> 
     let statuses = tracker.fetch_pr_ci_status(repo, pr).await?;
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-            "schema_version": 1,
-            "command": "issues.ci-status",
-            "repo": repo,
-            "pr": pr,
-            "count": statuses.len(),
-            "checks": statuses,
-        }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "schema_version": 1,
+                "command": "issues.ci-status",
+                "repo": repo,
+                "pr": pr,
+                "count": statuses.len(),
+                "checks": statuses,
+            }))?
+        );
     } else {
         if statuses.is_empty() {
             println!("No CI checks found for PR #{pr} in {repo}");
@@ -301,19 +354,27 @@ async fn cmd_ci_status(pr: u64, repo: &str, token: Option<&str>, json: bool) -> 
     Ok(())
 }
 
-async fn cmd_pull_requests(repo: &str, state: &str, json: bool, token: Option<&str>) -> anyhow::Result<()> {
+async fn cmd_pull_requests(
+    repo: &str,
+    state: &str,
+    json: bool,
+    token: Option<&str>,
+) -> anyhow::Result<()> {
     let tracker = GitHubTracker::new(token.map(|s| s.to_string()))?;
     let prs = tracker.list_pull_requests(repo, state).await?;
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-            "schema_version": 1,
-            "command": "issues.pull-requests",
-            "repo": repo,
-            "state": state,
-            "count": prs.len(),
-            "issues": prs,
-        }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "schema_version": 1,
+                "command": "issues.pull-requests",
+                "repo": repo,
+                "state": state,
+                "count": prs.len(),
+                "issues": prs,
+            }))?
+        );
     } else {
         if prs.is_empty() {
             println!("No pull requests found for {repo} (state={state})");

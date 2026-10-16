@@ -23,7 +23,9 @@ pub fn draw_embedded_pane(frame: &mut Frame, area: Rect, app: &App, theme: &Them
         .border_style(Style::default().fg(theme.border_focused))
         .title(format!(
             " Embedded Pane: {} ",
-            task.pointer("/task_id").and_then(Value::as_str).unwrap_or("?")
+            task.pointer("/task_id")
+                .and_then(Value::as_str)
+                .unwrap_or("?")
         ))
         .title_style(
             Style::default()
@@ -47,12 +49,30 @@ pub fn draw_embedded_pane(frame: &mut Frame, area: Rect, app: &App, theme: &Them
 }
 
 fn draw_task_context(frame: &mut Frame, area: Rect, task: &Value, theme: &Theme) {
-    let task_id = task.pointer("/task_id").and_then(Value::as_str).unwrap_or("?");
-    let title = task.pointer("/title").and_then(Value::as_str).unwrap_or("Untitled");
-    let description = task.pointer("/description").and_then(Value::as_str).unwrap_or("");
-    let phase = task.pointer("/phase").and_then(Value::as_str).unwrap_or("unknown");
-    let status = task.pointer("/status").and_then(Value::as_str).unwrap_or("unknown");
-    let provider = task.pointer("/provider").and_then(Value::as_str).unwrap_or("");
+    let task_id = task
+        .pointer("/task_id")
+        .and_then(Value::as_str)
+        .unwrap_or("?");
+    let title = task
+        .pointer("/title")
+        .and_then(Value::as_str)
+        .unwrap_or("Untitled");
+    let description = task
+        .pointer("/description")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let phase = task
+        .pointer("/phase")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let status = task
+        .pointer("/status")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let provider = task
+        .pointer("/provider")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let model = task.pointer("/model").and_then(Value::as_str).unwrap_or("");
 
     let mut lines: Vec<Line> = Vec::new();
@@ -128,7 +148,10 @@ fn draw_task_context(frame: &mut Frame, area: Rect, task: &Value, theme: &Theme)
             )));
             for (i, step) in steps.iter().enumerate() {
                 let step_name = step.pointer("/name").and_then(Value::as_str).unwrap_or("");
-                let step_status = step.pointer("/status").and_then(Value::as_str).unwrap_or("");
+                let step_status = step
+                    .pointer("/status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 let marker = match step_status {
                     "completed" => "✓",
                     "in_progress" | "running" => "→",
@@ -162,20 +185,20 @@ fn draw_task_context(frame: &mut Frame, area: Rect, task: &Value, theme: &Theme)
         let bar_width = 30usize;
         let filled = ((pct as f64 / 100.0) * bar_width as f64) as usize;
         let empty = bar_width.saturating_sub(filled);
-        let bar = format!(
-            " [{}{}] {}%",
-            "█".repeat(filled),
-            "░".repeat(empty),
-            pct
-        );
-        lines.push(Line::from(Span::styled(bar, Style::default().fg(theme.primary))));
+        let bar = format!(" [{}{}] {}%", "█".repeat(filled), "░".repeat(empty), pct);
+        lines.push(Line::from(Span::styled(
+            bar,
+            Style::default().fg(theme.primary),
+        )));
     }
 
     let block = Block::default()
         .borders(Borders::RIGHT)
         .title(" Task Context ")
         .title_style(Style::default().fg(theme.secondary));
-    let paragraph = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, area);
 }
 
@@ -196,9 +219,9 @@ fn draw_output_log(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         lines.push(Line::from(Span::styled(msg, theme.text_dim)));
     } else {
         let visible_height = area.height.saturating_sub(2) as usize;
-        let scroll = app.embedded_log_scroll.min(
-            app.embedded_log.len().saturating_sub(visible_height),
-        );
+        let scroll = app
+            .embedded_log_scroll
+            .min(app.embedded_log.len().saturating_sub(visible_height));
         for line in app.embedded_log.iter().skip(scroll).take(visible_height) {
             // Color based on content heuristics
             let style = if line.contains("error") || line.contains("FAIL") {
@@ -231,6 +254,8 @@ fn draw_output_log(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         }
     }
 
-    let paragraph = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, area);
 }

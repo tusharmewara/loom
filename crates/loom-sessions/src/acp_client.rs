@@ -48,7 +48,9 @@ impl AcpClient {
 
     async fn needs_refresh(&self) -> bool {
         let last = *self.last_refresh.read().await;
-        last.elapsed().unwrap_or_else(|_| Duration::from_secs(u64::MAX)) > self.refresh_interval
+        last.elapsed()
+            .unwrap_or_else(|_| Duration::from_secs(u64::MAX))
+            > self.refresh_interval
     }
 
     pub async fn discover_agents(&self) -> Result<Vec<AgentMetadata>> {

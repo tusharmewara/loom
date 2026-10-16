@@ -26,11 +26,22 @@ pub fn draw_daemon(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, th
 
     let is_running = running.unwrap_or(false);
     lines.push(Line::from(vec![
-        Span::styled("Status: ", Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
         Span::styled(
-            if is_running { "● Running" } else { "○ Stopped" },
+            "Status: ",
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            if is_running {
+                "● Running"
+            } else {
+                "○ Stopped"
+            },
             Style::default()
-                .fg(if is_running { theme.success } else { theme.error })
+                .fg(if is_running {
+                    theme.success
+                } else {
+                    theme.error
+                })
                 .add_modifier(Modifier::BOLD),
         ),
     ]));
@@ -73,8 +84,7 @@ pub fn draw_daemon(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, th
                     lines.push(Line::from(vec![
                         Span::styled(
                             if ok { "  ✓ " } else { "  ✗ " },
-                            Style::default()
-                                .fg(if ok { theme.success } else { theme.error }),
+                            Style::default().fg(if ok { theme.success } else { theme.error }),
                         ),
                         Span::styled(k, theme.text),
                     ]));
@@ -99,7 +109,9 @@ pub fn draw_daemon(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, th
     }
 
     frame.render_widget(
-        Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
         area,
     );
 }

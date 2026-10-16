@@ -70,10 +70,7 @@ pub fn draw_discovery(frame: &mut Frame, area: ratatui::layout::Rect, app: &App,
                 lines.push(Line::from(vec![
                     Span::styled("  ", theme.text_dim),
                     Span::styled(format!("{}: ", k), theme.text_dim),
-                    Span::styled(
-                        format!("{}", v.as_u64().unwrap_or(0)),
-                        theme.text_bright,
-                    ),
+                    Span::styled(format!("{}", v.as_u64().unwrap_or(0)), theme.text_bright),
                 ]));
             }
         }
@@ -116,14 +113,14 @@ pub fn draw_discovery(frame: &mut Frame, area: ratatui::layout::Rect, app: &App,
         )));
         for s in skill_src {
             let source = s.pointer("/source").and_then(Value::as_str).unwrap_or("?");
-            let count = s.pointer("/skill_count").and_then(Value::as_u64).unwrap_or(0);
+            let count = s
+                .pointer("/skill_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
             let path = s.pointer("/path").and_then(Value::as_str).unwrap_or("?");
             lines.push(Line::from(vec![
                 Span::styled("  • ", theme.primary),
-                Span::styled(
-                    format!("{} ({} skills)", source, count),
-                    theme.text,
-                ),
+                Span::styled(format!("{} ({} skills)", source, count), theme.text),
                 Span::styled(format!(" → {}", path), theme.text_dim),
             ]));
         }
@@ -143,21 +140,23 @@ pub fn draw_discovery(frame: &mut Frame, area: ratatui::layout::Rect, app: &App,
         )));
         for m in mcp_src {
             let source = m.pointer("/source").and_then(Value::as_str).unwrap_or("?");
-            let count = m.pointer("/server_count").and_then(Value::as_u64).unwrap_or(0);
+            let count = m
+                .pointer("/server_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
             let path = m.pointer("/path").and_then(Value::as_str).unwrap_or("?");
             lines.push(Line::from(vec![
                 Span::styled("  • ", theme.primary),
-                Span::styled(
-                    format!("{} ({} servers)", source, count),
-                    theme.text,
-                ),
+                Span::styled(format!("{} ({} servers)", source, count), theme.text),
                 Span::styled(format!(" → {}", path), theme.text_dim),
             ]));
         }
     }
 
     frame.render_widget(
-        Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
         area,
     );
 }

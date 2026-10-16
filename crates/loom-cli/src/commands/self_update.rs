@@ -23,11 +23,11 @@ pub async fn run(force: bool, source: &str) -> anyhow::Result<()> {
     let release = match source {
         "github" => fetch_latest_release_from_github().await?,
         "releases.loom.sh" | "loom.sh" | "loom" => fetch_latest_release_from_loom_sh().await?,
-        other => anyhow::bail!("Unknown release source '{other}'. Use 'github' or 'releases.loom.sh'."),
+        other => {
+            anyhow::bail!("Unknown release source '{other}'. Use 'github' or 'releases.loom.sh'.")
+        }
     };
-    let latest_ver = release
-        .tag_name
-        .trim_start_matches('v');
+    let latest_ver = release.tag_name.trim_start_matches('v');
 
     if !force && latest_ver == current_ver {
         println!("✓ Already up-to-date (v{current_ver})");
@@ -42,9 +42,7 @@ pub async fn run(force: bool, source: &str) -> anyhow::Result<()> {
         .iter()
         .find(|a| a.name.contains(&target))
         .ok_or_else(|| {
-            anyhow::anyhow!(
-                "No binary asset found for target '{target}' in release v{latest_ver}"
-            )
+            anyhow::anyhow!("No binary asset found for target '{target}' in release v{latest_ver}")
         })?;
 
     println!("  Downloading {}...", asset.name);
@@ -55,9 +53,7 @@ pub async fn run(force: bool, source: &str) -> anyhow::Result<()> {
         let expected_checksum = &release.checksum;
         let actual_checksum = sha256_hex(&bytes);
         if &actual_checksum != expected_checksum {
-            anyhow::bail!(
-                "Checksum mismatch: expected {expected_checksum}, got {actual_checksum}"
-            );
+            anyhow::bail!("Checksum mismatch: expected {expected_checksum}, got {actual_checksum}");
         }
         println!("  ✓ SHA-256 checksum verified");
     }
@@ -100,7 +96,10 @@ async fn fetch_latest_release_from_github() -> anyhow::Result<Release> {
 
     let mut checksum = String::new();
     for a in assets {
-        if a["name"].as_str().is_some_and(|n| n.contains("sha256") || n.ends_with(".sha256")) {
+        if a["name"]
+            .as_str()
+            .is_some_and(|n| n.contains("sha256") || n.ends_with(".sha256"))
+        {
             let url = a["browser_download_url"]
                 .as_str()
                 .ok_or_else(|| anyhow::anyhow!("Missing browser_download_url"))?;

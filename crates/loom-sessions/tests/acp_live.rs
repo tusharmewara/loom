@@ -8,7 +8,10 @@ async fn test_acp_registry_live_discovery() {
     let url = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
     let resp = client.get(url).send().await.expect("Request failed");
     let text = resp.text().await.expect("Failed to read body");
-    println!("Raw registry JSON (first 1000 chars):\n{}", &text[..text.len().min(1000)]);
+    println!(
+        "Raw registry JSON (first 1000 chars):\n{}",
+        &text[..text.len().min(1000)]
+    );
 
     let mgr = SessionManager::new_with_acp(
         "/tmp/loom-acp-test",

@@ -112,12 +112,7 @@ impl CrossSessionMemory {
     /// scoped to a single session — re-indexing a message inside
     /// session B does NOT delete a message in session A even when the
     /// two share the same `message_id`.
-    pub fn index_message(
-        &self,
-        session_id: &str,
-        message: &Message,
-        topic: &str,
-    ) -> Result<()> {
+    pub fn index_message(&self, session_id: &str, message: &Message, topic: &str) -> Result<()> {
         let conn = self.conn()?;
 
         // Upsert scoped to the (session_id, message_id) tuple. `message_id`
@@ -149,22 +144,16 @@ impl CrossSessionMemory {
         // query joins `message_fts.rowid = session_messages.id`, so an
         // orphaned FTS row with no matching main-table row simply won't
         // surface. The same trade-off is documented on `remove_session`.
-        conn.execute("INSERT INTO message_fts(rowid, content, topic) VALUES (?1, ?2, ?3)", params![
-            conn.last_insert_rowid(),
-            message.content,
-            topic,
-        ])?;
+        conn.execute(
+            "INSERT INTO message_fts(rowid, content, topic) VALUES (?1, ?2, ?3)",
+            params![conn.last_insert_rowid(), message.content, topic,],
+        )?;
 
         Ok(())
     }
 
     /// Index multiple messages for a session (full re-index).
-    pub fn index_session(
-        &self,
-        session_id: &str,
-        messages: &[Message],
-        topic: &str,
-    ) -> Result<()> {
+    pub fn index_session(&self, session_id: &str, messages: &[Message], topic: &str) -> Result<()> {
         self.index_session_with_tags(session_id, messages, topic, &[])
     }
 
@@ -249,7 +238,8 @@ impl CrossSessionMemory {
     /// tags (or doesn't exist — tag lookups don't distinguish).
     pub fn session_tags(&self, session_id: &str) -> Result<Vec<String>> {
         let conn = self.conn()?;
-        let mut stmt = conn.prepare("SELECT tag FROM session_tags WHERE session_id = ?1 ORDER BY rowid")?;
+        let mut stmt =
+            conn.prepare("SELECT tag FROM session_tags WHERE session_id = ?1 ORDER BY rowid")?;
         let tags = stmt
             .query_map(params![session_id], |row| row.get::<_, String>(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -500,7 +490,12 @@ impl CrossSessionMemory {
         let mut recalls: Vec<SessionRecall> = by_session
             .into_iter()
             .map(|(session_id, acc)| {
-                let preview: String = acc.best.content.chars().take(RECALL_TOP_MATCH_PREVIEW_CHARS).collect();
+                let preview: String = acc
+                    .best
+                    .content
+                    .chars()
+                    .take(RECALL_TOP_MATCH_PREVIEW_CHARS)
+                    .collect();
                 SessionRecall {
                     session_id,
                     topic: acc.topic,
@@ -538,10 +533,9 @@ impl CrossSessionMemory {
     /// Get total message count across all sessions.
     pub fn total_count(&self) -> Result<usize> {
         let conn = self.conn()?;
-        let count: usize =
-            conn.query_row("SELECT COUNT(*) FROM session_messages", [], |row| {
-                row.get(0)
-            })?;
+        let count: usize = conn.query_row("SELECT COUNT(*) FROM session_messages", [], |row| {
+            row.get(0)
+        })?;
         Ok(count)
     }
 }
@@ -587,7 +581,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let memory = CrossSessionMemory::new(dir.path().to_str().unwrap()).unwrap();
 
-        let msg = make_message("msg-1", MessageRole::User, "How do I configure routing in Loom?");
+        let msg = make_message(
+            "msg-1",
+            MessageRole::User,
+            "How do I configure routing in Loom?",
+        );
         memory
             .index_message("session-1", &msg, "configuration")
             .unwrap();
@@ -713,7 +711,11 @@ mod tests {
 
         // Both messages should be findable.
         let alpha_hits = memory.search("alpha", 10).unwrap();
-        assert_eq!(alpha_hits.len(), 1, "session-a m1 was clobbered by session-b");
+        assert_eq!(
+            alpha_hits.len(),
+            1,
+            "session-a m1 was clobbered by session-b"
+        );
         assert_eq!(alpha_hits[0].session_id, "session-a");
 
         let beta_hits = memory.search("beta", 10).unwrap();
@@ -776,8 +778,14 @@ mod tests {
         assert_eq!(recalled.len(), 2);
 
         // session-a had 3 hits, session-b had 1.
-        let a = recalled.iter().find(|r| r.session_id == "session-a").unwrap();
-        let b = recalled.iter().find(|r| r.session_id == "session-b").unwrap();
+        let a = recalled
+            .iter()
+            .find(|r| r.session_id == "session-a")
+            .unwrap();
+        let b = recalled
+            .iter()
+            .find(|r| r.session_id == "session-b")
+            .unwrap();
         assert_eq!(a.hit_count, 3);
         assert_eq!(b.hit_count, 1);
         // Topic should be the indexed topic for that session.
@@ -915,10 +923,11 @@ mod tests {
             vec!["alpha".to_string(), "beta".to_string()]
         );
         // Replace with a new set — old tags must be gone.
-        memory
-            .set_session_tags("s1", &["gamma".into()])
-            .unwrap();
-        assert_eq!(memory.session_tags("s1").unwrap(), vec!["gamma".to_string()]);
+        memory.set_session_tags("s1", &["gamma".into()]).unwrap();
+        assert_eq!(
+            memory.session_tags("s1").unwrap(),
+            vec!["gamma".to_string()]
+        );
     }
 
     #[test]
@@ -992,7 +1001,11 @@ mod tests {
         memory
             .index_session_with_tags(
                 "go-sess",
-                &[make_message("m2", MessageRole::User, "goroutine scheduling")],
+                &[make_message(
+                    "m2",
+                    MessageRole::User,
+                    "goroutine scheduling",
+                )],
                 "go",
                 &["language:go".into()],
             )
@@ -1020,9 +1033,7 @@ mod tests {
             .unwrap();
         assert!(go.is_empty());
         // Empty filter (Some(&[])) = match nothing.
-        let none = memory
-            .search_with_tags("borrowing", 10, Some(&[]))
-            .unwrap();
+        let none = memory.search_with_tags("borrowing", 10, Some(&[])).unwrap();
         assert!(none.is_empty());
     }
 

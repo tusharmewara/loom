@@ -22,7 +22,8 @@ pub fn load_ssh_key(source: &SshKeySource) -> anyhow::Result<String> {
             Ok(key)
         }
         SshKeySource::Pem(pem) => Ok(pem.clone()),
-        SshKeySource::Agent => anyhow::bail!("Use ssh-agent directly via the SSH connection manager"),
+        SshKeySource::Agent => {
+            anyhow::bail!("Use ssh-agent directly via the SSH connection manager")
+        }
     }
 }
-

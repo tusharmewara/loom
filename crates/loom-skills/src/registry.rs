@@ -20,7 +20,7 @@ impl SkillRegistry {
     pub fn new(loom_dir: &str) -> anyhow::Result<Self> {
         let skills_dir = Path::new(loom_dir).join("skills");
         std::fs::create_dir_all(&skills_dir)?;
-        
+
         let db_path = skills_dir.join("skills.db");
         let conn = loom_core::db::open(&db_path)?;
         conn.pragma_update(None, "foreign_keys", true.to_string())?;
@@ -58,23 +58,23 @@ impl SkillRegistry {
             CREATE INDEX IF NOT EXISTS idx_skill_content_id ON skill_content(skill_id);
         "#,
         )?;
-        
+
         let registry = SkillRegistry {
             db: Arc::new(Mutex::new(conn)),
             cache: RwLock::new(HashMap::new()),
         };
-        
+
         // Load existing skills into cache
         registry.refresh_cache()?;
-        
+
         Ok(registry)
     }
-    
+
     /// Refresh the in-memory cache from database
     pub fn refresh_cache(&self) -> anyhow::Result<()> {
         let mut cache = self.cache.write().unwrap();
         cache.clear();
-        
+
         let lock = loom_core::lock_ok!(self.db);
         let mut stmt = lock.prepare(
             r#"
@@ -85,7 +85,7 @@ impl SkillRegistry {
             ORDER BY s.name
         "#,
         )?;
-        
+
         let skill_iter = stmt.query_map([], |row| {
             Ok(SkillEntry {
                 name: row.get(0)?,
@@ -93,33 +93,35 @@ impl SkillRegistry {
                 path: row.get(2)?,
                 content_hash: row.get(3)?,
                 tags: serde_json::from_str(&row.get::<_, String>(4)?).unwrap_or_default(),
-                ecosystem_compatible: serde_json::from_str(&row.get::<_, String>(5)?).unwrap_or_default(),
-                ecosystem_requires: serde_json::from_str(&row.get::<_, String>(6)?).unwrap_or_default(),
+                ecosystem_compatible: serde_json::from_str(&row.get::<_, String>(5)?)
+                    .unwrap_or_default(),
+                ecosystem_requires: serde_json::from_str(&row.get::<_, String>(6)?)
+                    .unwrap_or_default(),
                 version: row.get(7)?,
                 last_modified: row.get(8)?,
             })
         })?;
-        
+
         for skill in skill_iter.flatten() {
             cache.insert(skill.name.clone(), skill);
         }
-        
+
         debug!(cache_size = cache.len(), "Refreshed skill registry cache");
         Ok(())
     }
-    
+
     /// List all skills
     pub fn list(&self) -> Vec<SkillEntry> {
         let cache = self.cache.read().unwrap();
         cache.values().cloned().collect()
     }
-    
+
     /// Get a skill by name
     pub fn get(&self, name: &str) -> Option<SkillEntry> {
         let cache = self.cache.read().unwrap();
         cache.get(name).cloned()
     }
-    
+
     /// Search skills by tag
     pub fn search_by_tag(&self, tag: &str) -> Vec<SkillEntry> {
         let cache = self.cache.read().unwrap();
@@ -129,7 +131,7 @@ impl SkillRegistry {
             .cloned()
             .collect()
     }
-    
+
     /// Search skills by ecosystem compatibility
     pub fn search_by_compatibility(&self, ecosystem: &str) -> Vec<SkillEntry> {
         let cache = self.cache.read().unwrap();
@@ -139,7 +141,7 @@ impl SkillRegistry {
             .cloned()
             .collect()
     }
-    
+
     /// Search skills by ecosystem requirement
     pub fn search_by_requirement(&self, requirement: &str) -> Vec<SkillEntry> {
         let cache = self.cache.read().unwrap();
@@ -149,7 +151,7 @@ impl SkillRegistry {
             .cloned()
             .collect()
     }
-    
+
     /// Add or update a skill
     pub fn upsert(&self, mut skill: SkillEntry) -> anyhow::Result<()> {
         // Calculate content hash if not provided
@@ -160,12 +162,12 @@ impl SkillRegistry {
                 skill.content_hash = format!("{:x}", hasher.finalize());
             }
         }
-        
+
         skill.last_modified = loom_core::rfc3339_now();
 
         let mut lock = loom_core::lock_ok!(self.db);
         let tx = lock.transaction()?;
-        
+
         // Upsert into skills table
         tx.execute(
             r#"
@@ -197,14 +199,14 @@ impl SkillRegistry {
                 skill.last_modified
             ],
         )?;
-        
+
         // Get the skill ID
         let skill_id: i64 = tx.query_row(
             "SELECT id FROM skills WHERE name = ?",
             params![skill.name],
             |row| row.get(0),
         )?;
-        
+
         // Upsert content (we'll store full content for now, could be split later)
         tx.execute(
             r#"
@@ -215,40 +217,38 @@ impl SkillRegistry {
             "#,
             params![skill_id, skill.description], // Store description as content for now
         )?;
-        
+
         tx.commit()?;
-        
+
         // Update cache
         let mut cache = self.cache.write().unwrap();
         cache.insert(skill.name.clone(), skill);
-        
+
         Ok(())
     }
-    
+
     /// Remove a skill by name
     pub fn remove(&self, name: &str) -> anyhow::Result<()> {
         let mut lock = loom_core::lock_ok!(self.db);
         let tx = lock.transaction()?;
-        
-        tx.execute(
-            "DELETE FROM skills WHERE name = ?",
-            params![name],
-        )?;
-        
+
+        tx.execute("DELETE FROM skills WHERE name = ?", params![name])?;
+
         tx.commit()?;
-        
+
         // Update cache
         let mut cache = self.cache.write().unwrap();
         cache.remove(name);
-        
+
         Ok(())
     }
-    
+
     /// Get skills modified since a given timestamp
     pub fn get_modified_since(&self, since: &str) -> Vec<SkillEntry> {
         let lock = loom_core::lock_ok!(self.db);
-        let mut stmt = lock.prepare(
-            r#"
+        let mut stmt = lock
+            .prepare(
+                r#"
             SELECT s.name, s.description, s.path, s.content_hash, 
                    s.tags, s.ecosystem_compatible, s.ecosystem_requires,
                    s.version, s.last_modified
@@ -256,30 +256,37 @@ impl SkillRegistry {
             WHERE s.updated_at > ?
             ORDER BY s.updated_at DESC
         "#,
-        ).unwrap();
-        
-        let skill_iter = stmt.query_map(params![since], |row| {
-            Ok(SkillEntry {
-                name: row.get(0)?,
-                description: row.get(1)?,
-                path: row.get(2)?,
-                content_hash: row.get(3)?,
-                tags: serde_json::from_str(&row.get::<_, String>(4)?).unwrap_or_default(),
-                ecosystem_compatible: serde_json::from_str(&row.get::<_, String>(5)?).unwrap_or_default(),
-                ecosystem_requires: serde_json::from_str(&row.get::<_, String>(6)?).unwrap_or_default(),
-                version: row.get(7)?,
-                last_modified: row.get(8)?,
+            )
+            .unwrap();
+
+        let skill_iter = stmt
+            .query_map(params![since], |row| {
+                Ok(SkillEntry {
+                    name: row.get(0)?,
+                    description: row.get(1)?,
+                    path: row.get(2)?,
+                    content_hash: row.get(3)?,
+                    tags: serde_json::from_str(&row.get::<_, String>(4)?).unwrap_or_default(),
+                    ecosystem_compatible: serde_json::from_str(&row.get::<_, String>(5)?)
+                        .unwrap_or_default(),
+                    ecosystem_requires: serde_json::from_str(&row.get::<_, String>(6)?)
+                        .unwrap_or_default(),
+                    version: row.get(7)?,
+                    last_modified: row.get(8)?,
+                })
             })
-        }).unwrap();
-        
+            .unwrap();
+
         skill_iter.filter_map(Result::ok).collect()
     }
-    
+
     /// Get total count of skills
     pub fn count(&self) -> usize {
         let lock = loom_core::lock_ok!(self.db);
-        lock.query_row("SELECT COUNT(*) FROM skills", [], |row| row.get::<_, i64>(0))
-            .unwrap_or(0) as usize
+        lock.query_row("SELECT COUNT(*) FROM skills", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap_or(0) as usize
     }
 }
 
@@ -294,7 +301,7 @@ impl Drop for SkillRegistry {
 mod tests {
     use super::*;
     use tempfile::tempdir;
-    
+
     #[test]
     fn test_registry_creation() -> anyhow::Result<()> {
         let dir = tempdir()?;
@@ -302,12 +309,12 @@ mod tests {
         assert_eq!(registry.count(), 0);
         Ok(())
     }
-    
+
     #[test]
     fn test_upsert_and_get() -> anyhow::Result<()> {
         let dir = tempdir()?;
         let registry = SkillRegistry::new(dir.path().to_str().unwrap())?;
-        
+
         let skill = SkillEntry {
             name: "test-skill".to_string(),
             description: "A test skill".to_string(),
@@ -319,23 +326,23 @@ mod tests {
             version: "1.0.0".to_string(),
             last_modified: "2023-01-01T00:00:00Z".to_string(),
         };
-        
+
         registry.upsert(skill.clone())?;
-        
+
         let retrieved = registry.get("test-skill").unwrap();
         assert_eq!(retrieved.name, "test-skill");
         assert_eq!(retrieved.description, "A test skill");
         assert_eq!(retrieved.tags, vec!["test", "example"]);
         assert_eq!(retrieved.ecosystem_compatible, vec!["loom"]);
-        
+
         Ok(())
     }
-    
+
     #[test]
     fn test_search_by_tag() -> anyhow::Result<()> {
         let dir = tempdir()?;
         let registry = SkillRegistry::new(dir.path().to_str().unwrap())?;
-        
+
         let skill1 = SkillEntry {
             name: "skill1".to_string(),
             description: "First skill".to_string(),
@@ -347,7 +354,7 @@ mod tests {
             version: "1.0.0".to_string(),
             last_modified: "2023-01-01T00:00:00Z".to_string(),
         };
-        
+
         let skill2 = SkillEntry {
             name: "skill2".to_string(),
             description: "Second skill".to_string(),
@@ -359,25 +366,25 @@ mod tests {
             version: "1.0.0".to_string(),
             last_modified: "2023-01-01T00:00:00Z".to_string(),
         };
-        
+
         registry.upsert(skill1)?;
         registry.upsert(skill2)?;
-        
+
         let rust_skills = registry.search_by_tag("rust");
         assert_eq!(rust_skills.len(), 1);
         assert_eq!(rust_skills[0].name, "skill1");
-        
+
         let backend_skills = registry.search_by_tag("backend");
         assert_eq!(backend_skills.len(), 2);
-        
+
         Ok(())
     }
-    
+
     #[test]
     fn test_remove() -> anyhow::Result<()> {
         let dir = tempdir()?;
         let registry = SkillRegistry::new(dir.path().to_str().unwrap())?;
-        
+
         let skill = SkillEntry {
             name: "removable-skill".to_string(),
             description: "To be removed".to_string(),
@@ -389,14 +396,14 @@ mod tests {
             version: "1.0.0".to_string(),
             last_modified: "2023-01-01T00:00:00Z".to_string(),
         };
-        
+
         registry.upsert(skill)?;
         assert_eq!(registry.count(), 1);
-        
+
         registry.remove("removable-skill")?;
         assert_eq!(registry.count(), 0);
         assert!(registry.get("removable-skill").is_none());
-        
+
         Ok(())
     }
 }

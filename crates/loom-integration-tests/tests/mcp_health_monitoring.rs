@@ -100,7 +100,12 @@ async fn test_mcp_health_monitor_multiple_servers() -> anyhow::Result<()> {
     for server in &servers {
         let status = checker.check_one(&server.id).await;
         assert!(status.is_some(), "Server {} should be checkable", server.id);
-        assert_eq!(status.unwrap(), HealthStatusStr::Healthy, "Server {} should be Healthy after check", server.id);
+        assert_eq!(
+            status.unwrap(),
+            HealthStatusStr::Healthy,
+            "Server {} should be Healthy after check",
+            server.id
+        );
     }
 
     println!("✅ MCP health monitoring correctly handles multiple servers");
@@ -134,14 +139,20 @@ async fn test_mcp_health_monitor_unregister_removes_from_tracking() -> anyhow::R
 
     // Verify registered
     let status_before = checker.status_of("unregister-test-server").await;
-    assert!(status_before.is_some(), "Server should be found before unregistering");
+    assert!(
+        status_before.is_some(),
+        "Server should be found before unregistering"
+    );
 
     // Unregister
     checker.unregister("unregister-test-server").await;
 
     // Verify unregistered
     let status_after = checker.status_of("unregister-test-server").await;
-    assert!(status_after.is_none(), "Server should not be found after unregistering");
+    assert!(
+        status_after.is_none(),
+        "Server should not be found after unregistering"
+    );
 
     println!("✅ MCP health monitoring correctly unregisters servers");
     Ok(())

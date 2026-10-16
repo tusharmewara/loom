@@ -28,23 +28,11 @@ fn build_status_spans<'a>(app: &App, theme: &Theme) -> Vec<Span<'a>> {
         .unwrap_or(false);
 
     if daemon_ok {
-        spans.push(Span::styled(
-            " ● ",
-            Style::default().fg(theme.success),
-        ));
-        spans.push(Span::styled(
-            "Daemon",
-            Style::default().fg(theme.success),
-        ));
+        spans.push(Span::styled(" ● ", Style::default().fg(theme.success)));
+        spans.push(Span::styled("Daemon", Style::default().fg(theme.success)));
     } else {
-        spans.push(Span::styled(
-            " ○ ",
-            Style::default().fg(theme.error),
-        ));
-        spans.push(Span::styled(
-            "Daemon",
-            Style::default().fg(theme.error),
-        ));
+        spans.push(Span::styled(" ○ ", Style::default().fg(theme.error)));
+        spans.push(Span::styled("Daemon", Style::default().fg(theme.error)));
     }
 
     spans.push(Span::styled(" │ ", theme.text_dim));
@@ -58,9 +46,17 @@ fn build_status_spans<'a>(app: &App, theme: &Theme) -> Vec<Span<'a>> {
 
     // Use aggregated resource counts from status for consistency
     let resource_counts = app.status.pointer("/resources/counts");
-    let skill_count = resource_counts.and_then(|c| c.pointer("/skills").and_then(Value::as_u64)).unwrap_or(0);
-    let mcp_count = resource_counts.and_then(|c| c.pointer("/mcp_servers").and_then(Value::as_u64)).unwrap_or(0);
-    let task_count = app.workflow.pointer("/count").and_then(Value::as_u64).unwrap_or(0);
+    let skill_count = resource_counts
+        .and_then(|c| c.pointer("/skills").and_then(Value::as_u64))
+        .unwrap_or(0);
+    let mcp_count = resource_counts
+        .and_then(|c| c.pointer("/mcp_servers").and_then(Value::as_u64))
+        .unwrap_or(0);
+    let task_count = app
+        .workflow
+        .pointer("/count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
 
     spans.push(Span::styled("Tools:", theme.text_dim));
     spans.push(Span::styled(format!("{} ", tool_count), theme.text));

@@ -202,9 +202,8 @@ impl McpRegistry {
     /// Count total entries.
     pub fn count(&self) -> Result<usize> {
         let conn = loom_core::lock_ok!(self.conn);
-        let count: usize = conn.query_row("SELECT COUNT(*) FROM mcp_servers", [], |row| {
-            row.get(0)
-        })?;
+        let count: usize =
+            conn.query_row("SELECT COUNT(*) FROM mcp_servers", [], |row| row.get(0))?;
         Ok(count)
     }
 
@@ -247,11 +246,10 @@ impl McpRegistry {
     pub fn update_health(&self, id: &str, status: &HealthStatusStr) -> Result<bool> {
         let health = serde_json::to_string(status)?;
         let conn = loom_core::lock_ok!(self.conn);
-        let affected =
-            conn.execute(
-                "UPDATE mcp_servers SET health_status = ?1 WHERE id = ?2",
-                params![health, id],
-            )?;
+        let affected = conn.execute(
+            "UPDATE mcp_servers SET health_status = ?1 WHERE id = ?2",
+            params![health, id],
+        )?;
 
         if affected > 0 {
             let mut stmt = conn.prepare("SELECT data FROM mcp_servers WHERE id = ?1")?;
@@ -311,9 +309,8 @@ impl McpRegistry {
     /// Get process state for a server.
     pub fn get_process_state(&self, server_id: &str) -> Result<Option<(String, Option<i32>)>> {
         let conn = loom_core::lock_ok!(self.conn);
-        let mut stmt = conn.prepare(
-            "SELECT state, pid FROM mcp_process_state WHERE server_id = ?1",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT state, pid FROM mcp_process_state WHERE server_id = ?1")?;
         let mut rows = stmt.query(params![server_id])?;
         match rows.next()? {
             Some(row) => {
@@ -575,9 +572,9 @@ mod tests {
     fn test_update_health() {
         let reg = McpRegistry::in_memory().unwrap();
         reg.upsert(&sample_entry("srv-1", "Test")).unwrap();
-        assert!(
-            reg.update_health("srv-1", &HealthStatusStr::Healthy).unwrap()
-        );
+        assert!(reg
+            .update_health("srv-1", &HealthStatusStr::Healthy)
+            .unwrap());
         let entry = reg.get("srv-1").unwrap().unwrap();
         assert!(matches!(entry.health_status, HealthStatusStr::Healthy));
     }
@@ -589,7 +586,8 @@ mod tests {
 
         reg.upsert(&entry).unwrap();
 
-        reg.set_process_state("srv-1", "running", Some(1234)).unwrap();
+        reg.set_process_state("srv-1", "running", Some(1234))
+            .unwrap();
         let state = reg.get_process_state("srv-1").unwrap();
         assert!(state.is_some());
         let (state_val, pid_val) = state.unwrap();
@@ -603,7 +601,8 @@ mod tests {
         let entry = sample_entry("srv-1", "ResetTest");
         reg.upsert(&entry).unwrap();
 
-        reg.set_process_state("srv-1", "running", Some(1234)).unwrap();
+        reg.set_process_state("srv-1", "running", Some(1234))
+            .unwrap();
         reg.reset_process_state().unwrap();
 
         let state = reg.get_process_state("srv-1").unwrap();

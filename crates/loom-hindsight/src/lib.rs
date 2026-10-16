@@ -19,8 +19,8 @@
 //! - `preference` — user preferences
 
 use anyhow::Result;
-use loom_core::lock_ok;
 use chrono::{DateTime, Utc};
+use loom_core::lock_ok;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -190,7 +190,8 @@ impl Hindsight {
              JOIN facts f ON f.rowid = facts_fts.rowid
              WHERE facts_fts MATCH ?1
              ORDER BY score
-             LIMIT ?2".to_string();
+             LIMIT ?2"
+            .to_string();
 
         let mut stmt = db.prepare(&sql)?;
         let results = stmt
@@ -285,10 +286,7 @@ impl Hindsight {
     /// Delete a fact by ID.
     pub fn delete(&self, id: &str) -> Result<bool> {
         let db = lock_ok!(self.db);
-        let affected = db.execute(
-            "DELETE FROM facts WHERE id = ?1",
-            params![id],
-        )?;
+        let affected = db.execute("DELETE FROM facts WHERE id = ?1", params![id])?;
         // Delete from FTS as well (the sync trigger handles it, but also do explicitly)
         db.execute(
             "DELETE FROM facts_fts WHERE rowid = (SELECT rowid FROM facts WHERE id = ?1)",
@@ -345,7 +343,12 @@ mod tests {
         let h = Hindsight::open_in_memory().unwrap();
 
         let id = h
-            .retain("The API uses OAuth2 for authentication", "decision", "test", 0.8)
+            .retain(
+                "The API uses OAuth2 for authentication",
+                "decision",
+                "test",
+                0.8,
+            )
             .unwrap();
         assert!(!id.is_empty());
 
@@ -386,12 +389,27 @@ mod tests {
     #[test]
     fn test_reflect_with_mixed_types() {
         let h = Hindsight::open_in_memory().unwrap();
-        h.retain("Use Rust for performance-critical paths", "decision", "arch", 0.9)
-            .unwrap();
-        h.retain("Connection pooling improves throughput by 3x", "insight", "bench", 0.7)
-            .unwrap();
-        h.retain("Factory pattern for creating protocol handlers", "pattern", "dev", 0.6)
-            .unwrap();
+        h.retain(
+            "Use Rust for performance-critical paths",
+            "decision",
+            "arch",
+            0.9,
+        )
+        .unwrap();
+        h.retain(
+            "Connection pooling improves throughput by 3x",
+            "insight",
+            "bench",
+            0.7,
+        )
+        .unwrap();
+        h.retain(
+            "Factory pattern for creating protocol handlers",
+            "pattern",
+            "dev",
+            0.6,
+        )
+        .unwrap();
 
         let reflection = h.reflect("Rust performance").unwrap();
         assert!(reflection.contains("found 1 relevant fact(s)"));
@@ -471,7 +489,9 @@ mod tests {
     #[test]
     fn test_retain_with_custom_type() {
         let h = Hindsight::open_in_memory().unwrap();
-        let _id = h.retain("custom typed fact", "my-custom-type", "my-tool", 0.5).unwrap();
+        let _id = h
+            .retain("custom typed fact", "my-custom-type", "my-tool", 0.5)
+            .unwrap();
         let results = h.list_by_type("my-custom-type", 10).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].source, "my-tool");

@@ -59,11 +59,7 @@ impl PlanParser {
             }
         }
         for task in &plan.tasks {
-            if let Some(dep) = task
-                .depends_on
-                .iter()
-                .find(|d| !seen.contains(*d))
-            {
+            if let Some(dep) = task.depends_on.iter().find(|d| !seen.contains(*d)) {
                 anyhow::bail!("task '{}' depends on unknown task '{}'", task.id, dep);
             }
         }

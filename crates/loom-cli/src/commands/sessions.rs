@@ -10,19 +10,17 @@ fn extract_to_knowledge(loom_dir: &Path, session_id: &str, messages: &[loom_core
         return;
     }
     match loom_knowledge::KnowledgeGraph::new(loom_dir.to_str().unwrap()) {
-        Ok(kg) => {
-            match kg.extract_from_messages(messages, session_id) {
-                Ok((entities, rels)) => {
-                    if entities > 0 || rels > 0 {
-                        println!(
-                            "  Extracted {} entities, {} relationships into knowledge graph",
-                            entities, rels
-                        );
-                    }
+        Ok(kg) => match kg.extract_from_messages(messages, session_id) {
+            Ok((entities, rels)) => {
+                if entities > 0 || rels > 0 {
+                    println!(
+                        "  Extracted {} entities, {} relationships into knowledge graph",
+                        entities, rels
+                    );
                 }
-                Err(e) => eprintln!("  Warning: knowledge extraction failed: {e}"),
             }
-        }
+            Err(e) => eprintln!("  Warning: knowledge extraction failed: {e}"),
+        },
         Err(e) => eprintln!("  Warning: could not open knowledge graph: {e}"),
     }
 }
@@ -45,32 +43,37 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                 let memory = CrossSessionMemory::new(loom_dir.to_str().unwrap())?;
                 let allowed = memory.session_ids_with_tags(Some(tag))?;
                 let allowed = allowed.unwrap_or_default();
-                let allowed_set: std::collections::HashSet<String> =
-                    allowed.into_iter().collect();
+                let allowed_set: std::collections::HashSet<String> = allowed.into_iter().collect();
                 manifests
                     .into_iter()
                     .filter(|m| allowed_set.contains(&m.session_id))
                     .collect()
             };
             if *json {
-                let sessions: Vec<_> = filtered.iter().map(|m| {
-                    serde_json::json!({
-                        "session_id": m.session_id,
-                        "source_tool": m.source_tool,
-                        "message_count": m.message_count,
-                        "topic": m.topic,
-                        "tags": m.tags,
-                        "exported_at": m.exported_at,
-                        "source_version": m.source_version,
-                        "working_directory": m.working_directory,
+                let sessions: Vec<_> = filtered
+                    .iter()
+                    .map(|m| {
+                        serde_json::json!({
+                            "session_id": m.session_id,
+                            "source_tool": m.source_tool,
+                            "message_count": m.message_count,
+                            "topic": m.topic,
+                            "tags": m.tags,
+                            "exported_at": m.exported_at,
+                            "source_version": m.source_version,
+                            "working_directory": m.working_directory,
+                        })
                     })
-                }).collect();
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "schema_version": 1,
-                    "command": "sessions.list",
-                    "count": sessions.len(),
-                    "sessions": sessions
-                }))?);
+                    .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "command": "sessions.list",
+                        "count": sessions.len(),
+                        "sessions": sessions
+                    }))?
+                );
             } else {
                 for manifest in &filtered {
                     let tag_str = if manifest.tags.is_empty() {
@@ -82,10 +85,7 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                         Some(n) if n > 0 => format!(
                             "  summary=[{} folded, last_summary={}]",
                             n,
-                            manifest
-                                .summarized_at
-                                .as_deref()
-                                .unwrap_or("?")
+                            manifest.summarized_at.as_deref().unwrap_or("?")
                         ),
                         _ => String::new(),
                     };
@@ -113,11 +113,14 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                 .get(id)
                 .ok_or_else(|| anyhow::anyhow!("Session '{id}' not found"))?;
             if *json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "schema_version": 1,
-                    "command": "sessions.show",
-                    "session": manifest
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "command": "sessions.show",
+                        "session": manifest
+                    }))?
+                );
             } else {
                 println!("{}", serde_json::to_string_pretty(&manifest)?);
             }
@@ -150,7 +153,10 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                         ) {
                             eprintln!("  Warning: failed to index session in memory: {e}");
                         } else {
-                            println!("  Indexed {} messages into cross-session memory", messages.len());
+                            println!(
+                                "  Indexed {} messages into cross-session memory",
+                                messages.len()
+                            );
                         }
                         // Auto-extract entities/relationships into knowledge graph
                         extract_to_knowledge(loom_dir, id, &messages);
@@ -181,7 +187,12 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
             )
             .await?;
         }
-        SessionsAction::Search { query, limit, json, tag } => {
+        SessionsAction::Search {
+            query,
+            limit,
+            json,
+            tag,
+        } => {
             let memory = CrossSessionMemory::new(loom_dir.to_str().unwrap())?;
             let filter_slice: Option<Vec<String>> = if tag.is_empty() {
                 None
@@ -191,26 +202,36 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
             let results = memory.search_with_tags(query, *limit, filter_slice.as_deref())?;
 
             if *json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "schema_version": 1,
-                    "command": "sessions.search",
-                    "query": query,
-                    "tag_filter": tag,
-                    "count": results.len(),
-                    "results": results,
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "command": "sessions.search",
+                        "query": query,
+                        "tag_filter": tag,
+                        "count": results.len(),
+                        "results": results,
+                    }))?
+                );
             } else {
                 if results.is_empty() {
                     if tag.is_empty() {
                         println!("No results found for query: {query}");
                     } else {
-                        println!("No results found for query '{query}' with tag filter: {}", tag.join(","));
+                        println!(
+                            "No results found for query '{query}' with tag filter: {}",
+                            tag.join(",")
+                        );
                     }
                 } else {
                     let header = if tag.is_empty() {
                         format!("Cross-session search results for '{}':", query)
                     } else {
-                        format!("Cross-session search results for '{}' (tags: {}):", query, tag.join(","))
+                        format!(
+                            "Cross-session search results for '{}' (tags: {}):",
+                            query,
+                            tag.join(",")
+                        )
                     };
                     println!("{header}");
                     for (i, hit) in results.iter().enumerate() {
@@ -225,7 +246,12 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                 }
             }
         }
-        SessionsAction::Recall { query, limit, json, tag } => {
+        SessionsAction::Recall {
+            query,
+            limit,
+            json,
+            tag,
+        } => {
             let memory = CrossSessionMemory::new(loom_dir.to_str().unwrap())?;
             let filter_slice: Option<Vec<String>> = if tag.is_empty() {
                 None
@@ -235,26 +261,36 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
             let results = memory.recall_with_tags(query, *limit, filter_slice.as_deref())?;
 
             if *json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "schema_version": 1,
-                    "command": "sessions.recall",
-                    "query": query,
-                    "tag_filter": tag,
-                    "count": results.len(),
-                    "results": results,
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "command": "sessions.recall",
+                        "query": query,
+                        "tag_filter": tag,
+                        "count": results.len(),
+                        "results": results,
+                    }))?
+                );
             } else {
                 if results.is_empty() {
                     if tag.is_empty() {
                         println!("No sessions recalled for query: {query}");
                     } else {
-                        println!("No sessions recalled for query '{query}' with tag filter: {}", tag.join(","));
+                        println!(
+                            "No sessions recalled for query '{query}' with tag filter: {}",
+                            tag.join(",")
+                        );
                     }
                 } else {
                     let header = if tag.is_empty() {
                         format!("Recalled sessions for '{}':", query)
                     } else {
-                        format!("Recalled sessions for '{}' (tags: {}):", query, tag.join(","))
+                        format!(
+                            "Recalled sessions for '{}' (tags: {}):",
+                            query,
+                            tag.join(",")
+                        )
                     };
                     println!("{header}");
                     for (i, r) in results.iter().enumerate() {
@@ -302,9 +338,17 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                     }
                 }
             }
-            println!("Indexed {} messages from {} sessions", total, manifests.len());
+            println!(
+                "Indexed {} messages from {} sessions",
+                total,
+                manifests.len()
+            );
         }
-        SessionsAction::Branch { id, from, checkpoint } => {
+        SessionsAction::Branch {
+            id,
+            from,
+            checkpoint,
+        } => {
             cmd_branch(loom_dir, store, id, from, *checkpoint)?;
         }
         SessionsAction::Tag { id, add, remove } => {
@@ -373,22 +417,32 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
             let memory = CrossSessionMemory::new(loom_dir.to_str().unwrap())?;
             let facets = memory.tag_facets()?;
             if *json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "schema_version": 1,
-                    "command": "sessions.tags",
-                    "count": facets.len(),
-                    "tags": facets.into_iter().map(|(t, n)| serde_json::json!({
-                        "tag": t,
-                        "session_count": n,
-                    })).collect::<Vec<_>>()
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "command": "sessions.tags",
+                        "count": facets.len(),
+                        "tags": facets.into_iter().map(|(t, n)| serde_json::json!({
+                            "tag": t,
+                            "session_count": n,
+                        })).collect::<Vec<_>>()
+                    }))?
+                );
             } else {
                 if facets.is_empty() {
-                    println!("No tags indexed yet. Use `loom sessions tag <id> --add <t>` to add tags.");
+                    println!(
+                        "No tags indexed yet. Use `loom sessions tag <id> --add <t>` to add tags."
+                    );
                 } else {
                     println!("Tags in cross-session memory:");
                     for (tag, n) in &facets {
-                        println!("  {:<32}  {} session{}", tag, n, if *n == 1 { "" } else { "s" });
+                        println!(
+                            "  {:<32}  {} session{}",
+                            tag,
+                            n,
+                            if *n == 1 { "" } else { "s" }
+                        );
                     }
                 }
             }
@@ -408,17 +462,20 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
             }
             if !force && pre_count as usize <= loom_core::SESSION_COMPRESSION_THRESHOLD {
                 if *json {
-                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                        "schema_version": 1,
-                        "command": "sessions.summarize",
-                        "session_id": id,
-                        "status": "skipped",
-                        "reason": format!(
-                            "message_count ({pre_count}) is at or below threshold ({})",
-                            loom_core::SESSION_COMPRESSION_THRESHOLD
-                        ),
-                        "message_count": pre_count,
-                    }))?);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "schema_version": 1,
+                            "command": "sessions.summarize",
+                            "session_id": id,
+                            "status": "skipped",
+                            "reason": format!(
+                                "message_count ({pre_count}) is at or below threshold ({})",
+                                loom_core::SESSION_COMPRESSION_THRESHOLD
+                            ),
+                            "message_count": pre_count,
+                        }))?
+                    );
                 } else {
                     println!(
                         "Session '{id}' has {pre_count} messages (threshold: {}). No compression needed. Use --force to override.",
@@ -440,22 +497,27 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                     if let Err(e) =
                         memory.index_session_with_tags(id, &msgs, &post.topic, &post.tags)
                     {
-                        eprintln!("  Warning: failed to re-index compressed session in memory: {e}");
+                        eprintln!(
+                            "  Warning: failed to re-index compressed session in memory: {e}"
+                        );
                     }
                 }
             }
             if *json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "schema_version": 1,
-                    "command": "sessions.summarize",
-                    "session_id": id,
-                    "status": if outcome.is_some() { "compressed" } else { "no_op" },
-                    "folded_count": outcome,
-                    "pre_compress_count": pre_count,
-                    "post_compress_count": post.message_count,
-                    "summarized_at": post.summarized_at,
-                    "summarized_message_count": post.summarized_message_count,
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "command": "sessions.summarize",
+                        "session_id": id,
+                        "status": if outcome.is_some() { "compressed" } else { "no_op" },
+                        "folded_count": outcome,
+                        "pre_compress_count": pre_count,
+                        "post_compress_count": post.message_count,
+                        "summarized_at": post.summarized_at,
+                        "summarized_message_count": post.summarized_message_count,
+                    }))?
+                );
             } else {
                 match outcome {
                     Some(folded) => {
@@ -474,10 +536,16 @@ pub async fn run(loom_dir: &Path, action: &SessionsAction) -> anyhow::Result<()>
                         println!("Compressed session '{id}': folded {folded} earlier message{} into a single summary, kept {kept} message{} verbatim.",
                             if folded == 1 { "" } else { "s" },
                             if kept == 1 { "" } else { "s" });
-                        println!("  summarized_at: {}", post.summarized_at.as_deref().unwrap_or("?"));
+                        println!(
+                            "  summarized_at: {}",
+                            post.summarized_at.as_deref().unwrap_or("?")
+                        );
                     }
                     None => {
-                        println!("No compression needed for '{id}' (message_count={}).", pre_count);
+                        println!(
+                            "No compression needed for '{id}' (message_count={}).",
+                            pre_count
+                        );
                     }
                 }
             }
@@ -517,20 +585,20 @@ fn cmd_merge(
         store.append_message(dest, msg)?;
     }
 
-    let dest_after = store
-        .get(dest)
-        .map(|m| m.message_count)
-        .unwrap_or(0);
+    let dest_after = store.get(dest).map(|m| m.message_count).unwrap_or(0);
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-            "schema_version": 1,
-            "command": "sessions.merge",
-            "dest": dest,
-            "source": source,
-            "source_messages_merged": source_count,
-            "dest_message_count_after": dest_after,
-        }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "schema_version": 1,
+                "command": "sessions.merge",
+                "dest": dest,
+                "source": source,
+                "source_messages_merged": source_count,
+                "dest_message_count_after": dest_after,
+            }))?
+        );
     } else {
         println!("✓ Merged {source_count} message(s) from '{source}' into '{dest}'");
         println!("  '{dest}' now has {dest_after} message(s)");
@@ -569,19 +637,19 @@ fn cmd_branch(
     let branch_messages: Vec<_> = messages.into_iter().take(cp).collect();
 
     // Generate new session ID
-    let branch_id = new_id
-        .clone()
-        .unwrap_or_else(|| format!("{}-branch-{}", from_id, uuid::Uuid::new_v4().to_string().split('-').next().unwrap()));
+    let branch_id = new_id.clone().unwrap_or_else(|| {
+        format!(
+            "{}-branch-{}",
+            from_id,
+            uuid::Uuid::new_v4().to_string().split('-').next().unwrap()
+        )
+    });
 
     // Create branch manifest (clone source then override)
     let mut branch_manifest = source_manifest.clone();
     branch_manifest.session_id = branch_id.clone();
     branch_manifest.message_count = branch_messages.len() as u32;
-    branch_manifest.topic = format!(
-        "Branch of '{}' at message {}",
-        source_manifest.topic,
-        cp,
-    );
+    branch_manifest.topic = format!("Branch of '{}' at message {}", source_manifest.topic, cp,);
     branch_manifest.exported_at = chrono::Utc::now().to_rfc3339();
     // Inherit tags from the source session so a branch stays filterable
     // under the same tags. If you branch with the intent of starting a

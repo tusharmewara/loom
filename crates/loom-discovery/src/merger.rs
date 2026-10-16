@@ -28,7 +28,9 @@ pub enum ResourceType {
 
 impl ResourceMerger {
     pub fn new(loom_dir: &str) -> Self {
-        Self { loom_dir: loom_dir.to_string() }
+        Self {
+            loom_dir: loom_dir.to_string(),
+        }
     }
 
     /// Resolve all conflicts across resource types.
@@ -46,7 +48,10 @@ impl ResourceMerger {
     }
 
     /// Detect skills that exist in both a tool's native dir and the shared skills dir.
-    fn detect_skill_conflicts(&self, strategy: &ConflictResolution) -> anyhow::Result<Vec<Conflict>> {
+    fn detect_skill_conflicts(
+        &self,
+        strategy: &ConflictResolution,
+    ) -> anyhow::Result<Vec<Conflict>> {
         let mut conflicts = Vec::new();
         let shared_skills = Path::new(&self.loom_dir).join("skills");
         if !shared_skills.exists() {
@@ -71,7 +76,8 @@ impl ResourceMerger {
 
                     // Check if tool has a [skills] section
                     if let Some(skills) = toml_value.get("skills") {
-                        if let Some(native_dir) = skills.get("native_dir").and_then(|v| v.as_str()) {
+                        if let Some(native_dir) = skills.get("native_dir").and_then(|v| v.as_str())
+                        {
                             let expanded = shellexpand::tilde(native_dir).to_string();
                             let native_path = Path::new(&expanded);
                             if native_path.exists() {
@@ -81,17 +87,29 @@ impl ResourceMerger {
                                     if native_entry.path().is_dir() {
                                         if let Some(name) = native_entry.file_name().to_str() {
                                             if shared_names.contains(name) {
-                                                let _tool_name = toml_value.get("tool")
+                                                let _tool_name = toml_value
+                                                    .get("tool")
                                                     .and_then(|t| t.get("name"))
                                                     .and_then(|v| v.as_str())
                                                     .unwrap_or("unknown");
 
-                                                let resolved = matches!(strategy, ConflictResolution::NativeFirst);
+                                                let resolved = matches!(
+                                                    strategy,
+                                                    ConflictResolution::NativeFirst
+                                                );
                                                 conflicts.push(Conflict {
                                                     resource_name: name.to_string(),
                                                     resource_type: ResourceType::Skill,
-                                                    native_path: native_entry.path().to_str().unwrap_or("").to_string(),
-                                                    shared_path: shared_skills.join(name).to_str().unwrap_or("").to_string(),
+                                                    native_path: native_entry
+                                                        .path()
+                                                        .to_str()
+                                                        .unwrap_or("")
+                                                        .to_string(),
+                                                    shared_path: shared_skills
+                                                        .join(name)
+                                                        .to_str()
+                                                        .unwrap_or("")
+                                                        .to_string(),
                                                     resolved,
                                                     strategy: Some(strategy.clone()),
                                                 });

@@ -23,7 +23,14 @@ pub fn draw_dispatch_menu(frame: &mut Frame, area: Rect, app: &App, theme: &Them
 
     let dispatchers: [(&str, char, bool); 4] = [
         ("Terminal Launch", 't', true),
-        ("ACP Dispatch", 'a', app.status.pointer("/daemon/reachable").and_then(|v| v.as_bool()).unwrap_or(false)),
+        (
+            "ACP Dispatch",
+            'a',
+            app.status
+                .pointer("/daemon/reachable")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        ),
         ("Embedded Pane", 'e', true),
         ("Runtime Dispatch", 'r', true),
     ];

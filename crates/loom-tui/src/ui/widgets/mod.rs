@@ -1,9 +1,9 @@
-mod status_bar;
-mod sidebar;
 mod scrollbar;
+mod sidebar;
+mod status_bar;
 mod tab_bar;
 
-pub use status_bar::*;
-pub use sidebar::*;
 pub use scrollbar::*;
+pub use sidebar::*;
+pub use status_bar::*;
 pub use tab_bar::*;

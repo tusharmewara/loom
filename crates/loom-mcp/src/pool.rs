@@ -134,7 +134,11 @@ impl McpPool {
                 server_id, pooled.refcount
             );
             if let Some(reg) = self.registry.upgrade() {
-                reg.inner().set_process_state(server_id, "running", pooled.child.as_ref().map(|c| c.id() as i32))?;
+                reg.inner().set_process_state(
+                    server_id,
+                    "running",
+                    pooled.child.as_ref().map(|c| c.id() as i32),
+                )?;
                 reg.inner().increment_refcount(server_id)?;
             }
             return Ok(());
@@ -144,10 +148,7 @@ impl McpPool {
         let child = spawn_process(entry)
             .with_context(|| format!("Failed to spawn MCP server '{}'", server_id))?;
         let pid = child.id();
-        info!(
-            "Pool: spawned MCP server '{}' (pid {})",
-            server_id, pid
-        );
+        info!("Pool: spawned MCP server '{}' (pid {})", server_id, pid);
 
         map.insert(
             server_id.to_string(),
@@ -159,7 +160,8 @@ impl McpPool {
 
         // Update registry state
         if let Some(reg) = self.registry.upgrade() {
-            reg.inner().set_process_state(server_id, "running", Some(pid as i32))?;
+            reg.inner()
+                .set_process_state(server_id, "running", Some(pid as i32))?;
             reg.inner().increment_refcount(server_id)?;
         }
 
@@ -262,9 +264,7 @@ impl McpPool {
                 // Mark this process terminated in the shared registry.
                 if let Some(reg) = self.registry.upgrade() {
                     had_registry = true;
-                    let _ = reg
-                        .inner()
-                        .set_process_state(id, "terminated", None);
+                    let _ = reg.inner().set_process_state(id, "terminated", None);
                 }
             }
         }

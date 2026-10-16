@@ -15,7 +15,12 @@ use std::path::Path;
 ///
 /// When `--recommended` is passed, also installs recommended MCP servers
 /// (filesystem, github, playwright, agentmemory) into the registry.
-pub async fn run(_import: bool, recommended: bool, source: Option<&str>, loom_dir: &str) -> Result<()> {
+pub async fn run(
+    _import: bool,
+    recommended: bool,
+    source: Option<&str>,
+    loom_dir: &str,
+) -> Result<()> {
     // 1. Create the full directory tree
     let builder = SnapshotBuilder::new(loom_dir);
     builder
@@ -25,13 +30,12 @@ pub async fn run(_import: bool, recommended: bool, source: Option<&str>, loom_di
 
     // 2. Initialize the SQLite snapshot schema (idempotent)
     let db = SnapshotDb::new(loom_dir);
-    db.initialize_schema()
-        .with_context(|| {
-            format!(
-                "Failed to initialize snapshot database schema at {}/.cache/snapshot.db",
-                loom_dir
-            )
-        })?;
+    db.initialize_schema().with_context(|| {
+        format!(
+            "Failed to initialize snapshot database schema at {}/.cache/snapshot.db",
+            loom_dir
+        )
+    })?;
 
     // 3. Write a default config.toml if one doesn't exist
     let config_path = Path::new(loom_dir).join("config.toml");
@@ -46,8 +50,8 @@ pub async fn run(_import: bool, recommended: bool, source: Option<&str>, loom_di
             }
             config.remote_config_url = Some(url.to_string());
         }
-        let toml_str = toml::to_string_pretty(&config)
-            .context("Failed to serialize default config")?;
+        let toml_str =
+            toml::to_string_pretty(&config).context("Failed to serialize default config")?;
         std::fs::write(&config_path, toml_str)
             .with_context(|| format!("Failed to write {config_path:?}"))?;
         if source.is_some() {
@@ -130,7 +134,10 @@ pub async fn run(_import: bool, recommended: bool, source: Option<&str>, loom_di
 fn merge_remote_config_url(config_path: &Path, url: &str) -> Result<()> {
     let raw = std::fs::read_to_string(config_path)
         .with_context(|| format!("Failed to read {config_path:?}"))?;
-    if raw.lines().any(|l| l.trim_start().starts_with("remote_config_url")) {
+    if raw
+        .lines()
+        .any(|l| l.trim_start().starts_with("remote_config_url"))
+    {
         let updated: String = raw
             .lines()
             .map(|l| {
@@ -241,8 +248,7 @@ fn write_overlay_templates(loom_dir: &str) -> Result<()> {
     for (filename, content) in &overlays {
         let path = config_dir.join(filename);
         if !path.exists() {
-            std::fs::write(&path, content)
-                .with_context(|| format!("Failed to write {path:?}"))?;
+            std::fs::write(&path, content).with_context(|| format!("Failed to write {path:?}"))?;
         }
     }
 
@@ -302,12 +308,17 @@ mod tests {
         // Pre-populate a skill and tool TOML
         let skill_dir = dir.path().join("skills").join("test-skill");
         std::fs::create_dir_all(&skill_dir).unwrap();
-        std::fs::write(skill_dir.join("SKILL.md"), "# Test Skill\n\nDo something useful.\n").unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "# Test Skill\n\nDo something useful.\n",
+        )
+        .unwrap();
         std::fs::create_dir_all(dir.path().join("tools")).unwrap();
         std::fs::write(
             dir.path().join("tools").join("cursor.toml"),
             "[tool]\nname = \"cursor\"\nversion = \"0.45.0\"\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         // Run with --import
         run(true, false, None, loom_dir).await.unwrap();
@@ -329,7 +340,10 @@ mod tests {
         // Registry should contain the recommended MCP servers
         let registry = loom_mcp::McpRegistry::new(loom_dir).unwrap();
         let n_recommended = loom_mcp::known::recommended().len();
-        assert!(n_recommended >= 4, "expected at least 4 recommended servers"); // filesystem, github, playwright, agentmemory
+        assert!(
+            n_recommended >= 4,
+            "expected at least 4 recommended servers"
+        ); // filesystem, github, playwright, agentmemory
         assert_eq!(registry.count().unwrap(), n_recommended);
     }
 }

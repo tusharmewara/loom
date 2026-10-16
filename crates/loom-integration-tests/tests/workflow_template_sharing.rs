@@ -35,34 +35,47 @@ async fn test_workflow_template_sharing_between_tools() -> anyhow::Result<()> {
 
     // Verify template is saved and can be loaded
     let loaded_template = template_manager.get(template_name);
-    assert!(loaded_template.is_some(), "Template should be saved and loadable");
+    assert!(
+        loaded_template.is_some(),
+        "Template should be saved and loadable"
+    );
     let template_ref = loaded_template.unwrap();
     assert_eq!(template_ref.name, template_name);
-    assert_eq!(template_ref.description, "Template for fixing bugs".to_string());
+    assert_eq!(
+        template_ref.description,
+        "Template for fixing bugs".to_string()
+    );
     assert_eq!(template_ref.default_agent.as_deref(), Some("jcode"));
 
     // Now simulate importing the template into claude-code
     // In reality, this would happen through the shared ~/.loom/workflow/templates/ directory
     let claude_template_manager = TemplateManager::new(agents_path);
     let claude_loaded = claude_template_manager.get(template_name);
-    assert!(claude_loaded.is_some(), "Template should be accessible from claude-code");
+    assert!(
+        claude_loaded.is_some(),
+        "Template should be accessible from claude-code"
+    );
     let claude_template = claude_loaded.unwrap();
     assert_eq!(claude_template.name, template_name);
-    assert_eq!(claude_template.default_title, Some("Fix: {issue_title}".to_string()));
+    assert_eq!(
+        claude_template.default_title,
+        Some("Fix: {issue_title}".to_string())
+    );
 
     // Test that we can create a task from the template in both tools
-    let jcode_task = workflow_engine
-        .orchestrator()
-        .create_task(
-            "Fix login issue",
-            "Users unable to login after password reset",
-            false,
-            None,
-        )?;
+    let jcode_task = workflow_engine.orchestrator().create_task(
+        "Fix login issue",
+        "Users unable to login after password reset",
+        false,
+        None,
+    )?;
 
     // Verify task was created with template defaults
     assert_eq!(jcode_task.title, "Fix login issue");
-    assert_eq!(jcode_task.description, "Users unable to login after password reset");
+    assert_eq!(
+        jcode_task.description,
+        "Users unable to login after password reset"
+    );
     assert_eq!(jcode_task.routed_provider, None); // Would be set by routing
 
     // Test template listing
@@ -118,7 +131,10 @@ async fn test_workflow_template_update_propagation() -> anyhow::Result<()> {
     assert_eq!(updated.description, "Updated template from claude-code");
     assert_eq!(updated.default_title.as_deref(), Some("Updated: {title}"));
     assert_eq!(updated.default_agent.as_deref(), Some("claude-code"));
-    assert_eq!(updated.default_description.as_deref(), Some("This description was updated"));
+    assert_eq!(
+        updated.default_description.as_deref(),
+        Some("This description was updated")
+    );
 
     println!("✅ Workflow template updates propagate correctly between tools");
     Ok(())

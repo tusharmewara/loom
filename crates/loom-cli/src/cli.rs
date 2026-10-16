@@ -152,9 +152,7 @@ pub enum Command {
         json: bool,
     },
     /// Add an agentic tool from the ACP registry (cdn.agentclientprotocol.com)
-    AddAcpAgent {
-        agent_id: String,
-    },
+    AddAcpAgent { agent_id: String },
     /// Launch the terminal UI dashboard
     #[cfg(feature = "tui")]
     Tui,
@@ -343,9 +341,7 @@ pub enum RemoteAction {
         jump: Option<String>,
     },
     /// Remove a remote connection
-    Remove {
-        name: String,
-    },
+    Remove { name: String },
     /// Execute a command on a remote host
     Exec {
         /// Connection name
@@ -829,9 +825,7 @@ pub enum RulesAction {
         priority: Option<i32>,
     },
     /// Remove a rule
-    Remove {
-        id: String,
-    },
+    Remove { id: String },
     /// Evaluate a synthetic event against all rules (test)
     Eval {
         /// Event type name
@@ -916,9 +910,7 @@ pub enum WorkflowAction {
         no_worktree: bool,
     },
     /// Remove a workflow task and its per-phase sidecars
-    Remove {
-        task_id: String,
-    },
+    Remove { task_id: String },
     /// Draft a task plan from a goal plus free-text details
     DraftPlan {
         /// Plan goal
@@ -1033,9 +1025,7 @@ pub enum TemplateAction {
     /// List available workflow templates
     List,
     /// Show a template's configuration
-    Show {
-        name: String,
-    },
+    Show { name: String },
     /// Create or update a workflow template
     Create {
         name: String,
@@ -1836,12 +1826,18 @@ impl Cli {
         let loom_dir = crate::loom_dir();
         let agents_path = PathBuf::from(&loom_dir);
         match self.command {
-            Command::Init { import, recommended, source } => {
+            Command::Init {
+                import,
+                recommended,
+                source,
+            } => {
                 crate::commands::init::run(import, recommended, source.as_deref(), &loom_dir).await
             }
             Command::Scan { json } => crate::commands::scan::run(&loom_dir, json).await,
             Command::Status { json } => crate::commands::status::run(&loom_dir, json).await,
-            Command::Doctor { json, fix, verbose } => crate::commands::doctor::run(&loom_dir, json, fix, verbose).await,
+            Command::Doctor { json, fix, verbose } => {
+                crate::commands::doctor::run(&loom_dir, json, fix, verbose).await
+            }
             Command::Thread {
                 tool,
                 apply_routing,
@@ -1849,12 +1845,20 @@ impl Cli {
             Command::Daemon { action } => crate::commands::daemon::run(&agents_path, &action).await,
             Command::Mcp { action } => crate::commands::mcp::run(&agents_path, &action).await,
             Command::Skills { action } => crate::commands::skills::run(&agents_path, &action).await,
-            Command::Sessions { action } => crate::commands::sessions::run(&agents_path, &action).await,
+            Command::Sessions { action } => {
+                crate::commands::sessions::run(&agents_path, &action).await
+            }
             Command::Auth { action } => crate::commands::auth::run(&agents_path, &action).await,
             Command::Hooks { action } => crate::commands::hooks::run(&agents_path, &action).await,
-            Command::Workflow { action } => crate::commands::workflow::run(&agents_path, &action).await,
-            Command::Routing { action } => crate::commands::routing::run(&agents_path, &action).await,
-            Command::Runtime { action } => crate::commands::runtime::run(&agents_path.to_string_lossy(), &action).await,
+            Command::Workflow { action } => {
+                crate::commands::workflow::run(&agents_path, &action).await
+            }
+            Command::Routing { action } => {
+                crate::commands::routing::run(&agents_path, &action).await
+            }
+            Command::Runtime { action } => {
+                crate::commands::runtime::run(&agents_path.to_string_lossy(), &action).await
+            }
             Command::Rules { action } => crate::commands::rules::run(&agents_path, &action).await,
             Command::Exec {
                 tools,
@@ -1881,50 +1885,30 @@ impl Cli {
             }
 
             Command::AddAcpAgent { agent_id } => {
-                crate::commands::tools_acp::AddArgs {
-                    agent_id,
-                }
-                .handle(&loom_dir)
-                .await
+                crate::commands::tools_acp::AddArgs { agent_id }
+                    .handle(&loom_dir)
+                    .await
             }
             #[cfg(feature = "tui")]
             Command::Tui => loom_tui::run().await,
-            Command::Lock { generate, verify, diff } => {
-                crate::commands::lock::run(&loom_dir, generate, verify, diff)
-            }
-            Command::Memory { action } => {
-                crate::commands::memory::run(&agents_path, &action).await
-            }
-            Command::Issues { action } => {
-                crate::commands::issues::run(&agents_path, &action).await
-            }
-            Command::Config { action } => {
-                crate::commands::config::run(&loom_dir, &action).await
-            }
-            Command::Plugin { action } => {
-                crate::commands::plugin::run(&agents_path, &action).await
-            }
-            Command::Remote { action } => {
-                crate::commands::remote::run(&agents_path, &action).await
-            }
-            Command::Lsp { action } => {
-                crate::commands::lsp::run(&action).await
-            }
-            Command::Debug { action } => {
-                crate::commands::debug::run(&action).await
-            }
+            Command::Lock {
+                generate,
+                verify,
+                diff,
+            } => crate::commands::lock::run(&loom_dir, generate, verify, diff),
+            Command::Memory { action } => crate::commands::memory::run(&agents_path, &action).await,
+            Command::Issues { action } => crate::commands::issues::run(&agents_path, &action).await,
+            Command::Config { action } => crate::commands::config::run(&loom_dir, &action).await,
+            Command::Plugin { action } => crate::commands::plugin::run(&agents_path, &action).await,
+            Command::Remote { action } => crate::commands::remote::run(&agents_path, &action).await,
+            Command::Lsp { action } => crate::commands::lsp::run(&action).await,
+            Command::Debug { action } => crate::commands::debug::run(&action).await,
             Command::Knowledge { action } => {
                 crate::commands::knowledge::run(&loom_dir, &action).await
             }
-            Command::Acp { action } => {
-                crate::commands::acp::run(&agents_path, &action).await
-            }
-            Command::Edit { action } => {
-                crate::commands::edit::run(&loom_dir, &action).await
-            }
-            Command::Ast { action } => {
-                crate::commands::ast::run(&action).await
-            }
+            Command::Acp { action } => crate::commands::acp::run(&agents_path, &action).await,
+            Command::Edit { action } => crate::commands::edit::run(&loom_dir, &action).await,
+            Command::Ast { action } => crate::commands::ast::run(&action).await,
             Command::Telemetry { action } => {
                 crate::commands::telemetry::run(&loom_dir, &action).await
             }

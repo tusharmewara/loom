@@ -86,12 +86,7 @@ impl RunManager {
 
     /// Record a dispatch under a caller-supplied run id (upsert).
     /// Returns the run id.
-    pub fn record_external_run(
-        &mut self,
-        run_id: &str,
-        task_id: &str,
-        agent_id: &str,
-    ) -> String {
+    pub fn record_external_run(&mut self, run_id: &str, task_id: &str, agent_id: &str) -> String {
         self.insert_run(run_id, task_id, agent_id);
         self.persist(run_id);
         run_id.to_string()
@@ -103,12 +98,7 @@ impl RunManager {
     }
 
     /// Record the outcome of a run. Unknown ids are ignored.
-    pub fn complete_run(
-        &mut self,
-        run_id: &str,
-        exit_code: i32,
-        session_id: Option<String>,
-    ) {
+    pub fn complete_run(&mut self, run_id: &str, exit_code: i32, session_id: Option<String>) {
         if let Some(run) = self.runs.get_mut(run_id) {
             run.status = if exit_code == 0 {
                 RunStatus::Succeeded
@@ -148,8 +138,7 @@ impl RunManager {
     /// Persist one run to disk. Best-effort: persistence failures are
     /// logged and never fail tracking. No-op when dirless.
     fn persist(&self, run_id: &str) {
-        let (Some(path), Some(run)) = (self.run_file(run_id), self.runs.get(run_id))
-        else {
+        let (Some(path), Some(run)) = (self.run_file(run_id), self.runs.get(run_id)) else {
             return;
         };
         if let Some(parent) = path.parent() {
@@ -207,8 +196,7 @@ impl RunManager {
                 }
             };
             let age = now.saturating_sub(run.started_at_secs);
-            let terminal =
-                matches!(run.status, RunStatus::Succeeded | RunStatus::Failed);
+            let terminal = matches!(run.status, RunStatus::Succeeded | RunStatus::Failed);
             if terminal && age > RETENTION_SECS {
                 let _ = std::fs::remove_file(&path);
                 continue;
@@ -216,9 +204,7 @@ impl RunManager {
             if matches!(run.status, RunStatus::Dispatched) {
                 run.status = RunStatus::Failed;
                 run.ended_at_secs = Some(now);
-                run.note = Some(
-                    "daemon restarted before completion was recorded".to_string(),
-                );
+                run.note = Some("daemon restarted before completion was recorded".to_string());
             }
             let run_id = run.run_id.clone();
             self.runs.insert(run_id.clone(), run);
@@ -331,7 +317,10 @@ mod tests {
 
         let value = serde_json::to_value(&run).expect("RunState must serialize");
         assert_eq!(value["run_id"], serde_json::Value::String(run_id));
-        assert_eq!(value["task_id"], serde_json::Value::String("task-1".to_string()));
+        assert_eq!(
+            value["task_id"],
+            serde_json::Value::String("task-1".to_string())
+        );
         assert_eq!(
             value["agent_id"],
             serde_json::Value::String("opencode".to_string())

@@ -116,7 +116,9 @@ impl LanguageId {
         match name.to_lowercase().as_str() {
             "rust" | "rs" => Some(LanguageId::Rust),
             "python" | "py" | "python3" => Some(LanguageId::Python),
-            "javascript" | "js" | "jsx" | "typescript" | "ts" | "tsx" => Some(LanguageId::JavaScript),
+            "javascript" | "js" | "jsx" | "typescript" | "ts" | "tsx" => {
+                Some(LanguageId::JavaScript)
+            }
             "go" | "golang" => Some(LanguageId::Go),
             "json" => Some(LanguageId::Json),
             "toml" => Some(LanguageId::Toml),
@@ -199,9 +201,9 @@ pub struct ParseResult {
 pub fn parse(source: &str, language: &str) -> AstResult<ParseResult> {
     let lang = LanguageId::from_name(language)
         .ok_or_else(|| AstError::UnsupportedLanguage(language.to_string()))?;
-    let grammar = lang
-        .get_grammar()
-        .ok_or_else(|| AstError::UnsupportedLanguage(format!("{} (no bundled grammar)", language)))?;
+    let grammar = lang.get_grammar().ok_or_else(|| {
+        AstError::UnsupportedLanguage(format!("{} (no bundled grammar)", language))
+    })?;
 
     let mut parser = tree_sitter::Parser::new();
     parser
@@ -343,7 +345,11 @@ pub fn node_stack_at_position(result: &ParseResult, row: usize, column: usize) -
 /// Get all sibling nodes at the structural level for a position.
 /// Walks up from the deepest node to find the outermost level where
 /// named children exist.
-pub fn siblings_at_position(result: &ParseResult, row: usize, column: usize) -> AstResult<Vec<NodeInfo>> {
+pub fn siblings_at_position(
+    result: &ParseResult,
+    row: usize,
+    column: usize,
+) -> AstResult<Vec<NodeInfo>> {
     let root = result.tree.root_node();
 
     // Walk up from deepest, looking for a parent with >= 2 named children.
@@ -438,7 +444,11 @@ pub fn query(result: &ParseResult, query_str: &str) -> AstResult<Vec<QueryMatch>
         .map_err(|e| AstError::QueryError(e.to_string()))?;
 
     let mut cursor = tree_sitter::QueryCursor::new();
-    let mut matches = cursor.matches(&query_obj, result.tree.root_node(), result.source.as_bytes());
+    let mut matches = cursor.matches(
+        &query_obj,
+        result.tree.root_node(),
+        result.source.as_bytes(),
+    );
 
     let mut results = Vec::new();
     use streaming_iterator::StreamingIterator;
@@ -517,10 +527,7 @@ fn resolve_to_sibling_tree<'a>(
             .ok_or(AstError::NoNodeAtPosition(row, col))?;
 
         let n_children = parent.child_count();
-        if n_children < 2
-            || !current.is_named()
-            || current.id() == root.id()
-        {
+        if n_children < 2 || !current.is_named() || current.id() == root.id() {
             current = parent;
             continue;
         }
@@ -538,11 +545,7 @@ fn resolve_to_sibling_tree<'a>(
 /// Walk up from the deepest node at a position to find the nearest named
 /// ancestor that has named children — suitable for extract/wrap/unwrap/duplicate
 /// where leaf tokens are not meaningful.
-fn resolve_to_named_node<'a>(
-    root: Node<'a>,
-    row: usize,
-    col: usize,
-) -> Node<'a> {
+fn resolve_to_named_node<'a>(root: Node<'a>, row: usize, col: usize) -> Node<'a> {
     let point = Point::new(row, col);
     let deepest = root
         .descendant_for_point_range(point, point)
@@ -675,7 +678,11 @@ pub fn swap_nodes(
     if parent_a.id() != parent_b.id() {
         return Err(AstError::OperationNotApplicable {
             op: "swap".into(),
-            kind: format!("{} and {} have different parents", node_a.kind(), node_b.kind()),
+            kind: format!(
+                "{} and {} have different parents",
+                node_a.kind(),
+                node_b.kind()
+            ),
         });
     }
 
@@ -731,10 +738,7 @@ pub fn extract_node(
         LanguageId::Rust => {
             // Check if it's an expression context
             if is_expression_context(&node) {
-                (
-                    format!("let {} = {};", name, node_text),
-                    String::new(),
-                )
+                (format!("let {} = {};", name, node_text), String::new())
             } else {
                 // Extract as a function
                 (
@@ -758,7 +762,11 @@ pub fn extract_node(
                 (format!("const {} = {};", name, node_text), String::new())
             } else {
                 (
-                    format!("function {}() {{\n    {}\n}}", name, indent_text(node_text, 1)),
+                    format!(
+                        "function {}() {{\n    {}\n}}",
+                        name,
+                        indent_text(node_text, 1)
+                    ),
                     String::new(),
                 )
             }
@@ -766,7 +774,10 @@ pub fn extract_node(
         _ => {
             return Err(AstError::OperationNotApplicable {
                 op: "extract".into(),
-                kind: format!("Language {} not supported for extraction", result.language.display_name()),
+                kind: format!(
+                    "Language {} not supported for extraction",
+                    result.language.display_name()
+                ),
             })
         }
     };
@@ -883,11 +894,7 @@ pub fn wrap_node(
 }
 
 /// Unwrap a node by removing its outer construct and keeping the inner content.
-pub fn unwrap_node(
-    source: &str,
-    language: &str,
-    position: &Position,
-) -> AstResult<AstEdit> {
+pub fn unwrap_node(source: &str, language: &str, position: &Position) -> AstResult<AstEdit> {
     let result = parse(source, language)?;
     let (row, col) = *position;
     let root = result.tree.root_node();
@@ -927,11 +934,7 @@ pub fn unwrap_node(
 // ─── Duplicate ─────────────────────────────────────────────────────────
 
 /// Duplicate a node (insert copy after it).
-pub fn duplicate_node(
-    source: &str,
-    language: &str,
-    position: &Position,
-) -> AstResult<AstEdit> {
+pub fn duplicate_node(source: &str, language: &str, position: &Position) -> AstResult<AstEdit> {
     let result = parse(source, language)?;
     let (row, col) = *position;
     let root = result.tree.root_node();
@@ -1013,7 +1016,10 @@ pub fn replace_range(
     Ok(AstEdit {
         operation: "replace".into(),
         result: result_str,
-        description: format!("Replaced from {}:{} to {}:{}", start.0, start.1, end.0, end.1),
+        description: format!(
+            "Replaced from {}:{} to {}:{}",
+            start.0, start.1, end.0, end.1
+        ),
         applied: true,
     })
 }
@@ -1058,11 +1064,7 @@ pub fn node_kind_at(source: &str, language: &str, position: &Position) -> AstRes
 }
 
 /// Find all nodes of a specific kind in the AST.
-pub fn find_nodes_of_kind(
-    source: &str,
-    language: &str,
-    kind: &str,
-) -> AstResult<Vec<NodeInfo>> {
+pub fn find_nodes_of_kind(source: &str, language: &str, kind: &str) -> AstResult<Vec<NodeInfo>> {
     let result = parse(source, language)?;
     let root = result.tree.root_node();
     let mut nodes = Vec::new();
@@ -1241,7 +1243,10 @@ mod tests {
     fn test_unsupported_language() {
         let result = parse("hello", "nonexistent");
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), AstError::UnsupportedLanguage(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            AstError::UnsupportedLanguage(_)
+        ));
     }
 
     #[test]

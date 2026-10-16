@@ -50,11 +50,7 @@ impl AdapterDirScanner {
             match Self::parse_file(&path) {
                 Ok(reg) => registrations.push(reg),
                 Err(e) => {
-                    tracing::warn!(
-                        "Skipping invalid tool TOML {}: {}",
-                        path.display(),
-                        e
-                    );
+                    tracing::warn!("Skipping invalid tool TOML {}: {}", path.display(), e);
                 }
             }
         }
@@ -78,7 +74,10 @@ impl AdapterDirScanner {
 
         if let Some(ref skills) = config.skills {
             if skills.native_dir.is_none() && !skills.import_on_register {
-                warnings.push("skills section present but no native_dir and import_on_register is false".into());
+                warnings.push(
+                    "skills section present but no native_dir and import_on_register is false"
+                        .into(),
+                );
             }
         }
 

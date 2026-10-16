@@ -41,9 +41,7 @@ fn test_jsonl_roundtrip() {
     let store = SessionStore::new(dir.path().to_str().unwrap());
     let manifest = sample_manifest("sess-1");
     store.save_manifest(&manifest).unwrap();
-    store
-        .append_message("sess-1", &sample_message())
-        .unwrap();
+    store.append_message("sess-1", &sample_message()).unwrap();
 
     let messages = store.load_messages("sess-1").unwrap();
     assert_eq!(messages.len(), 1);
@@ -56,7 +54,9 @@ fn test_export_import() {
     let agents = dir.path().to_str().unwrap();
     let store = SessionStore::new(agents);
     store.save_manifest(&sample_manifest("sess-2")).unwrap();
-    store.replace_messages("sess-2", &[sample_message()]).unwrap();
+    store
+        .replace_messages("sess-2", &[sample_message()])
+        .unwrap();
 
     let export = export_session(&store, "sess-2").unwrap();
     let export_path = dir.path().join("export.json");
@@ -74,7 +74,11 @@ fn test_legacy_migration() {
     let agents = dir.path().to_str().unwrap();
     let legacy = dir.path().join("sessions").join("old.json");
     std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
-    std::fs::write(&legacy, serde_json::to_string(&sample_manifest("old")).unwrap()).unwrap();
+    std::fs::write(
+        &legacy,
+        serde_json::to_string(&sample_manifest("old")).unwrap(),
+    )
+    .unwrap();
 
     let n = migrate_if_needed(agents).unwrap();
     assert_eq!(n, 1);

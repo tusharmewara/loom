@@ -8,12 +8,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use loom_core::{
-    HealthCheck, HealthStatusStr, McpServerEntry, McpTransport, McpTransportType, LoomEvent,
+    HealthCheck, HealthStatusStr, LoomEvent, McpServerEntry, McpTransport, McpTransportType,
 };
 use loom_event_bus::EventBus;
-use loom_mcp::{
-    import, McpClientPool, McpHealthChecker, McpManager, McpPool, McpRegistry,
-};
+use loom_mcp::{import, McpClientPool, McpHealthChecker, McpManager, McpPool, McpRegistry};
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -140,8 +138,7 @@ fn test_registry_update_health() {
     let reg = McpRegistry::in_memory().unwrap();
     reg.upsert(&sample_entry("srv")).unwrap();
 
-    reg.update_health("srv", &HealthStatusStr::Healthy)
-        .unwrap();
+    reg.update_health("srv", &HealthStatusStr::Healthy).unwrap();
 
     let entry = reg.get("srv").unwrap().unwrap();
     assert!(matches!(entry.health_status, HealthStatusStr::Healthy));
@@ -335,10 +332,7 @@ tags = ["fs", "core"]
     assert_eq!(count, 1);
     let entry = reg.get("fs").unwrap().unwrap();
     assert_eq!(entry.name, "Filesystem");
-    assert_eq!(
-        entry.transport.command.as_deref(),
-        Some("npx")
-    );
+    assert_eq!(entry.transport.command.as_deref(), Some("npx"));
 }
 
 #[test]
@@ -549,12 +543,11 @@ args = ["@modelcontextprotocol/server-puppeteer"]
     .unwrap();
 
     let reg = McpRegistry::in_memory().unwrap();
-    let count =
-        import::import_from_tools_dir(dir.path(), &|entry| {
-            reg.upsert(&entry)?;
-            Ok(())
-        })
-        .unwrap();
+    let count = import::import_from_tools_dir(dir.path(), &|entry| {
+        reg.upsert(&entry)?;
+        Ok(())
+    })
+    .unwrap();
 
     assert_eq!(
         count, 2,

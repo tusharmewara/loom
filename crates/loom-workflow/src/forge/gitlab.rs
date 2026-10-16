@@ -82,21 +82,29 @@ pub struct GitLabForge {
 impl GitLabForge {
     /// Create from environment variables.
     pub fn from_env(loom_dir: &str) -> Result<Self> {
-        let token = env::var("GITLAB_TOKEN").ok()
-            .or_else(|| {
-                std::fs::read_to_string(format!("{}/config.toml", loom_dir))
-                    .ok()
-                    .and_then(|c| toml::from_str::<toml::Value>(&c).ok())
-                    .and_then(|v| v.get("gitlab")?.get("token")?.as_str().map(|s| s.to_string()))
-            });
+        let token = env::var("GITLAB_TOKEN").ok().or_else(|| {
+            std::fs::read_to_string(format!("{}/config.toml", loom_dir))
+                .ok()
+                .and_then(|c| toml::from_str::<toml::Value>(&c).ok())
+                .and_then(|v| {
+                    v.get("gitlab")?
+                        .get("token")?
+                        .as_str()
+                        .map(|s| s.to_string())
+                })
+        });
 
-        let webhook_secret = env::var("GITLAB_WEBHOOK_SECRET").ok()
-            .or_else(|| {
-                std::fs::read_to_string(format!("{}/config.toml", loom_dir))
-                    .ok()
-                    .and_then(|c| toml::from_str::<toml::Value>(&c).ok())
-                    .and_then(|v| v.get("gitlab")?.get("webhook_secret")?.as_str().map(|s| s.to_string()))
-            });
+        let webhook_secret = env::var("GITLAB_WEBHOOK_SECRET").ok().or_else(|| {
+            std::fs::read_to_string(format!("{}/config.toml", loom_dir))
+                .ok()
+                .and_then(|c| toml::from_str::<toml::Value>(&c).ok())
+                .and_then(|v| {
+                    v.get("gitlab")?
+                        .get("webhook_secret")?
+                        .as_str()
+                        .map(|s| s.to_string())
+                })
+        });
 
         let base_url = env::var("GITLAB_URL").unwrap_or_else(|_| "https://gitlab.com".to_string());
 
@@ -126,8 +134,8 @@ impl Forge for GitLabForge {
     }
 
     fn parse_pr_payload(&self, payload: &[u8]) -> Result<Option<PrInfo>> {
-        let gl_payload: GitLabMrPayload = serde_json::from_slice(payload)
-            .context("Failed to parse GitLab webhook payload")?;
+        let gl_payload: GitLabMrPayload =
+            serde_json::from_slice(payload).context("Failed to parse GitLab webhook payload")?;
 
         // Only handle merge request events
         if gl_payload.object_kind != "merge_request" {
@@ -136,7 +144,10 @@ impl Forge for GitLabForge {
 
         // Only handle relevant actions
         let action = gl_payload.object_attributes.action.as_str();
-        if !matches!(action, "open" | "reopen" | "update" | "approved" | "unapproved") {
+        if !matches!(
+            action,
+            "open" | "reopen" | "update" | "approved" | "unapproved"
+        ) {
             return Ok(None);
         }
 
@@ -156,27 +167,41 @@ impl Forge for GitLabForge {
             head_ref: mr.source_branch.clone(),
             base_ref: mr.target_branch.clone(),
             author: gl_payload.user.username.clone(),
-            url: format!("{}/api/v4/projects/{}/merge_requests/{}", self.base_url, project.id, mr.iid),
+            url: format!(
+                "{}/api/v4/projects/{}/merge_requests/{}",
+                self.base_url, project.id, mr.iid
+            ),
             html_url: mr.url.clone(),
             is_draft: mr.work_in_progress,
-            labels: gl_payload.labels.unwrap_or_default().into_iter().map(|l| l.title).collect(),
+            labels: gl_payload
+                .labels
+                .unwrap_or_default()
+                .into_iter()
+                .map(|l| l.title)
+                .collect(),
         }))
     }
 
     async fn post_review(&self, pr: &PrInfo, body: &str) -> Result<()> {
-        let token = self.token.as_ref()
+        let token = self
+            .token
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("GitLab token not configured"))?;
 
         // Extract project ID from URL or owner/repo
         let project_path = format!("{}/{}", pr.owner, pr.repo);
         let encoded = urlencoding::encode(&project_path);
-        let url = format!("{}/api/v4/projects/{}/merge_requests/{}/notes", self.base_url, encoded, pr.number);
+        let url = format!(
+            "{}/api/v4/projects/{}/merge_requests/{}/notes",
+            self.base_url, encoded, pr.number
+        );
 
         let note = serde_json::json!({
             "body": body
         });
 
-        let resp = self.client
+        let resp = self
+            .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", token))
             .header("User-Agent", "Loom")

@@ -44,8 +44,8 @@ impl LoomToolAdapter for GeminiCliAdapter {
             }),
             lsp: None,
             debug: None,
-                    launch: None,
-}
+            launch: None,
+        }
     }
 
     fn apply_routing_decision(&self, decision: &RoutingDecision) -> Result<()> {

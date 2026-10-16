@@ -1,9 +1,9 @@
 use loom_core::LoomEvent;
-use std::path::Path;
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use std::path::Path;
 use std::sync::mpsc::channel;
-use std::time::Duration;
 use std::thread;
+use std::time::Duration;
 
 /// Filesystem watcher that propagates changes to the EventBus.
 ///
@@ -46,8 +46,7 @@ impl DiscoveryWatcher {
                     }
                 }
             },
-            Config::default()
-                .with_poll_interval(Duration::from_secs(2))
+            Config::default().with_poll_interval(Duration::from_secs(2)),
         )?;
 
         watcher.watch(agents_path, RecursiveMode::Recursive)?;
@@ -67,58 +66,53 @@ impl DiscoveryWatcher {
     pub fn map_notify_event(event: &notify::Event, loom_dir: &str) -> Option<LoomEvent> {
         let path = event.paths.first()?;
         let relative = path.strip_prefix(loom_dir).ok()?;
-        let components: Vec<&str> = relative.components()
+        let components: Vec<&str> = relative
+            .components()
             .filter_map(|c| c.as_os_str().to_str())
             .collect();
 
         match event.kind {
-            EventKind::Create(_) | EventKind::Modify(_) => {
-                match *components.first()? {
-                    "skills" => {
-                        let _ = components.get(1);
-                        Some(LoomEvent::SkillsAdded { count: 1 })
-                    }
-                    "mcp" => {
-                        let name = components.get(1)?;
-                        Some(LoomEvent::McpServerAdded {
-                            id: (*name).to_string(),
-                            name: (*name).to_string(),
-                        })
-                    }
-                    "config" => {
-                        Some(LoomEvent::RoutingUpdated)
-                    }
-                    "auth" => {
-                        let name = components.get(1)?;
-                        Some(LoomEvent::AuthProviderAdded {
-                            provider_id: (*name).to_string(),
-                        })
-                    }
-                    "hooks" => {
-                        let name = components.get(1)?;
-                        Some(LoomEvent::HooksRegistered {
-                            hook_id: (*name).to_string(),
-                        })
-                    }
-                    "tools" => {
-                        let _ = components.get(1);
-                        tracing::info!("Tool registration changed in tools/");
-                        None
-                    }
-                    _ => None,
+            EventKind::Create(_) | EventKind::Modify(_) => match *components.first()? {
+                "skills" => {
+                    let _ = components.get(1);
+                    Some(LoomEvent::SkillsAdded { count: 1 })
                 }
-            }
-            EventKind::Remove(_) => {
-                match *components.first()? {
-                    "skills" => {
-                        let name = components.get(1)?;
-                        Some(LoomEvent::SkillsRemoved {
-                            name: (*name).to_string(),
-                        })
-                    }
-                    _ => None,
+                "mcp" => {
+                    let name = components.get(1)?;
+                    Some(LoomEvent::McpServerAdded {
+                        id: (*name).to_string(),
+                        name: (*name).to_string(),
+                    })
                 }
-            }
+                "config" => Some(LoomEvent::RoutingUpdated),
+                "auth" => {
+                    let name = components.get(1)?;
+                    Some(LoomEvent::AuthProviderAdded {
+                        provider_id: (*name).to_string(),
+                    })
+                }
+                "hooks" => {
+                    let name = components.get(1)?;
+                    Some(LoomEvent::HooksRegistered {
+                        hook_id: (*name).to_string(),
+                    })
+                }
+                "tools" => {
+                    let _ = components.get(1);
+                    tracing::info!("Tool registration changed in tools/");
+                    None
+                }
+                _ => None,
+            },
+            EventKind::Remove(_) => match *components.first()? {
+                "skills" => {
+                    let name = components.get(1)?;
+                    Some(LoomEvent::SkillsRemoved {
+                        name: (*name).to_string(),
+                    })
+                }
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -154,14 +148,16 @@ mod tests {
     #[test]
     fn test_map_notify_event_config_change() {
         let event = notify::Event {
-            kind: EventKind::Modify(notify::event::ModifyKind::Data(notify::event::DataChange::Any)),
+            kind: EventKind::Modify(notify::event::ModifyKind::Data(
+                notify::event::DataChange::Any,
+            )),
             paths: vec![Path::new("/home/user/.loom/config/routing.toml").to_path_buf()],
             ..notify::Event::default()
         };
         let result = DiscoveryWatcher::map_notify_event(&event, "/home/user/.loom");
         assert!(result.is_some());
         match result.unwrap() {
-            LoomEvent::RoutingUpdated => {},
+            LoomEvent::RoutingUpdated => {}
             _ => panic!("Expected RoutingUpdated"),
         }
     }

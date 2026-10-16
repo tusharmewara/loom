@@ -20,7 +20,10 @@ fn section_block<'a>(title: &'a str, theme: &'a Theme) -> Block<'a> {
 }
 
 fn dim(text: &str, theme: &Theme) -> Line<'static> {
-    Line::from(Span::styled(text.to_string(), Style::default().fg(theme.text_dim)))
+    Line::from(Span::styled(
+        text.to_string(),
+        Style::default().fg(theme.text_dim),
+    ))
 }
 
 fn draw_task_list(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
@@ -88,17 +91,16 @@ fn draw_task_detail(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
                 .and_then(Value::as_str)
                 .unwrap_or("(no recorded agent)");
 
-            lines.push(Line::from(vec![
-                Span::styled(
-                    title.to_string(),
-                    Style::default()
-                        .fg(theme.text_bright)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]));
-            lines.push(Line::from(vec![
-                Span::styled(format!("{phase} · {status} · @{agent}"), theme.text_dim),
-            ]));
+            lines.push(Line::from(vec![Span::styled(
+                title.to_string(),
+                Style::default()
+                    .fg(theme.text_bright)
+                    .add_modifier(Modifier::BOLD),
+            )]));
+            lines.push(Line::from(vec![Span::styled(
+                format!("{phase} · {status} · @{agent}"),
+                theme.text_dim,
+            )]));
             lines.push(dim("", theme));
 
             lines.push(Line::from(Span::styled(
@@ -116,14 +118,8 @@ fn draw_task_detail(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
                 lines.push(dim("(none yet)", theme));
             } else {
                 for result in &results {
-                    let phase = result
-                        .get("phase")
-                        .and_then(Value::as_str)
-                        .unwrap_or("?");
-                    let agent = result
-                        .get("agent")
-                        .and_then(Value::as_str)
-                        .unwrap_or("?");
+                    let phase = result.get("phase").and_then(Value::as_str).unwrap_or("?");
+                    let agent = result.get("agent").and_then(Value::as_str).unwrap_or("?");
                     let summary: String = result
                         .get("summary")
                         .and_then(Value::as_str)

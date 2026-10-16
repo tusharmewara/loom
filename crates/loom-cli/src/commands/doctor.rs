@@ -160,7 +160,11 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool, verbose: bool) -> Result
             format!("Write test: {writable_dir}")
         };
         match write_probe(&p) {
-            Ok(()) => rows.push(CheckRow::new(check_name, CheckStatus::Pass, p.display().to_string())),
+            Ok(()) => rows.push(CheckRow::new(
+                check_name,
+                CheckStatus::Pass,
+                p.display().to_string(),
+            )),
             Err(e) => rows.push(CheckRow::new(check_name, CheckStatus::Fail, format!("{e}"))),
         }
     }
@@ -170,8 +174,11 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool, verbose: bool) -> Result
     match snapshot_db
         .initialize_schema()
         .context("initialize_schema failed")
-        .and_then(|_| snapshot_db.count_resources().context("count_resources failed"))
-    {
+        .and_then(|_| {
+            snapshot_db
+                .count_resources()
+                .context("count_resources failed")
+        }) {
         Ok(counts) => rows.push(CheckRow::new(
             "Snapshot DB",
             CheckStatus::Pass,
@@ -253,9 +260,18 @@ fn print_report(rows: &[CheckRow], verbose: bool) {
     }
     for row in rows {
         if verbose && !row.explanation.is_empty() {
-            table.add_row(vec![row.name.as_str(), row.status.as_str(), row.detail.as_str(), row.explanation.as_str()]);
+            table.add_row(vec![
+                row.name.as_str(),
+                row.status.as_str(),
+                row.detail.as_str(),
+                row.explanation.as_str(),
+            ]);
         } else {
-            table.add_row(vec![row.name.as_str(), row.status.as_str(), row.detail.as_str()]);
+            table.add_row(vec![
+                row.name.as_str(),
+                row.status.as_str(),
+                row.detail.as_str(),
+            ]);
         }
     }
 
@@ -355,7 +371,12 @@ fn write_probe(dir: &Path) -> Result<()> {
 fn service_status_check() -> (CheckStatus, String) {
     let home = match home_dir() {
         Some(h) => h,
-        None => return (CheckStatus::Warn, "HOME not set; cannot check launchd".to_string()),
+        None => {
+            return (
+                CheckStatus::Warn,
+                "HOME not set; cannot check launchd".to_string(),
+            )
+        }
     };
     let plist = home
         .join("Library")
@@ -383,14 +404,12 @@ fn service_status_check() -> (CheckStatus, String) {
     {
         Ok(o) if o.status.success() => (
             CheckStatus::Pass,
-            format!(
-                "launchd service installed and loaded ({})",
-                plist.display()
-            ),
+            format!("launchd service installed and loaded ({})", plist.display()),
         ),
         Ok(_) => (
             CheckStatus::Warn,
-            "launchd plist exists but service is not loaded. Try `loom daemon install-service`.".to_string(),
+            "launchd plist exists but service is not loaded. Try `loom daemon install-service`."
+                .to_string(),
         ),
         Err(e) => (
             CheckStatus::Warn,
@@ -403,7 +422,12 @@ fn service_status_check() -> (CheckStatus, String) {
 fn service_status_check() -> (CheckStatus, String) {
     let home = match home_dir() {
         Some(h) => h,
-        None => return (CheckStatus::Warn, "HOME not set; cannot check systemd".to_string()),
+        None => {
+            return (
+                CheckStatus::Warn,
+                "HOME not set; cannot check systemd".to_string(),
+            )
+        }
     };
     let unit = home
         .join(".config")
@@ -488,7 +512,9 @@ mod tests {
     async fn test_doctor_fails_when_loom_dir_missing() {
         let dir = tempfile::tempdir().unwrap();
         let loom_dir = dir.path().join("missing");
-        let err = run(loom_dir.to_str().unwrap(), false, false, false).await.unwrap_err();
+        let err = run(loom_dir.to_str().unwrap(), false, false, false)
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("failing check"));
     }
 

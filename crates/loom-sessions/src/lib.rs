@@ -1,6 +1,7 @@
-use std::collections::HashMap;
 use loom_core::HealthCheck;
+use std::collections::HashMap;
 
+pub mod agent_provider;
 pub mod compression;
 pub mod environment;
 pub mod exporter;
@@ -8,7 +9,6 @@ pub mod importer;
 pub mod memory;
 pub mod migrate;
 pub mod store;
-pub mod agent_provider;
 
 pub use exporter::{export_session, write_export, SessionExport};
 pub use importer::{import_session, import_session_json};
@@ -23,7 +23,7 @@ pub use acp_client::AcpClient;
 pub use acp_client::AgentMetadata;
 pub use acp_discovery::{AcpPeer, PeerDiscovery};
 pub use acp_handshake::{
-    AcpHandshake, AcpKeyPair, complete_initiator, initiate_handshake, perform_responder_handshake,
+    complete_initiator, initiate_handshake, perform_responder_handshake, AcpHandshake, AcpKeyPair,
 };
 pub use acp_server::{
     AcpDispatchServer, AcpServerConfig, DispatchFn, DispatchRequest, DispatchResponse,
@@ -83,7 +83,10 @@ impl SessionManager {
 
     pub async fn discover_acp_agents(&self) -> anyhow::Result<Vec<AgentMetadata>> {
         if let Some(client) = &self.acp_client {
-            client.discover_agents().await.map_err(|e| anyhow::anyhow!(e))
+            client
+                .discover_agents()
+                .await
+                .map_err(|e| anyhow::anyhow!(e))
         } else {
             Err(anyhow::anyhow!("ACP client not configured"))
         }

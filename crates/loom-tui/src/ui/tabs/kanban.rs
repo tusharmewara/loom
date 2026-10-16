@@ -9,12 +9,8 @@ use ratatui::Frame;
 use serde_json::Value;
 
 const PHASES: &[&str] = &["Plan", "Implement", "Verify", "Finish"];
-const PHASE_COLORS: &[fn(&Theme) -> Color] = &[
-    |t| t.primary,
-    |t| t.warning,
-    |t| t.secondary,
-    |t| t.success,
-];
+const PHASE_COLORS: &[fn(&Theme) -> Color] =
+    &[|t| t.primary, |t| t.warning, |t| t.secondary, |t| t.success];
 
 pub fn draw_kanban(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, theme: &Theme) {
     let _block = Block::default()
@@ -35,7 +31,11 @@ pub fn draw_kanban(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, th
 
     // Build task lists per phase
     let tasks_vec: Vec<Value> = Vec::new();
-    let tasks = app.workflow.pointer("/tasks").and_then(Value::as_array).unwrap_or(&tasks_vec);
+    let tasks = app
+        .workflow
+        .pointer("/tasks")
+        .and_then(Value::as_array)
+        .unwrap_or(&tasks_vec);
 
     for (i, phase_name) in PHASES.iter().enumerate() {
         let phase_tasks: Vec<&Value> = tasks
@@ -47,12 +47,12 @@ pub fn draw_kanban(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, th
         let mut lines = Vec::new();
 
         // Phase header
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!(" {} ({}) ", phase_name, phase_tasks.len()),
-                Style::default().fg(phase_color).add_modifier(Modifier::BOLD),
-            ),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            format!(" {} ({}) ", phase_name, phase_tasks.len()),
+            Style::default()
+                .fg(phase_color)
+                .add_modifier(Modifier::BOLD),
+        )]));
 
         // Separator
         lines.push(Line::from(Span::styled(
@@ -61,17 +61,21 @@ pub fn draw_kanban(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, th
         )));
 
         if phase_tasks.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "  (no tasks)",
-                theme.text_dim,
-            )));
+            lines.push(Line::from(Span::styled("  (no tasks)", theme.text_dim)));
         } else {
             for task in phase_tasks {
-                let title = task.get("title").and_then(Value::as_str).unwrap_or("(untitled)");
+                let title = task
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("(untitled)");
                 let task_id = task.get("task_id").and_then(Value::as_str).unwrap_or("");
                 let short_id = &task_id[..task_id.len().min(8)];
                 let status = task.get("status").and_then(Value::as_str).unwrap_or("?");
-                let worktree = task.get("worktree_path").and_then(Value::as_str).map(|_| "🌿").unwrap_or("");
+                let worktree = task
+                    .get("worktree_path")
+                    .and_then(Value::as_str)
+                    .map(|_| "🌿")
+                    .unwrap_or("");
 
                 // Truncate title to fit column
                 let max_title_len = inner_width as usize - 15;
@@ -83,7 +87,10 @@ pub fn draw_kanban(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, th
 
                 lines.push(Line::from(vec![
                     Span::styled("  • ", theme.primary),
-                    Span::styled(display_title, Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        display_title,
+                        Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(format!(" [{}]", status), theme.text_dim),
                     Span::styled(format!(" {}", worktree), theme.success),
                 ]));
@@ -95,14 +102,18 @@ pub fn draw_kanban(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, th
         }
 
         let paragraph = Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(phase_color)))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(phase_color)),
+            )
             .wrap(Wrap { trim: false });
 
         columns.push((col_width, paragraph));
     }
 
     // Render columns side by side using a layout
-    use ratatui::layout::{Layout, Direction, Constraint};
+    use ratatui::layout::{Constraint, Direction, Layout};
     let constraints: Vec<Constraint> = (0..PHASES.len())
         .map(|_| Constraint::Percentage(100 / PHASES.len() as u16))
         .collect();
@@ -132,7 +143,9 @@ mod tests {
             {"phase": "Implement", "title": "Task 2"},
             {"phase": "Plan", "title": "Task 3"},
         ]);
-        let plan_tasks: Vec<_> = tasks.as_array().unwrap()
+        let plan_tasks: Vec<_> = tasks
+            .as_array()
+            .unwrap()
             .iter()
             .filter(|t| t.get("phase").and_then(Value::as_str) == Some("Plan"))
             .collect();

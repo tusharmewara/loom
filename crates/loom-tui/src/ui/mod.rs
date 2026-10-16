@@ -1,7 +1,7 @@
 mod layout;
+pub mod overlays;
 mod tabs;
 pub mod widgets;
-pub mod overlays;
 
 use crate::app::App;
 use crate::theme::Theme;
@@ -55,13 +55,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
 
     if app.command_palette_open {
-        overlays::draw_command_palette(
-            frame,
-            frame.area(),
-            app,
-            theme,
-            &app.command_palette_query,
-        );
+        overlays::draw_command_palette(frame, frame.area(), app, theme, &app.command_palette_query);
     }
 
     if app.embedded_task.is_some() {
@@ -87,9 +81,7 @@ fn draw_content_body(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, 
         i if Some(i) == app.orchestrator_tab_index() => {
             tabs::draw_orchestrator(frame, area, app, theme)
         }
-        i if Some(i) == app.review_tab_index() => {
-            tabs::draw_review(frame, area, app, theme)
-        }
+        i if Some(i) == app.review_tab_index() => tabs::draw_review(frame, area, app, theme),
         _ => {}
     }
 }

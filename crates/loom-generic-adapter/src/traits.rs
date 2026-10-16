@@ -8,9 +8,9 @@
 #![allow(dead_code, unused)]
 
 use loom_core::{
-    AuthProviderTrait, EncryptedCredential, HookEntry, HookExecutor, McpConsumer,
-    McpServerEntry, ModelEntry, ModelTier, ProviderEntry, RoutingTarget, SessionExportable,
-    SessionManifest, SkillEntry, SkillProvider,
+    AuthProviderTrait, EncryptedCredential, HookEntry, HookExecutor, McpConsumer, McpServerEntry,
+    ModelEntry, ModelTier, ProviderEntry, RoutingTarget, SessionExportable, SessionManifest,
+    SkillEntry, SkillProvider,
 };
 use std::path::{Path, PathBuf};
 
@@ -96,8 +96,14 @@ impl AuthProviderTrait for GenericAuthProvider {
         Ok(vec![])
     }
 
-    fn export_credential(&self, _provider_id: &str, _requesting_tool: &str) -> anyhow::Result<EncryptedCredential> {
-        Err(anyhow::anyhow!("GenericAdapter: no real credential store configured"))
+    fn export_credential(
+        &self,
+        _provider_id: &str,
+        _requesting_tool: &str,
+    ) -> anyhow::Result<EncryptedCredential> {
+        Err(anyhow::anyhow!(
+            "GenericAdapter: no real credential store configured"
+        ))
     }
 }
 
@@ -141,7 +147,10 @@ pub struct GenericSessionExportable;
 
 impl SessionExportable for GenericSessionExportable {
     fn export_session(&self, id: &str) -> anyhow::Result<SessionManifest> {
-        Err(anyhow::anyhow!("GenericAdapter: session '{}' not found (no store)", id))
+        Err(anyhow::anyhow!(
+            "GenericAdapter: session '{}' not found (no store)",
+            id
+        ))
     }
 
     fn list_sessions(&self) -> anyhow::Result<Vec<SessionManifest>> {

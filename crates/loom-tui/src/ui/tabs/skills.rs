@@ -19,8 +19,13 @@ pub fn draw_skills(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, th
 
     let mut lines: Vec<Line> = Vec::new();
 
-    let registered_count = app.skills.pointer("/count").and_then(Value::as_u64).unwrap_or(0);
-    let detected_count = app.status
+    let registered_count = app
+        .skills
+        .pointer("/count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let detected_count = app
+        .status
         .pointer("/resources/counts/skills")
         .and_then(Value::as_u64)
         .unwrap_or(0);
@@ -29,7 +34,9 @@ pub fn draw_skills(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, th
         Span::styled("Registered: ", theme.text_dim),
         Span::styled(
             format!("{}", registered_count),
-            Style::default().fg(theme.text_bright).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme.text_bright)
+                .add_modifier(Modifier::BOLD),
         ),
     ]));
     if detected_count > registered_count {
@@ -57,7 +64,10 @@ pub fn draw_skills(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, th
                     let source = s.pointer("/source").and_then(Value::as_str).unwrap_or("");
                     lines.push(Line::from(vec![
                         Span::styled("  • ", theme.primary),
-                        Span::styled(name, Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            name,
+                            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+                        ),
                         Span::styled(format!(" ({})", source), theme.text_dim),
                     ]));
                 }
@@ -67,16 +77,25 @@ pub fn draw_skills(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, th
 
     // Show detected skills from scan when none registered
     if registered_count == 0 {
-        if let Some(sources) = app.scan.pointer("/system_audit/skill_sources").and_then(Value::as_array) {
+        if let Some(sources) = app
+            .scan
+            .pointer("/system_audit/skill_sources")
+            .and_then(Value::as_array)
+        {
             if !sources.is_empty() && detected_count > 0 {
                 lines.push(Line::from(Span::styled("", Style::default())));
                 lines.push(Line::from(Span::styled(
                     "Detected from other tools:",
-                    Style::default().fg(theme.secondary).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(theme.secondary)
+                        .add_modifier(Modifier::BOLD),
                 )));
                 for s in sources {
                     let source = s.pointer("/source").and_then(Value::as_str).unwrap_or("?");
-                    let count = s.pointer("/skill_count").and_then(Value::as_u64).unwrap_or(0);
+                    let count = s
+                        .pointer("/skill_count")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0);
                     let path = s.pointer("/path").and_then(Value::as_str).unwrap_or("");
                     lines.push(Line::from(vec![
                         Span::styled("  • ", theme.primary),
@@ -120,7 +139,9 @@ pub fn draw_skills(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, th
     }
 
     frame.render_widget(
-        Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
         area,
     );
 }

@@ -19,11 +19,27 @@ pub async fn run_acp_prompt(
 ) -> anyhow::Result<()> {
     if let Some(ref rt) = runtime {
         return run_acp_via_runtime(
-            loom_dir, program, args, prompt, cwd, timeout_secs, json_output, rt,
+            loom_dir,
+            program,
+            args,
+            prompt,
+            cwd,
+            timeout_secs,
+            json_output,
+            rt,
         )
         .await;
     }
-    run_acp_prompt_direct(loom_dir, program, args, prompt, cwd, timeout_secs, json_output).await
+    run_acp_prompt_direct(
+        loom_dir,
+        program,
+        args,
+        prompt,
+        cwd,
+        timeout_secs,
+        json_output,
+    )
+    .await
 }
 
 /// `--runtime` is accepted for CLI compatibility only: ACP over
@@ -46,7 +62,16 @@ async fn run_acp_via_runtime(
     eprintln!(
         "Warning: runtime '{runtime}' does not support the ACP protocol yet; running directly"
     );
-    run_acp_prompt_direct(loom_dir, program, args, prompt, cwd, timeout_secs, json_output).await
+    run_acp_prompt_direct(
+        loom_dir,
+        program,
+        args,
+        prompt,
+        cwd,
+        timeout_secs,
+        json_output,
+    )
+    .await
 }
 
 fn program_basename(program: &str) -> String {
@@ -116,7 +141,10 @@ async fn run_acp_prompt_direct(
         );
         return Ok(());
     }
-    println!("ACP run completed (agent={agent_name}, stop={})", transcript.stop_reason);
+    println!(
+        "ACP run completed (agent={agent_name}, stop={})",
+        transcript.stop_reason
+    );
     println!("  Session: {}", manifest.session_id);
     if transcript.agent_text.trim().is_empty() {
         println!("  (agent produced no text output)");

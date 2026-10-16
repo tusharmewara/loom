@@ -1,6 +1,6 @@
-use std::path::Path;
-use sha2::{Sha256, Digest};
 use crate::registry::SnapshotDb;
+use sha2::{Digest, Sha256};
+use std::path::Path;
 
 /// Creates the ~/.loom/ directory tree and builds the initial SQLite snapshot.
 pub struct SnapshotBuilder {
@@ -21,14 +21,15 @@ pub struct ValidationError {
 
 impl SnapshotBuilder {
     pub fn new(loom_dir: &str) -> Self {
-        Self { loom_dir: loom_dir.to_string() }
+        Self {
+            loom_dir: loom_dir.to_string(),
+        }
     }
 
     /// Create the full ~/.loom/ directory tree.
     pub fn create_agents_tree(&self) -> anyhow::Result<()> {
         let dirs = [
-            "", "config", "skills", "mcp", "sessions", "auth",
-            "hooks", "tools", ".cache",
+            "", "config", "skills", "mcp", "sessions", "auth", "hooks", "tools", ".cache",
         ];
         for dir in &dirs {
             let path = Path::new(&self.loom_dir).join(dir);
@@ -151,13 +152,18 @@ mod tests {
         // Create a test skill
         let skill_dir = dir.join("skills").join("test-skill");
         std::fs::create_dir_all(&skill_dir).unwrap();
-        std::fs::write(skill_dir.join("SKILL.md"), "# Test Skill\n\nDo something useful.\n").unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "# Test Skill\n\nDo something useful.\n",
+        )
+        .unwrap();
 
         // Create a tool TOML
         std::fs::write(
             dir.join("tools").join("cursor.toml"),
             "[tool]\nname = \"cursor\"\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         // Build snapshot
         let result = builder.build_initial();

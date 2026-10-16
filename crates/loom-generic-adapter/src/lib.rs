@@ -49,11 +49,7 @@ impl GenericAdapter {
     }
 
     /// Create a GenericAdapter from raw TOML content (for testing or in-memory use).
-    pub fn from_toml(
-        loom_dir: &str,
-        tool_name: &str,
-        toml_content: &str,
-    ) -> anyhow::Result<Self> {
+    pub fn from_toml(loom_dir: &str, tool_name: &str, toml_content: &str) -> anyhow::Result<Self> {
         let config: ToolToml = toml::from_str(toml_content)?;
         Ok(Self {
             loom_dir: PathBuf::from(loom_dir),
@@ -158,16 +154,19 @@ impl GenericAdapter {
     /// Get the full LaunchConfig for this tool from the `[launch]` section.
     /// Returns None if no `[launch]` section is present.
     pub fn launch_config(&self) -> Option<loom_runtime::LaunchConfig> {
-        self.config.launch.as_ref().map(|l| loom_runtime::LaunchConfig {
-            runtime: l.runtime.clone(),
-            image: l.image.clone(),
-            command: l.command.clone(),
-            args: l.args.clone(),
-            env: l.env.clone(),
-            working_dir: l.working_dir.clone(),
-            network: l.network.clone(),
-            auto_remove: l.auto_remove,
-        })
+        self.config
+            .launch
+            .as_ref()
+            .map(|l| loom_runtime::LaunchConfig {
+                runtime: l.runtime.clone(),
+                image: l.image.clone(),
+                command: l.command.clone(),
+                args: l.args.clone(),
+                env: l.env.clone(),
+                working_dir: l.working_dir.clone(),
+                network: l.network.clone(),
+                auto_remove: l.auto_remove,
+            })
     }
 }
 

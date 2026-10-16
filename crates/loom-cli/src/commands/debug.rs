@@ -21,12 +21,15 @@ pub async fn run(action: &DebugAction) -> anyhow::Result<()> {
         DebugAction::Adapters { json } => {
             let adapters = discover_adapters();
             if *json {
-                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                    "schema_version": 1,
-                    "command": "debug.adapters",
-                    "count": adapters.len(),
-                    "adapters": adapters,
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "command": "debug.adapters",
+                        "count": adapters.len(),
+                        "adapters": adapters,
+                    }))?
+                );
             } else {
                 if adapters.is_empty() {
                     println!("No debug adapters found on PATH.");
@@ -40,10 +43,18 @@ pub async fn run(action: &DebugAction) -> anyhow::Result<()> {
                 }
             }
         }
-        DebugAction::Launch { program, language, args } => {
-            let adapter = resolve_for_language(language)
-                .ok_or_else(|| anyhow::anyhow!("No debug adapter found for language '{language}'"))?;
-            println!("  Using debug adapter: {} ({})", adapter.command, adapter.name);
+        DebugAction::Launch {
+            program,
+            language,
+            args,
+        } => {
+            let adapter = resolve_for_language(language).ok_or_else(|| {
+                anyhow::anyhow!("No debug adapter found for language '{language}'")
+            })?;
+            println!(
+                "  Using debug adapter: {} ({})",
+                adapter.command, adapter.name
+            );
 
             let mut client = DapClient::connect_with(&adapter.command, &adapter.args)?;
             client.initialize("loom", &adapter.adapter_type)?;
@@ -76,9 +87,13 @@ pub async fn run(action: &DebugAction) -> anyhow::Result<()> {
             println!("✓ Debug session ended");
         }
         DebugAction::Attach { pid, language } => {
-            let adapter = resolve_for_language(language)
-                .ok_or_else(|| anyhow::anyhow!("No debug adapter found for language '{language}'"))?;
-            println!("  Using debug adapter: {} ({})", adapter.command, adapter.name);
+            let adapter = resolve_for_language(language).ok_or_else(|| {
+                anyhow::anyhow!("No debug adapter found for language '{language}'")
+            })?;
+            println!(
+                "  Using debug adapter: {} ({})",
+                adapter.command, adapter.name
+            );
 
             let mut client = DapClient::connect_with(&adapter.command, &adapter.args)?;
             client.initialize("loom", &adapter.adapter_type)?;
@@ -98,14 +113,17 @@ pub async fn run(action: &DebugAction) -> anyhow::Result<()> {
             let adapter = resolve_for_language("rust")
                 .or_else(|| resolve_for_language("python"))
                 .or_else(|| resolve_for_language("go"))
-                .ok_or_else(|| anyhow::anyhow!("No debug adapter found. Install lldb-dap, dlv, or debugpy."))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("No debug adapter found. Install lldb-dap, dlv, or debugpy.")
+                })?;
 
             // We need a running session to set breakpoints
             anyhow::bail!(
                 "Breakpoints can only be set in an active debug session. \
                  Use 'loom debug launch' or 'loom debug attach' first.\n\
                  Discovered adapter: {} ({})",
-                adapter.command, adapter.name
+                adapter.command,
+                adapter.name
             );
         }
         DebugAction::Step { direction } => {

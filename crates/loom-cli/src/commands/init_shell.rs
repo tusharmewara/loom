@@ -16,10 +16,7 @@ pub fn run(shell_type: &str) -> Result<()> {
         "bash" => generate_bash(),
         "fish" => generate_fish(),
         other => {
-            anyhow::bail!(
-                "Unsupported shell '{}'. Supported: bash, zsh, fish",
-                other
-            );
+            anyhow::bail!("Unsupported shell '{}'. Supported: bash, zsh, fish", other);
         }
     };
 

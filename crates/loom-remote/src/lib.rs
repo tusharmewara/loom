@@ -14,9 +14,9 @@
 //! loom exec --remote my-server -- goose "analyze logs"
 //! ```
 
+mod auth;
 pub mod connection;
 pub mod sftp;
-mod auth;
 
-pub use connection::{SshConnection, SshConnectionManager, SshAuth};
 pub use auth::{load_ssh_key, SshKeySource};
+pub use connection::{SshAuth, SshConnection, SshConnectionManager};

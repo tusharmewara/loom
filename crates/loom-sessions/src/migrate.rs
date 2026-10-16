@@ -44,9 +44,7 @@ pub fn migrate_legacy_sessions(loom_dir: &str) -> Result<usize> {
         let legacy_messages = sessions_dir.join(format!("{session_id}-messages.json"));
         if legacy_messages.exists() {
             if let Ok(raw) = std::fs::read_to_string(&legacy_messages) {
-                if let Ok(messages) =
-                    serde_json::from_str::<Vec<loom_core::Message>>(&raw)
-                {
+                if let Ok(messages) = serde_json::from_str::<Vec<loom_core::Message>>(&raw) {
                     let store = SessionStore::new(loom_dir);
                     store.replace_messages(&session_id, &messages)?;
                     let _ = std::fs::remove_file(&legacy_messages);

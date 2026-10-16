@@ -26,8 +26,7 @@ pub fn import_session(store: &SessionStore, export_path: &Path) -> Result<String
 
 /// Import from raw JSON string (for IPC/tests).
 pub fn import_session_json(store: &SessionStore, raw: &str) -> Result<String> {
-    let export: SessionExport =
-        serde_json::from_str(raw).context("parse session export JSON")?;
+    let export: SessionExport = serde_json::from_str(raw).context("parse session export JSON")?;
     if export.manifest.session_id.is_empty() {
         bail!("export manifest missing session_id");
     }

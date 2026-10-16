@@ -16,7 +16,7 @@
 
 use loom_core::{Message, MessageRole, SessionManifest};
 use loom_sessions::memory::CrossSessionMemory;
-use loom_sessions::store::{normalize_tags, merge_tag_sets, SessionStore};
+use loom_sessions::store::{merge_tag_sets, normalize_tags, SessionStore};
 use tempfile::tempdir;
 
 fn make_msg(id: &str, role: MessageRole, content: &str) -> Message {
@@ -60,22 +60,15 @@ fn store_with_session(
     let manifest = sample_manifest(id, topic, tags);
     store.save_manifest(&manifest).unwrap();
     store
-        .replace_messages(
-            id,
-            &[make_msg("m1", MessageRole::User, "hello world")],
-        )
+        .replace_messages(id, &[make_msg("m1", MessageRole::User, "hello world")])
         .unwrap();
     store
 }
 
 #[test]
 fn test_normalize_helpers_trim_and_dedupe() {
-    let normalized = normalize_tags(&[
-        "  alpha  ".into(),
-        "alpha".into(),
-        "".into(),
-        "beta".into(),
-    ]);
+    let normalized =
+        normalize_tags(&["  alpha  ".into(), "alpha".into(), "".into(), "beta".into()]);
     assert_eq!(normalized, vec!["alpha".to_string(), "beta".to_string()]);
 }
 
@@ -114,7 +107,9 @@ fn test_set_tags_persists_to_manifest() {
 fn test_set_tags_replaces_existing() {
     let dir = tempdir().unwrap();
     let store = store_with_session(dir.path(), "s1", "topic", vec!["old".into()]);
-    store.set_tags("s1", &["new1".into(), "new2".into()]).unwrap();
+    store
+        .set_tags("s1", &["new1".into(), "new2".into()])
+        .unwrap();
     let m = store.get("s1").unwrap();
     assert_eq!(m.tags, vec!["new1".to_string(), "new2".to_string()]);
 }
@@ -125,11 +120,17 @@ fn test_add_tags_is_additive() {
     let store = store_with_session(dir.path(), "s1", "topic", vec!["a".into()]);
     store.add_tags("s1", &["b".into(), "c".into()]).unwrap();
     let m = store.get("s1").unwrap();
-    assert_eq!(m.tags, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+    assert_eq!(
+        m.tags,
+        vec!["a".to_string(), "b".to_string(), "c".to_string()]
+    );
     // Adding a duplicate is a no-op.
     store.add_tags("s1", &["b".into()]).unwrap();
     let m = store.get("s1").unwrap();
-    assert_eq!(m.tags, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+    assert_eq!(
+        m.tags,
+        vec!["a".to_string(), "b".to_string(), "c".to_string()]
+    );
 }
 
 #[test]
@@ -155,10 +156,7 @@ fn test_set_tags_normalizes_whitespace() {
     let dir = tempdir().unwrap();
     let store = store_with_session(dir.path(), "s1", "topic", vec![]);
     store
-        .set_tags(
-            "s1",
-            &["  alpha  ".into(), "beta".into(), "alpha".into()],
-        )
+        .set_tags("s1", &["  alpha  ".into(), "beta".into(), "alpha".into()])
         .unwrap();
     let m = store.get("s1").unwrap();
     // Trimmed, deduped, order preserved.
@@ -234,7 +232,11 @@ fn test_memory_recall_with_tag_filter() {
     memory
         .index_session_with_tags(
             "go-sess",
-            &[make_msg("m2", MessageRole::User, "ownership semantics in go")],
+            &[make_msg(
+                "m2",
+                MessageRole::User,
+                "ownership semantics in go",
+            )],
             "go",
             &["language:go".into()],
         )

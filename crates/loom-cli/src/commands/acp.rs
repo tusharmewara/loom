@@ -11,9 +11,10 @@ pub async fn run(loom_dir: &Path, action: &AcpAction) -> anyhow::Result<()> {
         AcpAction::Stop => handle_stop(loom_dir).await,
         AcpAction::Show { json: json_output } => handle_show(loom_dir, *json_output).await,
         AcpAction::Agents { json: json_output } => handle_agents(loom_dir, *json_output).await,
-        AcpAction::RunStatus { run_id, json: json_output } => {
-            handle_run_status(loom_dir, run_id, *json_output).await
-        }
+        AcpAction::RunStatus {
+            run_id,
+            json: json_output,
+        } => handle_run_status(loom_dir, run_id, *json_output).await,
         AcpAction::Run {
             program,
             prompt,
@@ -56,7 +57,10 @@ async fn handle_status(loom_dir: &Path, json_output: bool) -> anyhow::Result<()>
     if json_output {
         println!("{}", serde_json::to_string_pretty(&data)?);
     } else {
-        let running = data.get("running").and_then(|v| v.as_bool()).unwrap_or(false);
+        let running = data
+            .get("running")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         if running {
             let addr = data
                 .get("listen_addr")
@@ -66,7 +70,10 @@ async fn handle_status(loom_dir: &Path, json_output: bool) -> anyhow::Result<()>
                 .get("public_key")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            let uptime = data.get("uptime_secs").and_then(|v| v.as_u64()).unwrap_or(0);
+            let uptime = data
+                .get("uptime_secs")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
             let handler_count = data
                 .get("handlers_count")
                 .and_then(|v| v.as_u64())
@@ -127,7 +134,10 @@ async fn handle_stop(loom_dir: &Path) -> anyhow::Result<()> {
     }
 
     let data = get_data(&resp);
-    let stopped = data.get("stopped").and_then(|v| v.as_bool()).unwrap_or(false);
+    let stopped = data
+        .get("stopped")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     if stopped {
         println!("ACP dispatch server stopped");
     } else {
@@ -140,7 +150,8 @@ async fn handle_stop(loom_dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn handle_show(loom_dir: &Path, json_output: bool) -> anyhow::Result<()> {    let req = IpcRequest::new("acp.status").with_params(json!({}));
+async fn handle_show(loom_dir: &Path, json_output: bool) -> anyhow::Result<()> {
+    let req = IpcRequest::new("acp.status").with_params(json!({}));
     let resp = ipc_client::send_daemon_command(loom_dir, req).await?;
 
     if resp.status == "error" {
@@ -154,7 +165,10 @@ async fn handle_show(loom_dir: &Path, json_output: bool) -> anyhow::Result<()> {
     if json_output {
         println!("{}", serde_json::to_string_pretty(&data)?);
     } else {
-        let running = data.get("running").and_then(|v| v.as_bool()).unwrap_or(false);
+        let running = data
+            .get("running")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         if running {
             let addr = data
                 .get("listen_addr")
@@ -164,7 +178,10 @@ async fn handle_show(loom_dir: &Path, json_output: bool) -> anyhow::Result<()> {
                 .get("public_key")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            let uptime = data.get("uptime_secs").and_then(|v| v.as_u64()).unwrap_or(0);
+            let uptime = data
+                .get("uptime_secs")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
             let handler_count = data
                 .get("handlers_count")
                 .and_then(|v| v.as_u64())
@@ -280,11 +297,7 @@ async fn handle_agents(loom_dir: &Path, json_output: bool) -> anyhow::Result<()>
 
 /// Show a tracked ACP run's status (exit code and captured session,
 // recorded by the daemon when a tracked `acp.dispatch` completes).
-async fn handle_run_status(
-    loom_dir: &Path,
-    run_id: &str,
-    json_output: bool,
-) -> anyhow::Result<()> {
+async fn handle_run_status(loom_dir: &Path, run_id: &str, json_output: bool) -> anyhow::Result<()> {
     if run_id.trim().is_empty() {
         anyhow::bail!("run_id must not be empty");
     }
@@ -302,16 +315,28 @@ async fn handle_run_status(
         return Ok(());
     }
 
-    let status = data.get("status").and_then(|v| v.as_str()).unwrap_or("unknown");
-    println!("Run {}", data.get("run_id").and_then(|v| v.as_str()).unwrap_or(run_id));
+    let status = data
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    println!(
+        "Run {}",
+        data.get("run_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or(run_id)
+    );
     println!("  Status:  {status}");
     println!(
         "  Task:    {}",
-        data.get("task_id").and_then(|v| v.as_str()).unwrap_or("unknown")
+        data.get("task_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
     );
     println!(
         "  Agent:   {}",
-        data.get("agent_id").and_then(|v| v.as_str()).unwrap_or("unknown")
+        data.get("agent_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
     );
     match data.get("exit_code").and_then(|v| v.as_i64()) {
         Some(code) => println!("  Exit:    {code}"),

@@ -39,21 +39,21 @@ pub trait Forge: Send + Sync {
 /// Pull request information extracted from webhook.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrInfo {
-    pub forge: String,           // "github" or "gitlab"
-    pub owner: String,           // repo owner/org
-    pub repo: String,            // repo name
-    pub number: u64,             // PR number
-    pub title: String,           // PR title
-    pub body: String,            // PR description
-    pub head_sha: String,        // commit SHA at head
-    pub base_sha: String,        // commit SHA at base
-    pub head_ref: String,        // source branch
-    pub base_ref: String,        // target branch
-    pub author: String,          // PR author
-    pub url: String,             // PR URL
-    pub html_url: String,        // PR web URL
-    pub is_draft: bool,          // draft PR
-    pub labels: Vec<String>,     // PR labels
+    pub forge: String,       // "github" or "gitlab"
+    pub owner: String,       // repo owner/org
+    pub repo: String,        // repo name
+    pub number: u64,         // PR number
+    pub title: String,       // PR title
+    pub body: String,        // PR description
+    pub head_sha: String,    // commit SHA at head
+    pub base_sha: String,    // commit SHA at base
+    pub head_ref: String,    // source branch
+    pub base_ref: String,    // target branch
+    pub author: String,      // PR author
+    pub url: String,         // PR URL
+    pub html_url: String,    // PR web URL
+    pub is_draft: bool,      // draft PR
+    pub labels: Vec<String>, // PR labels
 }
 
 /// Forge manager that handles multiple forges.
@@ -95,7 +95,8 @@ impl ForgeManager {
         payload: &[u8],
         signature: Option<&str>,
     ) -> Result<WebhookResult> {
-        let forge = self.get_forge(forge_name)
+        let forge = self
+            .get_forge(forge_name)
             .ok_or_else(|| anyhow::anyhow!("Unknown forge: {}", forge_name))?;
 
         // Verify signature if provided
@@ -112,11 +113,13 @@ impl ForgeManager {
         // Parse PR info
         let pr_info = match forge.parse_pr_payload(payload)? {
             Some(info) => info,
-            None => return Ok(WebhookResult {
-                success: true,
-                message: "No actionable PR event".to_string(),
-                task_id: None,
-            }),
+            None => {
+                return Ok(WebhookResult {
+                    success: true,
+                    message: "No actionable PR event".to_string(),
+                    task_id: None,
+                })
+            }
         };
 
         // Only process opened/reopened/synchronize events for non-draft PRs
@@ -144,7 +147,10 @@ impl ForgeManager {
             .context("Failed to create task")?;
 
         // Store PR linkage
-        let linked_issue = format!("{}/{}/#{}/{}", pr_info.forge, pr_info.owner, pr_info.repo, pr_info.number);
+        let linked_issue = format!(
+            "{}/{}/#{}/{}",
+            pr_info.forge, pr_info.owner, pr_info.repo, pr_info.number
+        );
         task_manager.set_linked_issue(&task.task_id, &linked_issue)?;
 
         // Index PR entities in knowledge graph
@@ -154,14 +160,20 @@ impl ForgeManager {
 
         Ok(WebhookResult {
             success: true,
-            message: format!("Created task {} for PR #{}/{}", task.task_id, forge.name(), pr_info.number),
+            message: format!(
+                "Created task {} for PR #{}/{}",
+                task.task_id,
+                forge.name(),
+                pr_info.number
+            ),
             task_id: Some(task.task_id),
         })
     }
 
     /// Post a review to the PR.
     pub async fn post_review(&self, pr_info: &PrInfo, body: &str) -> Result<()> {
-        let forge = self.get_forge(&pr_info.forge)
+        let forge = self
+            .get_forge(&pr_info.forge)
             .ok_or_else(|| anyhow::anyhow!("Unknown forge: {}", pr_info.forge))?;
         forge.post_review(pr_info, body).await
     }

@@ -17,18 +17,31 @@ pub struct CiStatus {
 
 impl GitHubTracker {
     /// List pull requests for a repository.
-    pub async fn list_pull_requests(&self, repo: &str, state: &str) -> Result<Vec<Issue>, TrackerError> {
-        let url = self.api_url(&format!("/repos/{}/pulls?state={}", repo, urlencoding(state)));
+    pub async fn list_pull_requests(
+        &self,
+        repo: &str,
+        state: &str,
+    ) -> Result<Vec<Issue>, TrackerError> {
+        let url = self.api_url(&format!(
+            "/repos/{}/pulls?state={}",
+            repo,
+            urlencoding(state)
+        ));
         let prs: Vec<GitHubIssue> = self.get(&url).await?;
         Ok(prs.into_iter().map(|pr| pr.into_issue(repo)).collect())
     }
 
     /// Fetch CI status for a pull request's head commit.
-    pub async fn fetch_pr_ci_status(&self, repo: &str, pr_number: u64) -> Result<Vec<CiStatus>, TrackerError> {
+    pub async fn fetch_pr_ci_status(
+        &self,
+        repo: &str,
+        pr_number: u64,
+    ) -> Result<Vec<CiStatus>, TrackerError> {
         // First, get the PR to find the head SHA
         let pr_url = self.api_url(&format!("/repos/{}/pulls/{}", repo, pr_number));
         let pr: serde_json::Value = self.get(&pr_url).await?;
-        let head_sha = pr["head"]["sha"].as_str()
+        let head_sha = pr["head"]["sha"]
+            .as_str()
             .ok_or_else(|| TrackerError::Other(anyhow::anyhow!("No head SHA on PR")))?;
 
         // Get check runs for the head commit
@@ -38,32 +51,42 @@ impl GitHubTracker {
             Err(TrackerError::NotFound(_)) => {
                 // The repo has no check runs (e.g. no GitHub Actions config).
                 // Fall back to the combined status API only in this case.
-                let status_url = self.api_url(&format!("/repos/{}/commits/{}/status", repo, head_sha));
+                let status_url =
+                    self.api_url(&format!("/repos/{}/commits/{}/status", repo, head_sha));
                 let combined: CombinedStatus = self.get(&status_url).await?;
-                return Ok(combined.statuses.into_iter().map(|s| CiStatus {
-                    name: s.context,
-                    status: match s.state.as_str() {
-                        "success" => "success".into(),
-                        "failure" | "error" => "failure".into(),
-                        _ => "pending".into(),
-                    },
-                    url: s.target_url,
-                }).collect());
+                return Ok(combined
+                    .statuses
+                    .into_iter()
+                    .map(|s| CiStatus {
+                        name: s.context,
+                        status: match s.state.as_str() {
+                            "success" => "success".into(),
+                            "failure" | "error" => "failure".into(),
+                            _ => "pending".into(),
+                        },
+                        url: s.target_url,
+                    })
+                    .collect());
             }
             Err(e) => return Err(e),
         };
 
-        Ok(checks.check_runs.into_iter().map(|c| CiStatus {
-            name: c.name,
-            status: c.conclusion.clone().unwrap_or(c.status),
-            url: c.html_url,
-        }).collect())
+        Ok(checks
+            .check_runs
+            .into_iter()
+            .map(|c| CiStatus {
+                name: c.name,
+                status: c.conclusion.clone().unwrap_or(c.status),
+                url: c.html_url,
+            })
+            .collect())
     }
 
     /// Fetch the diff for a pull request.
     pub async fn fetch_pr_diff(&self, repo: &str, pr_number: u64) -> Result<String, TrackerError> {
         let url = self.api_url(&format!("/repos/{}/pulls/{}", repo, pr_number));
-        let resp = self.client
+        let resp = self
+            .client
             .get(&url)
             .header(reqwest::header::ACCEPT, "application/vnd.github.v3.diff")
             .send()
@@ -76,7 +99,9 @@ impl GitHubTracker {
             return Err(TrackerError::Http(status, body));
         }
 
-        resp.text().await.map_err(|e| TrackerError::GitHubApi(format!("Failed to read diff: {e}")))
+        resp.text()
+            .await
+            .map_err(|e| TrackerError::GitHubApi(format!("Failed to read diff: {e}")))
     }
 }
 
@@ -108,8 +133,9 @@ impl GitHubTracker {
             .user_agent("loom-trackers/0.1")
             .default_headers({
                 let mut headers = reqwest::header::HeaderMap::new();
-                let mut auth_value = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token))
-                    .map_err(|e| TrackerError::Config(format!("Invalid token format: {e}")))?;
+                let mut auth_value =
+                    reqwest::header::HeaderValue::from_str(&format!("Bearer {}", token))
+                        .map_err(|e| TrackerError::Config(format!("Invalid token format: {e}")))?;
                 auth_value.set_sensitive(true);
                 headers.insert(reqwest::header::AUTHORIZATION, auth_value);
                 headers.insert(
@@ -130,7 +156,10 @@ impl GitHubTracker {
     }
 
     /// Execute a GET request and deserialize the response.
-    pub(crate) async fn get<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, TrackerError> {
+    pub(crate) async fn get<T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+    ) -> Result<T, TrackerError> {
         let resp = self
             .client
             .get(url)
@@ -201,7 +230,10 @@ impl IssueTracker for GitHubTracker {
         }
 
         let issues: Vec<GitHubIssue> = self.get(&url).await?;
-        Ok(issues.into_iter().map(|i| i.into_issue(&query.repo)).collect())
+        Ok(issues
+            .into_iter()
+            .map(|i| i.into_issue(&query.repo))
+            .collect())
     }
 
     async fn add_comment(&self, id: &str, body: &str) -> Result<(), TrackerError> {
@@ -248,7 +280,7 @@ impl IssueTracker for GitHubTracker {
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct CheckRun {
     pub name: String,
-    pub status: String,       // "queued", "in_progress", "completed"
+    pub status: String,             // "queued", "in_progress", "completed"
     pub conclusion: Option<String>, // "success", "failure", "neutral", "cancelled", etc.
     pub html_url: Option<String>,
     pub started_at: Option<String>,
@@ -267,7 +299,7 @@ struct CheckRunsResponse {
 #[derive(serde::Deserialize)]
 #[allow(dead_code)]
 struct CombinedStatus {
-    state: String,   // "success", "failure", "pending"
+    state: String, // "success", "failure", "pending"
     statuses: Vec<StatusEntry>,
     total_count: u64,
 }

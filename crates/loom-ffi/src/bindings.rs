@@ -13,7 +13,8 @@ pub mod wasm {
     pub fn classify_prompt(prompt: &str) -> String {
         let engine = loom_routing::RoutingEngine::new("");
         let score = engine.classify(prompt);
-        serde_json::to_string(&score).unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_string())
+        serde_json::to_string(&score)
+            .unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_string())
     }
 
     /// Resolve a full routing decision for a prompt, returning JSON.
@@ -22,6 +23,7 @@ pub mod wasm {
         let engine = loom_routing::RoutingEngine::new("");
         let score = engine.classify(prompt);
         let decision = engine.decide(score);
-        serde_json::to_string(&decision).unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_string())
+        serde_json::to_string(&decision)
+            .unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_string())
     }
 }

@@ -12,7 +12,10 @@ pub fn start_daemon(loom_dir: &Path) -> anyhow::Result<()> {
     let pid_path = loom_dir.join(".cache").join(PID_FILE);
 
     if socket_path.exists() {
-        println!("loomd already appears to be running ({})", socket_path.display());
+        println!(
+            "loomd already appears to be running ({})",
+            socket_path.display()
+        );
         return Ok(());
     }
     std::fs::create_dir_all(loom_dir.join(".cache"))?;
@@ -153,8 +156,14 @@ fn uninstall_service() -> anyhow::Result<()> {
     let uid = detect_uid()?;
     let target = format!("gui/{uid}/{SERVICE_LABEL}");
 
-    let _ = Command::new("launchctl").arg("bootout").arg(&target).status();
-    let _ = Command::new("launchctl").arg("disable").arg(&target).status();
+    let _ = Command::new("launchctl")
+        .arg("bootout")
+        .arg(&target)
+        .status();
+    let _ = Command::new("launchctl")
+        .arg("disable")
+        .arg(&target)
+        .status();
 
     if plist_path.exists() {
         std::fs::remove_file(&plist_path)?;
@@ -437,10 +446,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn test_render_systemd_unit() {
-        let unit = render_systemd_unit(
-            Path::new("/usr/local/bin/loomd"),
-            Path::new("/tmp/.loom"),
-        );
+        let unit = render_systemd_unit(Path::new("/usr/local/bin/loomd"), Path::new("/tmp/.loom"));
         assert!(unit.contains("ExecStart=\"/usr/local/bin/loomd\""));
         assert!(unit.contains("LOOM_AGENTS_DIR=/tmp/.loom"));
         assert!(unit.contains("Restart=always"));

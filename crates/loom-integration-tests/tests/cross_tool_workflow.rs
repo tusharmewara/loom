@@ -1,7 +1,7 @@
 //! Integration test for cross-tool workflows
 //! Tests MCP communication between tools (the core integration point).
 
-use loom_core::{McpServerEntry, McpTransport, McpTransportType, HealthStatusStr};
+use loom_core::{HealthStatusStr, McpServerEntry, McpTransport, McpTransportType};
 use loom_mcp::McpManager;
 use tempfile::tempdir;
 

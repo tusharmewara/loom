@@ -217,14 +217,8 @@ impl LoomMcpServer {
     // ── Handler: tools/call ──────────────────────────────────────────────
 
     fn handle_tools_call(&self, id: Option<Value>, params: &Value) -> Value {
-        let name = params
-            .get("name")
-            .and_then(|n| n.as_str())
-            .unwrap_or("");
-        let arguments = params
-            .get("arguments")
-            .cloned()
-            .unwrap_or(Value::Null);
+        let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
+        let arguments = params.get("arguments").cloned().unwrap_or(Value::Null);
 
         match name {
             "loom_list_skills" => self.call_list_skills(id, &arguments),
@@ -253,9 +247,7 @@ impl LoomMcpServer {
                 let skills = engine.registry().list();
                 let filtered: Vec<Value> = skills
                     .iter()
-                    .filter(|s| {
-                        tag_filter.is_none_or(|tag| s.tags.iter().any(|t| t == tag))
-                    })
+                    .filter(|s| tag_filter.is_none_or(|tag| s.tags.iter().any(|t| t == tag)))
                     .map(|s| {
                         serde_json::json!({
                             "name": s.name,
@@ -281,18 +273,21 @@ impl LoomMcpServer {
 
         match loom_skills::SkillsEngine::new(&self.loom_dir) {
             Ok(engine) => match engine.registry().get(name) {
-                Some(skill) => {
-                    jsonrpc_result(
-                        id,
-                        serde_json::json!({
-                            "name": skill.name,
-                            "description": skill.description,
-                            "version": skill.version,
-                            "tags": skill.tags,
-                        }),
-                    )
-                }
-                None => jsonrpc_error(id, -32602, "Skill not found", &format!("No skill named '{name}'")),
+                Some(skill) => jsonrpc_result(
+                    id,
+                    serde_json::json!({
+                        "name": skill.name,
+                        "description": skill.description,
+                        "version": skill.version,
+                        "tags": skill.tags,
+                    }),
+                ),
+                None => jsonrpc_error(
+                    id,
+                    -32602,
+                    "Skill not found",
+                    &format!("No skill named '{name}'"),
+                ),
             },
             Err(e) => jsonrpc_error(id, -32603, "Internal error", &e.to_string()),
         }
@@ -539,7 +534,12 @@ mod tests {
 
     #[test]
     fn test_jsonrpc_error_format() {
-        let err = jsonrpc_error(Some(serde_json::json!(1)), -32700, "Parse error", "bad json");
+        let err = jsonrpc_error(
+            Some(serde_json::json!(1)),
+            -32700,
+            "Parse error",
+            "bad json",
+        );
         assert_eq!(err["jsonrpc"], "2.0");
         assert_eq!(err["error"]["code"], -32700);
         assert_eq!(err["error"]["message"], "Parse error");
