@@ -16,14 +16,18 @@ cargo test -p loom-routing
 cargo test -p loom-integration-tests
 # ... etc for each crate
 
-# Run integration test
-bash run_integration_test.sh        # runs: cargo test --test cross_tool_workflow -- --nocapture
+# Run integration tests
+cargo test -p loom-integration-tests
 
 # Check compilation only (no tests)
 cargo check --workspace
 
 # Lint (Rust conventions, no dedicated config)
 cargo clippy --workspace
+
+# Dependency hygiene (no CI — run periodically)
+cargo machete    # unused deps (loomd/prost is a documented false positive, ignore-listed)
+cargo audit      # RustSec advisories (currently 0 errors, unmaintained-class warnings only)
 ```
 
 No Makefile, no CI workflow files (`.github/workflows/`), no Dockerfile.
@@ -129,8 +133,7 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 
 - **Unit tests**: inline in each crate under `#[cfg(test)] mod tests { ... }`
 - **All tests use `tempfile::tempdir()`** — never write to real filesystem paths
-- **Integration tests**: `tests/integration/cross_tool_workflow.rs` (run via `bash run_integration_test.sh`)
-- **loom-integration-tests**: `crates/loom-integration-tests/tests/` — ecosystem.rs, routing_integration.rs
+- **Integration tests**: `crates/loom-integration-tests/tests/` (run via `cargo test -p loom-integration-tests`)
 - **No dedicated test binary or test harness, no CI workflows**
 
 ## CLI Commands

@@ -246,7 +246,7 @@ pub fn score(signals: &Signals, dynamic: Option<&Signals>) -> ComplexityScore {
         level,
         numeric,
         model_tier,
-        scored_at: super::util::rfc3339_now(),
+        scored_at: loom_core::rfc3339_now(),
         signals: full_signals,
     }
 }
@@ -277,7 +277,7 @@ pub fn score_dynamic(prompt: &str, context_token_estimate: u32) -> ComplexitySco
             score.model_tier = ModelTier::Mid;
         }
     }
-    score.scored_at = super::util::rfc3339_now();
+    score.scored_at = loom_core::rfc3339_now();
     score
 }
 

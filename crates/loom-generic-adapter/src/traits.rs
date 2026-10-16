@@ -54,7 +54,7 @@ impl SkillProvider for GenericSkillProvider {
                     ecosystem_compatible: vec![],
                     ecosystem_requires: vec![],
                     version: "1.0.0".to_string(),
-                    last_modified: chrono_now(),
+                    last_modified: loom_core::rfc3339_now(),
                 });
             }
         }
@@ -65,10 +65,6 @@ impl SkillProvider for GenericSkillProvider {
         let path = self.native_dir.join(format!("{}.md", name));
         Ok(std::fs::read_to_string(&path)?)
     }
-}
-
-fn chrono_now() -> String {
-    chrono::Utc::now().to_rfc3339()
 }
 
 // ─── McpConsumer ─────────────────────────────────────────────────────

@@ -325,7 +325,7 @@ impl AcpProtocolClient {
             |id: u64, method: &str, timeout: Duration| -> anyhow::Result<Value> {
                 let key = id.to_string();
                 let deadline = Instant::now() + timeout;
-                let mut guard = shared.responses.lock().unwrap();
+                let mut guard = loom_core::lock_ok!(shared.responses);
                 loop {
                     if let Some((result, error)) = guard.remove(&key) {
                         if let Some(error) = error {
@@ -437,7 +437,7 @@ impl AcpProtocolClient {
             .ok_or_else(|| anyhow::anyhow!("prompt response missing stopReason"))?
             .to_string();
 
-        let acc = shared.transcript.lock().unwrap();
+        let acc = loom_core::lock_ok!(shared.transcript);
         Ok(AcpTranscript {
             session_id,
             stop_reason,
@@ -451,10 +451,105 @@ impl AcpProtocolClient {
     }
 }
 
+/// Shape an ACP transcript into a Loom session (manifest + System/User/
+/// Assistant messages). Pure; shared by the CLI `acp run` path and the
+/// daemon's `acp.dispatch`. `agent` is recorded verbatim in the System
+/// message; its basename becomes the tag/source_tool/model_provider name.
+/// `topic_override` replaces the default topic (prompt, ≤80 chars).
+pub fn build_acp_session(
+    transcript: &AcpTranscript,
+    prompt: &str,
+    agent: &str,
+    topic_override: Option<String>,
+) -> (loom_core::SessionManifest, Vec<loom_core::Message>) {
+    let prompt = prompt.trim();
+    let agent_name = std::path::Path::new(agent)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(agent)
+        .to_string();
+    let session_id = format!("acp-{}", &uuid::Uuid::new_v4().to_string()[..8]);
+    let topic = topic_override.unwrap_or_else(|| prompt.chars().take(80).collect());
+    let now = loom_core::rfc3339_now();
+
+    let mut assistant = if transcript.agent_text.trim().is_empty() {
+        "(agent produced no text output)".to_string()
+    } else {
+        transcript.agent_text.trim().to_string()
+    };
+    if !transcript.tool_calls.is_empty() {
+        assistant.push_str("\n\nTools:\n");
+        for tool in &transcript.tool_calls {
+            assistant.push_str(&format!("- {tool}\n"));
+        }
+    }
+    assistant.push_str(&format!("\n[stop reason: {}]", transcript.stop_reason));
+
+    let messages = vec![
+        loom_core::Message {
+            id: uuid::Uuid::new_v4().to_string(),
+            role: loom_core::MessageRole::System,
+            content: format!(
+                "ACP protocol run\n  agent: {agent}\n  agent_session: {}\n  stop_reason: {}",
+                transcript.session_id, transcript.stop_reason,
+            ),
+            tool_calls: None,
+            timestamp: now.clone(),
+            metadata: Default::default(),
+        },
+        loom_core::Message {
+            id: uuid::Uuid::new_v4().to_string(),
+            role: loom_core::MessageRole::User,
+            content: prompt.to_string(),
+            tool_calls: None,
+            timestamp: now.clone(),
+            metadata: Default::default(),
+        },
+        loom_core::Message {
+            id: uuid::Uuid::new_v4().to_string(),
+            role: loom_core::MessageRole::Assistant,
+            content: assistant,
+            tool_calls: None,
+            timestamp: now.clone(),
+            metadata: Default::default(),
+        },
+    ];
+
+    let manifest = loom_core::SessionManifest {
+        session_id,
+        source_tool: format!("loom-acp/{agent_name}"),
+        source_version: env!("CARGO_PKG_VERSION").to_string(),
+        exported_at: now,
+        topic,
+        message_count: messages.len() as u32,
+        active_skills: vec![],
+        active_mcp_servers: vec![],
+        working_directory: std::env::current_dir()
+            .ok()
+            .and_then(|p| p.to_str().map(String::from))
+            .unwrap_or_default(),
+        model_provider: agent_name.clone(),
+        files_modified: vec![],
+        compatibility_note: Some(format!(
+            "Canonical ACP run against '{agent}' (stop={})",
+            transcript.stop_reason
+        )),
+        tags: vec![
+            "acp".to_string(),
+            "acp-protocol".to_string(),
+            format!("agent:{agent_name}"),
+        ],
+        summarized_at: None,
+        summarized_message_count: None,
+    };
+    (manifest, messages)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        build_request, parse_message, AcpClientConfig, AcpIncoming, AcpProtocolClient,
+        build_acp_session, build_request, parse_message, AcpClientConfig, AcpIncoming,
+        AcpProtocolClient, AcpTranscript,
     };
 
     #[test]
@@ -557,5 +652,59 @@ mod tests {
         cfg.timeout_secs = 2;
         let err = AcpProtocolClient::run_prompt(&cfg, "hi").unwrap_err();
         assert!(err.to_string().contains("timed out") || err.to_string().contains("timeout"));
+    }
+
+    fn transcript() -> AcpTranscript {
+        AcpTranscript {
+            session_id: "sess-abc".to_string(),
+            stop_reason: "end_turn".to_string(),
+            agent_text: "Hello back".to_string(),
+            tool_calls: vec!["Reading file [completed]".to_string()],
+        }
+    }
+
+    #[test]
+    fn build_acp_session_shapes_messages_manifest_and_tags() {
+        let (manifest, messages) = build_acp_session(
+            &transcript(),
+            "  hello agent, please help  ",
+            "/usr/bin/fake-agent",
+            None,
+        );
+        assert_eq!(messages.len(), 3);
+        let roles: Vec<String> = messages.iter().map(|m| format!("{:?}", m.role)).collect();
+        assert_eq!(roles, vec!["System", "User", "Assistant"]);
+        assert_eq!(messages[1].content, "hello agent, please help");
+        assert!(messages[0].content.contains("agent: /usr/bin/fake-agent"));
+        assert!(messages[2].content.contains("Hello back"));
+        assert!(messages[2].content.contains("Reading file [completed]"));
+        assert_eq!(manifest.topic, "hello agent, please help");
+        assert_eq!(manifest.source_tool, "loom-acp/fake-agent");
+        assert!(manifest.tags.contains(&"acp-protocol".to_string()));
+        assert!(manifest.tags.contains(&"agent:fake-agent".to_string()));
+        assert!(manifest.session_id.starts_with("acp-"));
+    }
+
+    #[test]
+    fn build_acp_session_truncates_long_topics_and_handles_empty_text() {
+        let mut t = transcript();
+        t.agent_text = String::new();
+        t.tool_calls = vec![];
+        let long_prompt = "p".repeat(200);
+        let (manifest, messages) = build_acp_session(&t, &long_prompt, "agent", None);
+        assert!(manifest.topic.chars().count() <= 80);
+        assert!(messages[2].content.contains("no text output"));
+    }
+
+    #[test]
+    fn build_acp_session_honors_topic_override() {
+        let (manifest, _) = build_acp_session(
+            &transcript(),
+            "a long prompt that would otherwise be the topic",
+            "claude-code",
+            Some("Custom topic".to_string()),
+        );
+        assert_eq!(manifest.topic, "Custom topic");
+        assert!(manifest.tags.contains(&"agent:claude-code".to_string()));
     }
 }

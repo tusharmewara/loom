@@ -18,7 +18,8 @@
 //! - `error` — errors and solutions
 //! - `preference` — user preferences
 
-use anyhow::{Context, Result};
+use anyhow::Result;
+use loom_core::lock_ok;
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -61,11 +62,7 @@ pub struct Hindsight {
 impl Hindsight {
     /// Open (or create) the hindsight store at the given path.
     pub fn open(path: &Path) -> Result<Self> {
-        let conn = Connection::open(path)
-            .with_context(|| format!("Failed to open hindsight DB at {}", path.display()))?;
-
-        // Enable WAL for concurrent access
-        conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+        let conn = loom_core::db::open(path)?;
 
         // Create tables if they don't exist
         conn.execute_batch(
@@ -147,7 +144,7 @@ impl Hindsight {
         let now = Utc::now().to_rfc3339();
         let importance = importance.clamp(0.0, 1.0);
 
-        let db = self.db.lock().unwrap();
+        let db = lock_ok!(self.db);
         db.execute(
             "INSERT INTO facts (id, content, fact_type, source, importance, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -173,7 +170,7 @@ impl Hindsight {
         }
 
         let limit = limit.min(100) as i64;
-        let db = self.db.lock().unwrap();
+        let db = lock_ok!(self.db);
 
         // Build a FTS query: make multi-word queries match all terms
         let fts_query = query
@@ -287,7 +284,7 @@ impl Hindsight {
 
     /// Delete a fact by ID.
     pub fn delete(&self, id: &str) -> Result<bool> {
-        let db = self.db.lock().unwrap();
+        let db = lock_ok!(self.db);
         let affected = db.execute(
             "DELETE FROM facts WHERE id = ?1",
             params![id],
@@ -302,7 +299,7 @@ impl Hindsight {
 
     /// Count total facts in the store.
     pub fn count(&self) -> Result<u64> {
-        let db = self.db.lock().unwrap();
+        let db = lock_ok!(self.db);
         let count: u64 = db.query_row("SELECT COUNT(*) FROM facts", [], |row| row.get(0))?;
         Ok(count)
     }
@@ -310,7 +307,7 @@ impl Hindsight {
     /// List facts filtered by type, with optional limit.
     pub fn list_by_type(&self, fact_type: &str, limit: usize) -> Result<Vec<Fact>> {
         let limit = limit.min(100) as i64;
-        let db = self.db.lock().unwrap();
+        let db = lock_ok!(self.db);
         let mut stmt = db.prepare(
             "SELECT id, content, fact_type, source, importance, created_at
              FROM facts

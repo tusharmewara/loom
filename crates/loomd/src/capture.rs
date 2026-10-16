@@ -6,9 +6,8 @@
 //! cross-session memory and the knowledge graph — the same visibility
 //! the CLI `workflow dispatch` path provides.
 
-use loom_core::{Message, MessageRole, SessionManifest};
 use loom_generic_adapter::GenericAdapter;
-use loom_sessions::acp_protocol::{AcpClientConfig, AcpProtocolClient};
+use loom_sessions::acp_protocol::{build_acp_session, AcpClientConfig, AcpProtocolClient};
 use loom_sessions::store::SessionStore;
 use std::path::{Path, PathBuf};
 
@@ -204,90 +203,9 @@ pub fn dispatch_acp_protocol(
     // Run ACP prompt
     let transcript = AcpProtocolClient::run_prompt(&config, &prompt)?;
     
-    // Build session using same logic as CLI
-    let agent_name = std::path::Path::new(&config.program)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(agent_id)
-        .to_string();
-    
-    let session_id = format!(
-        "acp-{}",
-        &uuid::Uuid::new_v4().to_string()[..8]
-    );
-    let now = chrono::Utc::now().to_rfc3339();
-    
-    let mut assistant = if transcript.agent_text.trim().is_empty() {
-        "(agent produced no text output)".to_string()
-    } else {
-        transcript.agent_text.trim().to_string()
-    };
-    if !transcript.tool_calls.is_empty() {
-        assistant.push_str("\n\nTools:\n");
-        for tool in &transcript.tool_calls {
-            assistant.push_str(&format!("- {tool}\n"));
-        }
-    }
-    assistant.push_str(&format!("\n[stop reason: {}]", transcript.stop_reason));
-    
-    let messages = vec![
-        Message {
-            id: uuid::Uuid::new_v4().to_string(),
-            role: MessageRole::System,
-            content: format!(
-                "ACP protocol run\n  agent: {}\n  agent_session: {}\n  stop_reason: {}",
-                agent_id, transcript.session_id, transcript.stop_reason,
-            ),
-            tool_calls: None,
-            timestamp: now.clone(),
-            metadata: Default::default(),
-        },
-        Message {
-            id: uuid::Uuid::new_v4().to_string(),
-            role: MessageRole::User,
-            content: prompt.to_string(),
-            tool_calls: None,
-            timestamp: now.clone(),
-            metadata: Default::default(),
-        },
-        Message {
-            id: uuid::Uuid::new_v4().to_string(),
-            role: MessageRole::Assistant,
-            content: assistant,
-            tool_calls: None,
-            timestamp: now.clone(),
-            metadata: Default::default(),
-        },
-    ];
-    
-    let tags = vec![
-        "acp".to_string(),
-        "acp-protocol".to_string(),
-        format!("agent:{}", agent_name),
-    ];
-    let manifest = SessionManifest {
-        session_id: session_id.clone(),
-        source_tool: format!("loom-acp/{agent_name}"),
-        source_version: env!("CARGO_PKG_VERSION").to_string(),
-        exported_at: now,
-        topic,
-        message_count: messages.len() as u32,
-        active_skills: vec![],
-        active_mcp_servers: vec![],
-        working_directory: std::env::current_dir()
-            .ok()
-            .and_then(|p| p.to_str().map(String::from))
-            .unwrap_or_default(),
-        model_provider: agent_name,
-        files_modified: vec![],
-        compatibility_note: Some(format!(
-            "Canonical ACP run against '{}' (stop={})",
-            agent_id, transcript.stop_reason
-        )),
-        tags: tags.clone(),
-        summarized_at: None,
-        summarized_message_count: None,
-    };
+    // Build session using the shared ACP shaper (same as the CLI path);
+    // topic was resolved above (task-brief title or explicit prompt).
+    let (manifest, messages) = build_acp_session(&transcript, &prompt, agent_id, Some(topic));
     
     // Save session
     let loom_dir_str = loom_dir;
@@ -316,7 +234,7 @@ pub fn dispatch_acp_protocol(
     
     // Update run registry with completion
     if let Ok(mut registry) = manager.lock() {
-        registry.complete_run(&run_id, 0, Some(session_id.clone()));
+        registry.complete_run(&run_id, 0, Some(manifest.session_id.clone()));
     }
     
     Ok(serde_json::json!({

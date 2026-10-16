@@ -124,7 +124,7 @@ impl McpPool {
     /// references the same registry (i.e. within the same daemon process).
     pub fn acquire(&self, server_id: &str, entry: &McpServerEntry) -> Result<()> {
         let map = self.process_map();
-        let mut map = map.lock().unwrap();
+        let mut map = loom_core::lock_ok!(map);
 
         if let Some(pooled) = map.get_mut(server_id) {
             // Already running — just bump the refcount
@@ -173,7 +173,7 @@ impl McpPool {
     /// release.
     pub fn release(&self, server_id: &str) -> Result<bool> {
         let map = self.process_map();
-        let mut map = map.lock().unwrap();
+        let mut map = loom_core::lock_ok!(map);
 
         let killed = if let Some(pooled) = map.get_mut(server_id) {
             if pooled.refcount == 0 {
@@ -234,21 +234,21 @@ impl McpPool {
     /// Returns the current reference count for a server (or 0 if unknown).
     pub fn refcount(&self, server_id: &str) -> usize {
         let map = self.process_map();
-        let map = map.lock().unwrap();
+        let map = loom_core::lock_ok!(map);
         map.get(server_id).map_or(0, |p| p.refcount)
     }
 
     /// Returns `true` if the server process is currently running.
     pub fn is_running(&self, server_id: &str) -> bool {
         let map = self.process_map();
-        let map = map.lock().unwrap();
+        let map = loom_core::lock_ok!(map);
         map.get(server_id).is_some_and(|p| p.child.is_some())
     }
 
     /// Kill all running processes and clear the pool.
     pub fn shutdown_all(&self) -> Vec<String> {
         let map = self.process_map();
-        let mut map = map.lock().unwrap();
+        let mut map = loom_core::lock_ok!(map);
         let ids: Vec<String> = map.keys().cloned().collect();
 
         let mut had_registry = false;
@@ -283,7 +283,7 @@ impl McpPool {
     /// Number of distinct server processes currently running.
     pub fn running_count(&self) -> usize {
         let map = self.process_map();
-        let map = map.lock().unwrap();
+        let map = loom_core::lock_ok!(map);
         map.len()
     }
 

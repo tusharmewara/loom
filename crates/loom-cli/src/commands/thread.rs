@@ -9,7 +9,7 @@ pub async fn run(
     apply_routing_prompt: Option<&str>,
     loom_dir: &str,
 ) -> Result<()> {
-    let home = std::env::var("HOME").context("HOME not set")?;
+    let home = loom_core::home_dir();
     let tools_dir = Path::new(loom_dir).join("tools");
     let toml_path = tools_dir.join(format!("{tool_name}.toml"));
 

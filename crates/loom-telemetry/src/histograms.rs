@@ -96,7 +96,7 @@ impl LatencyHistograms {
     ///
     /// Returns `true` if the measurement exceeds the 3σ anomaly threshold.
     pub fn observe(&self, method: &str, latency_us: f64) -> bool {
-        let mut methods = self.methods.lock().unwrap();
+        let mut methods = loom_core::lock_ok!(self.methods);
         let anomalous = methods
             .get(method)
             .map(|stats| stats.is_anomalous(latency_us))

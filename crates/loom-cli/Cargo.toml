@@ -13,7 +13,6 @@ path = "src/main.rs"
 [dependencies]
 loom-core = { path = "../loom-core" }
 loom-discovery = { path = "../loom-discovery" }
-loom-event-bus = { path = "../loom-event-bus" }
 loom-generic-adapter = { path = "../loom-generic-adapter" }
 loom-ipc = { path = "../loom-ipc" }
 loom-routing = { path = "../loom-routing" }
@@ -52,16 +51,19 @@ reqwest.workspace = true
 sha2.workspace = true
 hex.workspace = true
 ureq.workspace = true
-lsp-types = "0.97.0"
+lsp-types.workspace = true
 loom-debug = { path = "../loom-debug" }
 
 [features]
 default = ["tui"]
 tui = ["loom-tui"]
-docker = ["loom-runtime/docker"]
-podman = ["loom-runtime/podman"]
-kubernetes = ["loom-runtime/kubernetes"]
-containers = ["loom-runtime/containers"]
+docker = ["loom-runtime/docker", "loom-workflow/docker"]
+podman = ["loom-runtime/podman", "loom-workflow/podman"]
+kubernetes = ["loom-runtime/kubernetes", "loom-workflow/kubernetes"]
+containers = ["loom-runtime/containers", "loom-workflow/containers"]
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[lints]
+workspace = true

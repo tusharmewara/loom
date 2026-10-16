@@ -4,7 +4,6 @@ pub mod decision;
 pub mod router;
 pub mod scorer;
 pub mod metrics;
-mod util;
 
 use loom_core::HealthCheck;
 

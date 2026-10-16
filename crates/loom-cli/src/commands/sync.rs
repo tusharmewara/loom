@@ -14,7 +14,7 @@ pub async fn run(
     loom_dir: &str,
     json: bool,
 ) -> Result<()> {
-    let home = std::env::var("HOME").expect("HOME not set");
+    let home = loom_core::home_dir();
 
     let tools: Vec<&str> = if let Some(name) = tool_filter {
         if !supported_tools().contains(&name) {

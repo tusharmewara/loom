@@ -4,6 +4,10 @@
 //! (with configurable concurrency limits) and [`WorktreeManager`] for
 //! isolating parallel agents in separate git worktrees.
 //!
+//! Independent by design: no `loom-core` dependency. This crate is a pure
+//! stdlib library (no paths, locks needing poisoning recovery, time,
+//! or SQLite), so adopting loom-core would be coupling without benefit.
+//!
 //! ## Usage
 //!
 //! ```rust,no_run

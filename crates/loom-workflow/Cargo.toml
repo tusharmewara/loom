@@ -5,28 +5,34 @@ edition.workspace = true
 
 [dependencies]
 loom-core = { path = "../loom-core" }
-loom-discovery = { path = "../loom-discovery" }
-loom-mcp = { path = "../loom-mcp" }
-loom-skills = { path = "../loom-skills" }
 loom-sessions = { path = "../loom-sessions" }
-loom-event-bus = { path = "../loom-event-bus" }
 loom-routing = { path = "../loom-routing" }
 loom-runtime = { path = "../loom-runtime" }
+loom-adapters = { path = "../loom-adapters" }
+loom-generic-adapter = { path = "../loom-generic-adapter" }
+loom-hooks = { path = "../loom-hooks" }
+loom-knowledge = { path = "../loom-knowledge" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 anyhow = { workspace = true }
-chrono = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
-thiserror = { workspace = true }
-tempfile = "3.8"
 toml = { workspace = true }
-shellexpand = "0.1"
-dirs = "5.0"
-async-trait = "0.1"
-reqwest = { version = "0.12", features = ["json"] }
-hmac = "0.12"
-sha2 = "0.10"
-hex = "0.4"
-urlencoding = "2.1"
+tempfile = { workspace = true }
+shellexpand = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+urlencoding = { workspace = true }
+
+[features]
+docker = ["loom-runtime/docker"]
+podman = ["loom-runtime/podman"]
+kubernetes = ["loom-runtime/kubernetes"]
+containers = ["docker", "podman", "kubernetes"]
+
+[lints]
+workspace = true

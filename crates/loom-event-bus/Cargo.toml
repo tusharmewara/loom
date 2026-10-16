@@ -6,7 +6,6 @@ edition.workspace = true
 [dependencies]
 loom-core = { path = "../loom-core" }
 tokio.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
@@ -17,9 +16,12 @@ default = ["cross-process"]
 cross-process = ["dep:zmq"]
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
 criterion = { workspace = true }
 
 [[bench]]
 name = "event_bus_bench"
 harness = false
+
+[lints]
+workspace = true

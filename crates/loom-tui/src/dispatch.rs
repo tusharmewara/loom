@@ -301,11 +301,7 @@ impl TerminalLaunch {
     }
 
     fn command_exists(cmd: &str) -> bool {
-        std::process::Command::new("which")
-            .arg(cmd)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+        loom_core::find_binary(cmd).is_ok()
     }
 
     fn find_terminal_launcher() -> Option<TerminalApp> {

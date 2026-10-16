@@ -2,6 +2,10 @@
 //!
 //! Detects standard Git merge conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`)
 //! and provides strategies for programmatic resolution.
+//!
+//! Independent by design: no `loom-core` dependency. This crate is a pure
+//! stdlib + serde library (no paths, locks, time, or SQLite), so adopting
+//! loom-core would be coupling without benefit.
 
 use serde::{Deserialize, Serialize};
 

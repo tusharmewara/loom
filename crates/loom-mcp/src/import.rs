@@ -263,13 +263,13 @@ API_KEY = "test-key"
 
         let imported = Mutex::new(Vec::new());
         let count = import_from_toml(toml, &|entry| {
-            imported.lock().unwrap().push(entry);
+            loom_core::lock_ok!(imported).push(entry);
             Ok(())
         })
         .unwrap();
 
         assert_eq!(count, 1);
-        let imported = imported.lock().unwrap();
+        let imported = loom_core::lock_ok!(imported);
         assert_eq!(imported[0].id, "my-server");
         assert_eq!(imported[0].name, "My Server");
         assert!(matches!(
@@ -298,13 +298,13 @@ shared = true
 
         let imported = Mutex::new(Vec::new());
         let count = import_from_toml(toml, &|entry| {
-            imported.lock().unwrap().push(entry);
+            loom_core::lock_ok!(imported).push(entry);
             Ok(())
         })
         .unwrap();
 
         assert_eq!(count, 1);
-        let imported = imported.lock().unwrap();
+        let imported = loom_core::lock_ok!(imported);
         assert!(matches!(
             imported[0].transport.transport_type,
             McpTransportType::Http
@@ -341,7 +341,7 @@ shared = false
         let imported = Mutex::new(Vec::new());
         let count =
             import_from_paths(&cfg, dir.path(), &|entry| {
-                imported.lock().unwrap().push(entry);
+                loom_core::lock_ok!(imported).push(entry);
                 Ok(())
             })
             .unwrap();
@@ -372,13 +372,13 @@ args = ["@modelcontextprotocol/server-filesystem", "/tmp"]
 
         let imported = Mutex::new(Vec::new());
         let count = import_from_tools_dir(dir.path(), &|entry| {
-            imported.lock().unwrap().push(entry);
+            loom_core::lock_ok!(imported).push(entry);
             Ok(())
         })
         .unwrap();
 
         assert_eq!(count, 1);
-        assert_eq!(imported.lock().unwrap()[0].id, "jcode-fs");
+        assert_eq!(loom_core::lock_ok!(imported)[0].id, "jcode-fs");
     }
 
     #[test]

@@ -48,7 +48,7 @@ impl AgentMemoryManager {
     /// Returns `Ok(true)` if started, `Ok(false)` if already running.
     /// Returns `Err` only if spawning fails (e.g. npx not found).
     pub fn start(&self) -> Result<bool> {
-        let mut guard = self.child.lock().unwrap();
+        let mut guard = loom_core::lock_ok!(self.child);
         if guard.is_some() {
             // Already running — check if the process is still alive.
             if let Some(ref mut child) = *guard {
@@ -98,7 +98,7 @@ Install: `npm install -g @agentmemory/agentmemory` or just run `npx @agentmemory
     ///
     /// Returns `Ok(true)` if the process was killed, `Ok(false)` if it wasn't running.
     pub fn stop(&self) -> Result<bool> {
-        let mut guard = self.child.lock().unwrap();
+        let mut guard = loom_core::lock_ok!(self.child);
         if let Some(mut child) = guard.take() {
             let pid = child.id();
             match child.kill() {
@@ -121,7 +121,7 @@ Install: `npm install -g @agentmemory/agentmemory` or just run `npx @agentmemory
     /// Uses the process status (not a network health check). For an
     /// end-to-end check that the REST API is live, call [`health_check`].
     pub fn is_running(&self) -> bool {
-        let mut guard = self.child.lock().unwrap();
+        let mut guard = loom_core::lock_ok!(self.child);
         if let Some(ref mut child) = *guard {
             match child.try_wait() {
                 Ok(Some(_)) => {

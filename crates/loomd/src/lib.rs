@@ -308,7 +308,7 @@ impl Loomd {
         // Loom-managed resources into each tool's native filesystem.
         let mut event_rx = self.event_bus.subscribe();
         let sync_loom_dir = self.loom_dir.clone();
-        let sync_home = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
+        let sync_home = loom_core::home_dir();
         let sync_shutdown = self.shutdown_tx.subscribe();
         tokio::spawn(async move {
             use loom_adapters::{adapter_for, supported_tools};

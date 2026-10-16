@@ -65,7 +65,7 @@ impl McpClientPool {
     /// If an idle connection is available in the pool it is reused.
     /// Otherwise a new connection handle is created.
     pub fn acquire(&self, entry: &McpServerEntry) -> Result<McpClientConnection> {
-        let mut available = self.available.lock().unwrap();
+        let mut available = loom_core::lock_ok!(self.available);
 
         if let Some(conns) = available.get_mut(&entry.id) {
             if let Some(conn) = conns.pop() {
@@ -77,7 +77,7 @@ impl McpClientPool {
 
         // Create a new connection
         let id = {
-            let mut n = self.next_id.lock().unwrap();
+            let mut n = loom_core::lock_ok!(self.next_id);
             let id = *n;
             *n += 1;
             id
@@ -108,8 +108,8 @@ impl McpClientPool {
     ///
     /// The caller should not use the connection after calling `release`.
     pub fn release(&self, conn: McpClientConnection) {
-        let mut available = self.available.lock().unwrap();
-        let mut active = self.active.lock().unwrap();
+        let mut available = loom_core::lock_ok!(self.available);
+        let mut active = loom_core::lock_ok!(self.active);
 
         // Remove from active tracking
         if let Some(conns) = active.get_mut(&conn.server_id) {
@@ -125,13 +125,13 @@ impl McpClientPool {
 
     /// Number of idle (available) connections for a server.
     pub fn available_count(&self, server_id: &str) -> usize {
-        let available = self.available.lock().unwrap();
+        let available = loom_core::lock_ok!(self.available);
         available.get(server_id).map_or(0, |v| v.len())
     }
 
     /// Number of active (checked-out) connections for a server.
     pub fn active_count(&self, server_id: &str) -> usize {
-        let active = self.active.lock().unwrap();
+        let active = loom_core::lock_ok!(self.active);
         active.get(server_id).map_or(0, |v| v.len())
     }
 
@@ -142,7 +142,7 @@ impl McpClientPool {
 
     /// Evict all idle connections for a server.
     pub fn evict(&self, server_id: &str) -> usize {
-        let mut available = self.available.lock().unwrap();
+        let mut available = loom_core::lock_ok!(self.available);
         let count = available.remove(server_id).map_or(0, |v| v.len());
         if count > 0 {
             info!("Client: evicted {} idle connections for '{}'", count, server_id);
@@ -152,7 +152,7 @@ impl McpClientPool {
 
     /// Drain all pools (useful during shutdown).
     pub fn drain_all(&self) -> usize {
-        let mut available = self.available.lock().unwrap();
+        let mut available = loom_core::lock_ok!(self.available);
         let total: usize = available.values().map(|v| v.len()).sum();
         available.clear();
         total
@@ -160,7 +160,7 @@ impl McpClientPool {
 
     /// Track a connection as active.
     fn track_active(&self, conn: McpClientConnection) {
-        let mut active = self.active.lock().unwrap();
+        let mut active = loom_core::lock_ok!(self.active);
         active.entry(conn.server_id.clone()).or_default().push(conn);
     }
 }

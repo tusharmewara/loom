@@ -5,19 +5,18 @@ edition.workspace = true
 description = "AST-based structural editing with tree-sitter (P1/5.5)"
 
 [dependencies]
-loom-core = { path = "../loom-core" }
-tree-sitter = "0.26.9"
-tree-sitter-rust = "0.24.2"
-tree-sitter-python = "0.25.0"
-tree-sitter-javascript = "0.25.0"
-tree-sitter-json = "0.24.8"
-tree-sitter-go = "0.25.0"
-anyhow.workspace = true
+tree-sitter.workspace = true
+tree-sitter-rust.workspace = true
+tree-sitter-python.workspace = true
+tree-sitter-javascript.workspace = true
+tree-sitter-json.workspace = true
+tree-sitter-go.workspace = true
 serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
-tracing.workspace = true
 thiserror = { workspace = true }
 streaming-iterator = "0.1"
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[lints]
+workspace = true

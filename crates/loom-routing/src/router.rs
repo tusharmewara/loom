@@ -97,7 +97,7 @@ impl ModelRouter {
                     .unwrap_or(&RoutingStrategy::Balanced)
             ),
             overrides_role_default: false,
-            decided_at: crate::util::rfc3339_now(),
+            decided_at: loom_core::rfc3339_now(),
             cost_estimate: CostEstimate {
                 input_tokens_estimated: input_tokens,
                 output_tokens_estimated: output_tokens,

@@ -14,8 +14,7 @@ pub use commands::telemetry::TelemetryAction;
 
 /// Resolve the default ecosystem directory (~/.loom/).
 pub fn loom_dir() -> String {
-    let home = std::env::var("HOME").expect("HOME environment variable not set");
-    format!("{}/.loom", home)
+    loom_core::loom_dir()
 }
 
 /// Entry point for the loom CLI binary.

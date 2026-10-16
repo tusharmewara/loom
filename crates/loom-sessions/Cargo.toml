@@ -11,14 +11,17 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 tracing.workspace = true
-reqwest = { version = "0.12", features = ["json"] }
-async-trait = "0.1"
+reqwest = { workspace = true }
+async-trait = { workspace = true }
 tokio = { workspace = true }
 chrono.workspace = true
 ed25519-dalek = { workspace = true, features = ["rand_core"] }
-rand_core = { version = "0.6", features = ["getrandom"] }
+rand_core = { workspace = true }
 sha2.workspace = true
 hex.workspace = true
 
 [dev-dependencies]
 tempfile = { workspace = true }
+
+[lints]
+workspace = true

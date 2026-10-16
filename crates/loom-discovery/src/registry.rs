@@ -26,12 +26,8 @@ impl SnapshotDb {
             let _ = std::fs::create_dir_all(parent);
         }
 
-        let conn = Connection::open(&db_path)
+        let conn = loom_core::db::open(&db_path)
             .expect("Failed to open snapshot database");
-
-        // Enable WAL mode for concurrent reads
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
-            .ok();
 
         Self {
             loom_dir: loom_dir.to_string(),
@@ -41,7 +37,7 @@ impl SnapshotDb {
 
     /// Create schema if not exists.
     pub fn initialize_schema(&self) -> anyhow::Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         conn.execute_batch("
             CREATE TABLE IF NOT EXISTS skills (
                 name TEXT PRIMARY KEY,
@@ -93,7 +89,7 @@ impl SnapshotDb {
 
     /// Insert or update a skill entry.
     pub fn insert_skill(&self, name: &str, path: &str, hash: &str) -> anyhow::Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         conn.execute(
             "INSERT OR REPLACE INTO skills (name, path, hash, mtime) VALUES (?1, ?2, ?3, datetime('now'))",
             params![name, path, hash],
@@ -103,7 +99,7 @@ impl SnapshotDb {
 
     /// Insert or update an MCP server entry.
     pub fn insert_mcp_server(&self, name: &str, transport: &str, shared: bool) -> anyhow::Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         conn.execute(
             "INSERT OR REPLACE INTO mcp_servers (id, name, transport, shared) VALUES (?1, ?2, ?3, ?4)",
             params![name, name, transport, shared as i32],
@@ -113,7 +109,7 @@ impl SnapshotDb {
 
     /// Insert or update a tool entry.
     pub fn insert_tool(&self, name: &str, toml_path: &str) -> anyhow::Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         conn.execute(
             "INSERT OR REPLACE INTO tools (name, toml_path) VALUES (?1, ?2)",
             params![name, toml_path],
@@ -123,7 +119,7 @@ impl SnapshotDb {
 
     /// Count resources by type.
     pub fn count_resources(&self) -> anyhow::Result<HashMap<String, usize>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         let mut stmt = conn.prepare("SELECT 'skills' as t, COUNT(*) FROM skills UNION ALL SELECT 'mcp_servers', COUNT(*) FROM mcp_servers UNION ALL SELECT 'sessions', COUNT(*) FROM sessions UNION ALL SELECT 'providers', COUNT(*) FROM providers UNION ALL SELECT 'tools', COUNT(*) FROM tools")?;
         let counts: HashMap<String, usize> = stmt
             .query_map([], |row| {
@@ -136,7 +132,7 @@ impl SnapshotDb {
 
     /// Get all skills from snapshot.
     pub fn get_skills(&self) -> anyhow::Result<Vec<loom_core::SkillEntry>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         let mut stmt = conn.prepare(
             "SELECT name, path, hash, tags, compat, version, mtime FROM skills"
         )?;
@@ -190,7 +186,7 @@ impl SnapshotDb {
 
     /// Remove stale entries (entries whose files no longer exist).
     pub fn clean_stale_entries(&self) -> anyhow::Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         // Remove skills whose paths no longer exist
         conn.execute(
             "DELETE FROM skills WHERE path NOT IN (SELECT path FROM skills WHERE EXISTS(SELECT 1 FROM skills AS s2))",

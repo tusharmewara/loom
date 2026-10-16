@@ -13,7 +13,7 @@ use tonic::{Request, Response, Status};
 // clippy 1.99's result_large_err flags them — boxing would break the impl.
 #[allow(clippy::result_large_err)]
 pub mod loom_grpc {
-    include!("grpc/loom.rs");
+    include!(concat!(env!("OUT_DIR"), "/loom.rs"));
 }
 
 use loom_grpc::{

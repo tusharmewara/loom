@@ -63,9 +63,7 @@ impl CrossSessionMemory {
     }
 
     fn conn(&self) -> Result<Connection> {
-        let conn = Connection::open(&self.db_path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
-        Ok(conn)
+        loom_core::db::open(&self.db_path)
     }
 
     fn initialize(&self) -> Result<()> {

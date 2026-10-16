@@ -41,7 +41,7 @@ async fn run_sequential(
     dry_run: bool,
     loom_dir: &str,
 ) -> Result<()> {
-    let home = std::env::var("HOME").context("HOME not set")?;
+    let home = loom_core::home_dir();
     let launch_tool = tools.last().unwrap();
     let ecosystem_tools = &tools[..tools.len() - 1];
 
@@ -129,7 +129,7 @@ async fn run_parallel(
     no_isolation: bool,
     loom_dir: &str,
 ) -> Result<()> {
-    let home = std::env::var("HOME").context("HOME not set")?;
+    let home = loom_core::home_dir();
     let project_config = load_project_config()?;
 
     // Set up worktree isolation

@@ -357,7 +357,7 @@ impl IpcHandler for LoomdIpcHandler {
                     .get("name")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
-                let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+                let home = loom_core::home_dir();
                 let mut features = vec![];
                 if let Some(adapter) = loom_adapters::adapter_for(name) {
                     let _ = loom_adapters::write_tool_registration(

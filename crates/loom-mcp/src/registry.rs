@@ -36,11 +36,7 @@ impl McpRegistry {
         std::fs::create_dir_all(db_dir).context("Failed to create agents dir for registry")?;
 
         let db_path = db_dir.join("mcp_registry.db");
-        let conn = Connection::open(&db_path)
-            .with_context(|| format!("Failed to open registry DB at {:?}", db_path))?;
-
-        // Enable WAL mode for concurrent readers
-        conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+        let conn = loom_core::db::open(&db_path)?;
 
         // Create process state tracking table if not exists
         conn.execute_batch(
@@ -97,7 +93,7 @@ impl McpRegistry {
 
     /// Initialise schema and secondary indexes.
     fn initialize_tables(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS mcp_servers (
@@ -138,7 +134,7 @@ impl McpRegistry {
         let shared = if entry.shared { 1 } else { 0 };
         let tags = entry.tags.join(",");
 
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         conn.execute(
             "INSERT OR REPLACE INTO mcp_servers (id, name, data, health_status, shared, tags)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -150,7 +146,7 @@ impl McpRegistry {
 
     /// Retrieve a server by id.
     pub fn get(&self, id: &str) -> Result<Option<McpServerEntry>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         let mut stmt = conn.prepare("SELECT data FROM mcp_servers WHERE id = ?1")?;
         let mut rows = stmt.query(params![id])?;
         match rows.next()? {
@@ -166,12 +162,12 @@ impl McpRegistry {
 
     /// Delete a server by id and clear any residual tracking state.
     pub fn delete(&self, id: &str) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         let affected = conn.execute("DELETE FROM mcp_servers WHERE id = ?1", params![id])?;
 
         // Clear any residual reference count (server no longer exists)
         {
-            let mut ref_counts = self.ref_counts.lock().unwrap();
+            let mut ref_counts = loom_core::lock_ok!(self.ref_counts);
             ref_counts.remove(id);
         }
 
@@ -186,7 +182,7 @@ impl McpRegistry {
 
     /// List all registered servers.
     pub fn list(&self) -> Result<Vec<McpServerEntry>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         let mut stmt = conn.prepare("SELECT data FROM mcp_servers ORDER BY name")?;
         let rows = stmt.query_map([], |row| {
             let data: String = row.get(0)?;
@@ -205,7 +201,7 @@ impl McpRegistry {
 
     /// Count total entries.
     pub fn count(&self) -> Result<usize> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         let count: usize = conn.query_row("SELECT COUNT(*) FROM mcp_servers", [], |row| {
             row.get(0)
         })?;
@@ -228,7 +224,7 @@ impl McpRegistry {
     /// the comma-separated tag list; consider a tag-junction table for
     /// higher cardinality).
     pub fn filter_by_tag(&self, tag: &str) -> Result<Vec<McpServerEntry>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         let pattern = format!("%{}%", tag);
         let mut stmt =
             conn.prepare("SELECT data FROM mcp_servers WHERE tags LIKE ?1 ORDER BY name")?;
@@ -250,7 +246,7 @@ impl McpRegistry {
     /// Update only the health status of a server (avoids full serialisation).
     pub fn update_health(&self, id: &str, status: &HealthStatusStr) -> Result<bool> {
         let health = serde_json::to_string(status)?;
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         let affected =
             conn.execute(
                 "UPDATE mcp_servers SET health_status = ?1 WHERE id = ?2",
@@ -265,7 +261,7 @@ impl McpRegistry {
                 let mut entry: McpServerEntry =
                     serde_json::from_str(&data).context("Failed to deserialise McpServerEntry")?;
                 entry.health_status = status.clone();
-                entry.last_health_check = chrono_now();
+                entry.last_health_check = loom_core::rfc3339_now();
                 let full_data = serde_json::to_string(&entry)?;
                 conn.execute(
                     "UPDATE mcp_servers SET data = ?1 WHERE id = ?2",
@@ -278,14 +274,14 @@ impl McpRegistry {
 
     /// Increment reference count for a server (tracks process reuse).
     pub fn increment_refcount(&self, id: &str) -> Result<()> {
-        let mut ref_counts = self.ref_counts.lock().unwrap();
+        let mut ref_counts = loom_core::lock_ok!(self.ref_counts);
         *ref_counts.entry(id.to_string()).or_insert(0) += 1;
         Ok(())
     }
 
     /// Decrement reference count for a server.
     pub fn decrement_refcount(&self, id: &str) -> Result<()> {
-        let mut ref_counts = self.ref_counts.lock().unwrap();
+        let mut ref_counts = loom_core::lock_ok!(self.ref_counts);
         if let Some(count) = ref_counts.get_mut(id) {
             *count = count.saturating_sub(1);
             if *count == 0 {
@@ -297,13 +293,13 @@ impl McpRegistry {
 
     /// Get current reference count for a server.
     pub fn get_refcount(&self, id: &str) -> usize {
-        let ref_counts = self.ref_counts.lock().unwrap();
+        let ref_counts = loom_core::lock_ok!(self.ref_counts);
         *ref_counts.get(id).unwrap_or(&0)
     }
 
     /// Set process state for a server.
     pub fn set_process_state(&self, server_id: &str, state: &str, pid: Option<i32>) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         conn.execute(
             "INSERT OR REPLACE INTO mcp_process_state (server_id, state, pid)
              VALUES (?1, ?2, ?3)",
@@ -314,7 +310,7 @@ impl McpRegistry {
 
     /// Get process state for a server.
     pub fn get_process_state(&self, server_id: &str) -> Result<Option<(String, Option<i32>)>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         let mut stmt = conn.prepare(
             "SELECT state, pid FROM mcp_process_state WHERE server_id = ?1",
         )?;
@@ -331,15 +327,15 @@ impl McpRegistry {
 
     /// Reset process state for all servers (on daemon restart).
     pub fn reset_process_state(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         conn.execute_batch("DELETE FROM mcp_process_state;")?;
-        let mut ref_counts = self.ref_counts.lock().unwrap();
+        let mut ref_counts = loom_core::lock_ok!(self.ref_counts);
         ref_counts.clear();
         Ok(())
     }
 
     fn query_by_column(&self, column: &str, value: &str) -> Result<Vec<McpServerEntry>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = loom_core::lock_ok!(self.conn);
         let sql = format!(
             "SELECT data FROM mcp_servers WHERE {} = ?1 ORDER BY name",
             column
@@ -363,73 +359,6 @@ impl McpRegistry {
     pub fn db_path(&self) -> &Path {
         &self.db_path
     }
-}
-
-/// Simple UTC timestamp string (ISO-8601-like).
-fn chrono_now() -> String {
-    let dur = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = dur.as_secs();
-    let (y, m, d, hh, mm, ss) = secs_to_datetime(secs);
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        y, m, d, hh, mm, ss
-    )
-}
-
-fn secs_to_datetime(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
-    let days = secs / 86400;
-    let time_secs = secs % 86400;
-    let hh = time_secs / 3600;
-    let mm = (time_secs % 3600) / 60;
-    let ss = time_secs % 60;
-
-    let mut y = 1970i64;
-    let mut d = days as i64;
-
-    y += d / 365;
-    d %= 365;
-
-    loop {
-        let days_this_year = if is_leap(y) { 366 } else { 365 };
-        if d < days_this_year {
-            break;
-        }
-        d -= days_this_year;
-        y += 1;
-    }
-
-    let days_in_months = if is_leap(y) {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-
-    let mut m = 0u64;
-    for (i, &dim) in days_in_months.iter().enumerate() {
-        if d < dim {
-            m = (i + 1) as u64;
-            break;
-        }
-        d -= dim;
-    }
-    if m == 0 {
-        m = 12;
-    }
-
-    (
-        y as u64,
-        m,
-        (d + 1) as u64,
-        hh,
-        mm,
-        ss,
-    )
-}
-
-fn is_leap(y: i64) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
 }
 
 /// Create default MCP server entries.

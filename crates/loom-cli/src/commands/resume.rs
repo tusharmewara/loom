@@ -245,7 +245,7 @@ async fn launch_agent_with_session_context(
     provider: &str,
     model: &str,
 ) -> anyhow::Result<()> {
-    let home = std::env::var("HOME").expect("HOME not set");
+    let home = loom_core::home_dir();
 
     // Write session messages as a context file the agent can read
     let context_path = std::path::Path::new(loom_dir)

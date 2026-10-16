@@ -42,7 +42,7 @@ impl ConfigReader {
 
         // Cache as JSON
         let json = serde_json::to_value(&config)?;
-        self.cache.lock().unwrap().insert("global".into(), json);
+        loom_core::lock_ok!(self.cache).insert("global".into(), json);
 
         Ok(Some(config))
     }
@@ -65,7 +65,7 @@ impl ConfigReader {
 
     /// Invalidate cache (e.g., after config file change detected).
     pub fn invalidate(&self) {
-        self.cache.lock().unwrap().clear();
+        loom_core::lock_ok!(self.cache).clear();
     }
 }
 

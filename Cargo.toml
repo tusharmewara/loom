@@ -50,14 +50,13 @@ thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json"] }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
 rusqlite = { version = "0.31", features = ["bundled"] }
-capnp = "0.19"
-capnpc = "0.19"
 chacha20poly1305 = "0.10"
 argon2 = "0.5"
 ed25519-dalek = "2"
+hmac = "0.12"
 sha2 = "0.10"
 base64 = "0.22"
 hex = "0.4"
@@ -73,18 +72,28 @@ reqwest = { version = "0.12", features = ["json"] }
 shellexpand = "3"
 ureq = "2.12"
 semver = "1"
-tonic = "0.10"
-prost = "0.12"
-prost-types = "0.12"
-tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "trace"] }
-axum = "0.7"
-http = "1"
-tonic-build = "0.10"
+tonic = "0.13"
+prost = "0.13"
+tonic-build = "0.13"
 async-stream = "0.3"
 tokio-stream = { version = "0.1" }
 bollard = { version = "0.18", features = ["tokio-stream"] }
 async-trait = "0.1"
 futures-util = "0.3"
 urlencoding = "2.1"
+regex-lite = "0.1"
+lsp-types = "0.97.0"
+rand_core = { version = "0.6", features = ["getrandom"] }
+tree-sitter = "0.26.9"
+tree-sitter-rust = "0.24.2"
+tree-sitter-python = "0.25.0"
+tree-sitter-javascript = "0.25.0"
+tree-sitter-json = "0.24.8"
+tree-sitter-go = "0.25.0"
+ratatui = { version = "0.28", default-features = false, features = ["crossterm"] }
+crossterm = "0.28"
+nix = { version = "0.31", features = ["process"] }
 
+
+[workspace.lints.clippy]
+all = "deny"

@@ -212,7 +212,7 @@ async fn execute_hook_script(script_path: &str, context: &HookContext) -> Result
     use tokio::process::Command;
     use tokio::time::timeout;
 
-    let loom_dir = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    let loom_dir = loom_core::loom_dir();
     let script = Path::new(script_path);
     if !script.exists() {
         return Ok((false, format!("hook script not found: {}", script.display())));

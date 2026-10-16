@@ -66,7 +66,7 @@ impl AuditLogger {
 
     /// Rotate the log file if it exceeds the max size.
     fn rotate_if_needed(&self) -> Result<()> {
-        let mut inner = self.inner.lock().expect("audit mutex poisoned");
+        let mut inner = loom_core::lock_ok!(self.inner);
 
         if inner.current_size < get_max_log_size() {
             return Ok(());
@@ -106,7 +106,7 @@ impl AuditLogger {
     fn write_entry(&self, entry: &AuditEntry) -> Result<()> {
         self.rotate_if_needed()?;
 
-        let mut inner = self.inner.lock().expect("audit mutex poisoned");
+        let mut inner = loom_core::lock_ok!(self.inner);
         let log_path = inner.log_path.clone();
 
         // Ensure parent directory exists
@@ -133,7 +133,7 @@ impl AuditLogger {
         file.flush()?;
 
         drop(inner);
-        let mut inner = self.inner.lock().expect("audit mutex poisoned");
+        let mut inner = loom_core::lock_ok!(self.inner);
         inner.current_size = fs::metadata(&log_path).map(|m| m.len()).unwrap_or(0);
 
         Ok(())
@@ -142,7 +142,7 @@ impl AuditLogger {
     /// Log a credential read access.
     pub fn log_read(&self, requesting_tool: &str, provider_id: &str, success: bool) -> Result<()> {
         let entry = AuditEntry {
-            timestamp: iso_now(),
+            timestamp: loom_core::rfc3339_now(),
             requesting_tool: requesting_tool.to_string(),
             provider_id: provider_id.to_string(),
             access_type: "read".to_string(),
@@ -160,7 +160,7 @@ impl AuditLogger {
     /// Log a credential write access.
     pub fn log_write(&self, requesting_tool: &str, provider_id: &str, success: bool) -> Result<()> {
         let entry = AuditEntry {
-            timestamp: iso_now(),
+            timestamp: loom_core::rfc3339_now(),
             requesting_tool: requesting_tool.to_string(),
             provider_id: provider_id.to_string(),
             access_type: "write".to_string(),
@@ -178,7 +178,7 @@ impl AuditLogger {
     /// Log a denied access attempt.
     pub fn log_denied_access(&self, requesting_tool: &str, provider_id: &str, reason: &str) {
         let entry = AuditEntry {
-            timestamp: iso_now(),
+            timestamp: loom_core::rfc3339_now(),
             requesting_tool: requesting_tool.to_string(),
             provider_id: provider_id.to_string(),
             access_type: "denied".to_string(),
@@ -198,7 +198,7 @@ impl AuditLogger {
 
     /// Read all audit entries from the log file.
     pub fn list(&self) -> Result<Vec<AuditEntry>> {
-        let inner = self.inner.lock().expect("audit mutex poisoned");
+        let inner = loom_core::lock_ok!(self.inner);
         let log_path = Path::new(&inner.log_path);
 
         if !log_path.exists() {
@@ -225,7 +225,7 @@ impl AuditLogger {
 
     /// Read audit entries, including rotated log files.
     pub fn list_all(&self) -> Result<Vec<AuditEntry>> {
-        let inner = self.inner.lock().expect("audit mutex poisoned");
+        let inner = loom_core::lock_ok!(self.inner);
         let base = Path::new(&inner.log_path);
         let dir = base.parent().unwrap_or_else(|| Path::new("."));
 
@@ -265,19 +265,19 @@ impl AuditLogger {
 
     /// Get the current log file path.
     pub fn log_path(&self) -> String {
-        let inner = self.inner.lock().expect("audit mutex poisoned");
+        let inner = loom_core::lock_ok!(self.inner);
         inner.log_path.clone()
     }
 
     /// Get current log file size in bytes.
     pub fn current_size(&self) -> u64 {
-        let inner = self.inner.lock().expect("audit mutex poisoned");
+        let inner = loom_core::lock_ok!(self.inner);
         inner.current_size
     }
 
     /// Remove all audit logs (for testing/cleanup).
     pub fn clear(&self) -> Result<()> {
-        let inner = self.inner.lock().expect("audit mutex poisoned");
+        let inner = loom_core::lock_ok!(self.inner);
         let base = Path::new(&inner.log_path);
         let dir = base.parent().unwrap_or_else(|| Path::new("."));
 
@@ -296,7 +296,7 @@ impl AuditLogger {
 
         // Reset size
         drop(inner);
-        let mut inner = self.inner.lock().expect("audit mutex poisoned");
+        let mut inner = loom_core::lock_ok!(self.inner);
         inner.current_size = 0;
         inner.last_hash = None;
 
@@ -311,7 +311,7 @@ impl AuditLogger {
     /// The first mismatch is reported; `intact == true` means the chain
     /// is unbroken and untampered.
     pub fn verify_integrity(&self) -> Result<IntegrityReport> {
-        let inner = self.inner.lock().expect("audit mutex poisoned");
+        let inner = loom_core::lock_ok!(self.inner);
         let base = Path::new(&inner.log_path);
         let dir = base.parent().unwrap_or_else(|| Path::new("."));
 
@@ -401,39 +401,6 @@ fn read_last_entry_hash(log_path: &Path) -> Option<String> {
         .rev()
         .find_map(|line| serde_json::from_str::<AuditEntry>(line.trim()).ok())
         .and_then(|e| e.entry_hash)
-}
-
-fn iso_now() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs();
-    let days = secs / 86400;
-    let time_secs = secs % 86400;
-    let hours = time_secs / 3600;
-    let minutes = (time_secs % 3600) / 60;
-    let seconds = time_secs % 60;
-
-    let (year, month, day) = days_to_date(days as i64 + 719468);
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year, month, day, hours, minutes, seconds
-    )
-}
-
-/// Convert Rata Die days to Gregorian date (Howard Hinnant algorithm)
-fn days_to_date(z: i64) -> (i64, u32, u32) {
-    let z = z - 719468;
-    let era = if z >= 0 { z } else { z - 146096 } / 146097;
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    (y, m as u32, d as u32)
 }
 
 #[cfg(test)]

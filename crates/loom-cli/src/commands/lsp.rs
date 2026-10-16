@@ -57,7 +57,7 @@ pub async fn run(action: &LspAction) -> anyhow::Result<()> {
             let adapter = adapter_for(tool)
                 .ok_or_else(|| anyhow::anyhow!("Unknown tool adapter: '{}'. Available: {}", tool, loom_adapters::supported_tools().join(", ")))?;
 
-            let home = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
+            let home = loom_core::home_dir();
             let servers = adapter.lsp_servers(&home);
             if servers.is_empty() {
                 anyhow::bail!("Tool '{tool}' has no LSP servers configured.");

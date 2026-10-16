@@ -51,7 +51,7 @@ impl SessionStore {
 
     fn open_index(&self, session_id: &str) -> Result<Connection> {
         let path = self.index_path(session_id);
-        let conn = Connection::open(path)?;
+        let conn = loom_core::db::open(&path)?;
         conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS message_offsets (
