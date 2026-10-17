@@ -48,6 +48,7 @@ async fn test_hook_runner_executes_script() {
         registry,
         HookEventType::PreToolUse.to_string().as_str(),
         &ctx,
+        false,
     )
     .await
     .unwrap();
@@ -83,10 +84,57 @@ async fn test_hook_blocks_on_nonzero_exit() {
         registry,
         HookEventType::PreToolUse.to_string().as_str(),
         &ctx,
+        false,
     )
     .await
     .unwrap();
     assert!(!results[0].success);
+}
+
+#[tokio::test]
+async fn test_engine_skips_unsigned_hooks_when_required() {
+    // Full plumbing: hooks dir with an unsigned hook + config.toml with
+    // [security] require_signature = true → the engine must skip it.
+    let dir = tempdir().unwrap();
+    let agents = dir.path().to_str().unwrap();
+    let hooks_dir = dir.path().join("hooks");
+    fs::create_dir_all(&hooks_dir).unwrap();
+
+    let script = dir.path().join("noop.sh");
+    fs::write(&script, "#!/bin/sh\nexit 0\n").unwrap();
+    let mut perms = fs::metadata(&script).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&script, perms).unwrap();
+
+    let hook = sample_hook("noop", script.to_str().unwrap());
+    fs::write(hooks_dir.join("noop.toml"), toml::to_string(&hook).unwrap()).unwrap();
+
+    fs::write(
+        dir.path().join("config.toml"),
+        "[security]\nrequire_signature = true\n",
+    )
+    .unwrap();
+
+    let engine = loom_hooks::HooksEngine::new(agents);
+    engine.load_hooks().await.unwrap();
+    let ctx = HookContext {
+        event_type: HookEventType::PreToolUse.to_string(),
+        payload: serde_json::json!({"tool": "bash"}),
+        tool_name: Some("bash".into()),
+    };
+    let results = engine
+        .execute_hooks(HookEventType::PreToolUse.to_string().as_str(), &ctx)
+        .await
+        .unwrap();
+    assert_eq!(results.len(), 0, "unsigned hook must be skipped");
+
+    // Flag off (config removed, re-read per execution) → hook runs again.
+    fs::remove_file(dir.path().join("config.toml")).unwrap();
+    let results = engine
+        .execute_hooks(HookEventType::PreToolUse.to_string().as_str(), &ctx)
+        .await
+        .unwrap();
+    assert_eq!(results.len(), 1);
 }
 
 #[test]

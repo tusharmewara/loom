@@ -3,14 +3,35 @@ use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
+/// Plugin downloads are HTTPS-only, mirroring remote-config loading
+/// (config.rs). Rejects http://, ftp://, and other schemes before any
+/// network I/O (routing-debt.md Step 5).
+fn validate_https_url(url: &str) -> Result<()> {
+    if !url.starts_with("https://") {
+        anyhow::bail!(
+            "refusing non-HTTPS plugin URL '{url}': plugin downloads are HTTPS-only, like remote-config loading"
+        );
+    }
+    Ok(())
+}
+
 /// Verify a plugin tool TOML's Ed25519 signature.
 ///
-/// Returns `Ok(())` if `public_key` and `signature` are present on the
-/// manifest and the signature authenticates the content. Returns `Ok(())`
-/// also when both fields are absent (unsigned — allowed for local plugins).
-/// Returns an error if one field is present without the other, or if the
-/// signature is invalid.
-pub fn verify_plugin_signature(manifest: &PluginManifest, content: &[u8]) -> Result<()> {
+/// Trust model (routing-debt.md Step 5): signatures are optional by
+/// default — unsigned artifacts are allowed because everything in the
+/// loom dir is user-owned local state. When `require_signature` is
+/// true (config `[security]`), unsigned manifests are rejected.
+///
+/// Returns `Ok(())` if `public_key` and `signature` are present and the
+/// signature authenticates the content, or if both are absent and
+/// `require_signature` is false. Returns an error if one field is
+/// present without the other, if the signature is invalid, or if both
+/// are absent while `require_signature` is true.
+pub fn verify_plugin_signature(
+    manifest: &PluginManifest,
+    content: &[u8],
+    require_signature: bool,
+) -> Result<()> {
     match (&manifest.public_key, &manifest.signature) {
         (Some(pk_b64), Some(sig_hex)) => {
             use ed25519_dalek::{Signature, Verifier, VerifyingKey};
@@ -33,7 +54,15 @@ pub fn verify_plugin_signature(manifest: &PluginManifest, content: &[u8]) -> Res
 
             Ok(())
         }
-        (None, None) => Ok(()), // unsigned — allowed
+        (None, None) => {
+            if require_signature {
+                anyhow::bail!(
+                    "plugin '{}' is unsigned and security.require_signature is enabled",
+                    manifest.name
+                );
+            }
+            Ok(()) // unsigned — allowed by default
+        }
         (Some(_), None) => anyhow::bail!("plugin has public_key but no signature"),
         (None, Some(_)) => anyhow::bail!("plugin has signature but no public_key"),
     }
@@ -111,6 +140,9 @@ impl PluginRegistry {
         if self.plugin_path(name).exists() {
             anyhow::bail!("Plugin '{}' is already installed", name);
         }
+
+        // Plugin downloads are HTTPS-only (routing-debt.md Step 5)
+        validate_https_url(url)?;
 
         // Attempt to download the tool TOML
         let response = ureq::get(url)
@@ -226,6 +258,9 @@ impl PluginRegistry {
             anyhow::anyhow!("Plugin '{}' has no tool_toml_url to update from", name)
         })?;
 
+        // Plugin downloads are HTTPS-only (routing-debt.md Step 5)
+        validate_https_url(url)?;
+
         // Download new version
         let response = ureq::get(url)
             .call()
@@ -299,5 +334,76 @@ impl PluginRegistry {
     /// Count installed plugins.
     pub fn count(&self) -> usize {
         self.list().map(|v| v.len()).unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plugin_install_urls_must_be_https() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = PluginRegistry::new(tmp.path().to_str().unwrap());
+        let err = registry
+            .install_from_url("evil", "http://evil.example/x.toml", None)
+            .unwrap_err();
+        assert!(err.to_string().contains("HTTPS"), "got: {err}");
+        // Rejected before any download: nothing was written.
+        assert!(!tmp.path().join("plugins").join("evil.toml").exists());
+    }
+
+    #[test]
+    fn plugin_update_urls_must_be_https() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = PluginRegistry::new(tmp.path().to_str().unwrap());
+        // Hand-write a manifest pointing at an http:// URL.
+        std::fs::create_dir_all(tmp.path().join("plugins")).unwrap();
+        std::fs::write(
+            tmp.path().join("plugins").join("x.toml"),
+            "name = \"x\"\nversion = \"0.1.0\"\ntool_toml_url = \"http://evil.example/x.toml\"\n",
+        )
+        .unwrap();
+        let err = registry.update("x").unwrap_err();
+        assert!(err.to_string().contains("HTTPS"), "got: {err}");
+    }
+
+    fn unsigned_manifest() -> PluginManifest {
+        PluginManifest {
+            name: "x".to_string(),
+            version: "0.1.0".to_string(),
+            description: None,
+            author: None,
+            homepage: None,
+            repository: None,
+            tool_toml_url: None,
+            installed_at: None,
+            checksum: None,
+            public_key: None,
+            signature: None,
+        }
+    }
+
+    #[test]
+    fn unsigned_plugin_policy_follows_require_signature() {
+        let m = unsigned_manifest();
+        // Historic default: unsigned is allowed.
+        assert!(verify_plugin_signature(&m, b"content", false).is_ok());
+        // require_signature = true rejects unsigned manifests.
+        let err = verify_plugin_signature(&m, b"content", true).unwrap_err();
+        assert!(err.to_string().contains("unsigned"), "got: {err}");
+    }
+
+    #[test]
+    fn half_signed_plugin_manifests_are_rejected() {
+        let mut m = unsigned_manifest();
+        m.public_key = Some("AAAA".to_string());
+        assert!(verify_plugin_signature(&m, b"c", false).is_err());
+        assert!(verify_plugin_signature(&m, b"c", true).is_err());
+
+        let mut m = unsigned_manifest();
+        m.signature = Some("deadbeef".to_string());
+        assert!(verify_plugin_signature(&m, b"c", false).is_err());
+        assert!(verify_plugin_signature(&m, b"c", true).is_err());
     }
 }

@@ -1,5 +1,6 @@
 use crate::cli::PluginAction;
 use loom_core::plugin_registry::{self, PluginRegistry};
+use loom_core::ConfigReader;
 use std::path::Path;
 
 pub async fn run(loom_dir: &Path, action: &PluginAction) -> anyhow::Result<()> {
@@ -101,14 +102,21 @@ pub async fn run(loom_dir: &Path, action: &PluginAction) -> anyhow::Result<()> {
             verify,
         } => {
             println!("Installing plugin '{}' from {}...", name, url);
+            // security.require_signature = true implies verification and
+            // rejects unsigned plugins (routing-debt.md Step 5).
+            let require_sig = ConfigReader::new(loom_dir.to_str().unwrap())
+                .load()
+                .map(|c| c.security.require_signature)
+                .unwrap_or(false);
             let manifest = registry.install_from_url(name, url, version.as_deref())?;
-            if *verify {
+            let verify = *verify || require_sig;
+            if verify {
                 // Re-read the downloaded tool TOML to verify signature
                 let tools_dir = loom_dir.join("tools");
                 let tool_path = tools_dir.join(format!("{name}.toml"));
                 if tool_path.exists() {
                     let content = std::fs::read(&tool_path)?;
-                    plugin_registry::verify_plugin_signature(&manifest, &content)?;
+                    plugin_registry::verify_plugin_signature(&manifest, &content, require_sig)?;
                     println!("  ✓ Signature verified");
                 } else {
                     println!("  ⚠ Tool TOML not found, skipping signature verification");

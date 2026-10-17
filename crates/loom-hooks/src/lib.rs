@@ -42,6 +42,17 @@ impl std::fmt::Display for HookPriority {
     }
 }
 
+/// Whether `security.require_signature` is enabled for this loom dir
+/// (routing-debt.md Step 5). Defaults to false when config loading
+/// fails or the key is absent — unsigned hooks keep running, matching
+/// the historic trust model.
+pub fn require_signature(loom_dir: &str) -> bool {
+    loom_core::ConfigReader::new(loom_dir)
+        .load()
+        .map(|c| c.security.require_signature)
+        .unwrap_or(false)
+}
+
 /// Registry for hooks
 #[derive(Debug, Default)]
 pub struct HookRegistry {
@@ -83,7 +94,13 @@ impl HooksEngine {
         event_type: &str,
         context: &HookContext,
     ) -> anyhow::Result<Vec<HookResult>> {
-        execute_hooks(&self.registry, event_type, context).await
+        execute_hooks(
+            &self.registry,
+            event_type,
+            context,
+            require_signature(&self.loom_dir),
+        )
+        .await
     }
 
     pub fn health(&self) -> anyhow::Result<loom_core::HealthStatus> {
@@ -150,16 +167,33 @@ impl HookRegistry {
 }
 
 /// Execute hooks for a given event
+///
+/// `require_signature` comes from `security.require_signature` in the
+/// loom dir's config (see [`require_signature`]); when true, unsigned
+/// hooks are skipped.
 pub async fn execute_hooks(
     registry: &HookRegistry,
     event_type: &str,
     context: &HookContext,
+    require_signature: bool,
 ) -> Result<Vec<HookResult>> {
     let hooks = registry.list().await;
     let mut results = Vec::new();
 
     for hook in hooks {
         if hook.enabled && hook.event_type == event_type {
+            // Trust model (routing-debt.md Step 5): unsigned hooks are
+            // allowed by default; `security.require_signature = true`
+            // skips them. Note the live signature scheme is an unkeyed
+            // SHA-256 integrity hash — it detects accidental drift, not
+            // forgery by someone who can write to the hooks dir.
+            if require_signature && hook.signature.is_none() {
+                eprintln!(
+                    "⚠  skipped unsigned hook '{}' (security.require_signature = true)",
+                    hook.id
+                );
+                continue;
+            }
             // Check signature if present
             if let Some(sig) = &hook.signature {
                 if !verify_signature(&hook, sig)? {
@@ -297,6 +331,7 @@ pub async fn run_post_phase_hooks(
     phase_name: &str,
     agent: &str,
     exit_code: i32,
+    require_signature: bool,
 ) -> Result<usize> {
     let context = HookContext {
         event_type: "PostPhase".to_string(),
@@ -308,7 +343,7 @@ pub async fn run_post_phase_hooks(
         }),
         tool_name: Some(agent.to_string()),
     };
-    let results = execute_hooks(registry, "PostPhase", &context).await?;
+    let results = execute_hooks(registry, "PostPhase", &context, require_signature).await?;
     Ok(results.len())
 }
 
@@ -390,11 +425,46 @@ mod tests {
             tool_name: Some("jcode".to_string()),
         };
 
-        let results = execute_hooks(&registry, "skill.added", &context)
+        let results = execute_hooks(&registry, "skill.added", &context, false)
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
         assert!(results[0].success);
+    }
+
+    #[tokio::test]
+    async fn test_unsigned_hook_skipped_when_required() {
+        let registry = HookRegistry::new();
+        registry
+            .register(Hook {
+                id: "unsigned".to_string(),
+                event_type: "skill.added".to_string(),
+                script_path: "/bin/echo".to_string(),
+                enabled: true,
+                priority: HookPriority::Ecosystem,
+                signature: None,
+                created_at: "2026-05-17T16:00:00Z".to_string(),
+            })
+            .await
+            .unwrap();
+
+        let context = HookContext {
+            event_type: "skill.added".to_string(),
+            payload: serde_json::json!({"skill_id": "test"}),
+            tool_name: Some("jcode".to_string()),
+        };
+
+        // Historic default: unsigned hooks run.
+        let results = execute_hooks(&registry, "skill.added", &context, false)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+
+        // security.require_signature = true: unsigned hooks are skipped.
+        let results = execute_hooks(&registry, "skill.added", &context, true)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 0);
     }
 
     #[test]

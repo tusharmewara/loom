@@ -67,7 +67,7 @@ pub struct ConfigDiagnostics {
 }
 
 /// Load and merge config from `~/.loom/config.toml`
-/// with layer-specific overlays from `~/.loom/config/{routing,mcp,hooks}.toml`,
+/// with layer-specific overlays from `~/.loom/config/{routing,mcp,hooks,security}.toml`,
 /// `extends = ["path"]` inheritance chains, and a cached `remote_config_url`.
 ///
 /// Precedence (low → high):
@@ -76,8 +76,8 @@ pub struct ConfigDiagnostics {
 ///      lowest-priority base, each subsequent one overrides the previous)
 ///   3. Local `config.toml` (deep-merged on top of the extends chain)
 ///   4. Layer overlays: `config/routing.toml`, `config/mcp.toml`,
-///      `config/hooks.toml`, `config/acp.toml` (each wrapped under its
-///      own section key)
+///      `config/hooks.toml`, `config/acp.toml`, `config/security.toml`
+///      (each wrapped under its own section key)
 ///   5. Cached remote config from `remote_config_url` (deep-merged on
 ///      top of the local+overlays tree; same precedence as the layer
 ///      overlays — useful for team-wide settings that should be
@@ -195,6 +195,7 @@ impl ConfigReader {
                 ("mcp.toml", Some("mcp")),
                 ("hooks.toml", Some("hooks")),
                 ("acp.toml", Some("acp")),
+                ("security.toml", Some("security")),
             ] {
                 let overlay_path = config_dir.join(filename);
                 if !overlay_path.exists() {
@@ -550,6 +551,7 @@ impl Default for LoomConfig {
             mcp: None,
             hooks: None,
             workflow: None,
+            security: crate::types::SecurityConfig::default(),
         }
     }
 }
@@ -557,6 +559,25 @@ impl Default for LoomConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn security_require_signature_parses_and_defaults_off() {
+        let tmp = tempfile::tempdir().unwrap();
+        let loom_dir = tmp.path().to_str().unwrap();
+
+        // No config at all → historic default (flag off).
+        let empty = ConfigReader::new(loom_dir).load().unwrap();
+        assert!(!empty.security.require_signature);
+
+        // [security] require_signature = true → flag on.
+        std::fs::write(
+            tmp.path().join("config.toml"),
+            "[security]\nrequire_signature = true\n",
+        )
+        .unwrap();
+        let on = ConfigReader::new(loom_dir).load().unwrap();
+        assert!(on.security.require_signature);
+    }
 
     #[test]
     fn test_deep_merge_scalar_replaces() {
