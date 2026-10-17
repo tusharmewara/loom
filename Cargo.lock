@@ -2537,8 +2537,10 @@ dependencies = [
  "anyhow",
  "loom-core",
  "reqwest",
+ "rusqlite",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
 ]
