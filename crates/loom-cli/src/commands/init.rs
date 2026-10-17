@@ -211,8 +211,8 @@ fn write_overlay_templates(loom_dir: &str) -> Result<()> {
 # default_model = "claude-sonnet-4-20250514"
 #
 # [complexity_thresholds]
-# low_max = 0.33    # Max score for Low complexity (default: 0.33)
-# high_min = 0.66   # Min score for High complexity (default: 0.66)
+# low_max = 0.35    # Max score for Low complexity (default: 0.35)
+# high_min = 0.7    # Min score for High complexity (default: 0.7)
 "#,
         ),
         (
