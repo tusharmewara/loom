@@ -23,6 +23,24 @@ pub struct LoomConfig {
     pub hooks: Option<HooksGlobalConfig>,
     #[serde(default)]
     pub workflow: Option<WorkflowConfig>,
+    #[serde(default)]
+    pub security: SecurityConfig,
+}
+
+/// Security posture knobs. Defaults preserve the historic trust model.
+///
+/// Trust model (docs/routing-debt.md Step 5): everything under the loom
+/// dir is user-owned local state. Signed artifacts (hooks, plugins) are
+/// verified whenever a signature is present; unsigned ones have always
+/// been allowed, because write access to the loom dir already implies
+/// trust. `require_signature = true` flips the posture to
+/// verify-by-default: unsigned hooks and plugins are rejected outright.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+pub struct SecurityConfig {
+    /// Reject hooks and plugins that carry no signature.
+    /// Default false (back-compat: unsigned local artifacts are allowed).
+    #[serde(default)]
+    pub require_signature: bool,
 }
 
 // ... rest of file unchanged ...

@@ -94,7 +94,9 @@ pub async fn run(loom_dir: &Path, action: &HooksAction) -> anyhow::Result<()> {
                 payload: serde_json::json!({ "tool": tool, "matcher": matcher }),
                 tool_name: Some(tool.clone()),
             };
-            let results = loom_hooks::execute_hooks(engine.registry(), event, &ctx).await?;
+            // engine.execute_hooks applies security.require_signature from
+            // the loom dir's config (routing-debt.md Step 5).
+            let results = engine.execute_hooks(event, &ctx).await?;
             for r in results {
                 println!("{} success={} output={}", r.hook_id, r.success, r.output);
             }

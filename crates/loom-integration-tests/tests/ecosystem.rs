@@ -135,6 +135,7 @@ async fn hook_enforcement_blocks_pretooluse() {
         &registry,
         loom_core::HookEventType::PreToolUse.to_string().as_str(),
         &ctx,
+        false,
     )
     .await
     .unwrap();

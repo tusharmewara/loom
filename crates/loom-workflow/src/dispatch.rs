@@ -462,7 +462,16 @@ pub async fn fire_post_phase_hooks(
     } else {
         return;
     }
-    match loom_hooks::run_post_phase_hooks(&registry, task_id, phase_name, agent, exit_code).await {
+    match loom_hooks::run_post_phase_hooks(
+        &registry,
+        task_id,
+        phase_name,
+        agent,
+        exit_code,
+        loom_hooks::require_signature(loom_dir),
+    )
+    .await
+    {
         Ok(n) if n > 0 => println!("🔗 Fired {n} PostPhase hook(s)"),
         Ok(_) => {} // no hooks registered — silent
         Err(e) => eprintln!("⚠  PostPhase hook error: {e}"),
