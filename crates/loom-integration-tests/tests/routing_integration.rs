@@ -306,3 +306,68 @@ fn test_manual_override_persists() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_routing_outcomes_recorded_and_closed() -> Result<()> {
+    // Persisted (signals → decision → outcome) telemetry
+    // (routing-debt.md Step 6): decisions from create_task/advance_phase
+    // land in the store, and completion closes the task's open rows.
+    let dir = tempdir()?;
+    let agents = loom_dir(&dir);
+    ensure_catalog(&agents)?;
+    let manager = TaskManager::new(&agents);
+
+    let task = manager.create_task(
+        "Telemetry test",
+        "Add a new endpoint /v1/feature that does something useful across modules.",
+        false,
+        None,
+    )?;
+    let task_id = task.task_id;
+
+    let store = loom_routing::RoutingOutcomeStore::new(&agents)?;
+    let rows = store.recent_decisions(10)?;
+    assert_eq!(rows.len(), 1, "create_task records one decision");
+    assert_eq!(rows[0].source, "create_task");
+    assert_eq!(rows[0].task_id, task_id);
+    assert_eq!(rows[0].phase.as_deref(), Some("Plan"));
+    assert_eq!(
+        rows[0].tier,
+        format!(
+            "{:?}",
+            task.routing_decision.as_ref().unwrap().recommended_tier
+        )
+    );
+    assert!(rows[0].numeric >= 0.0);
+    assert!(serde_json::from_str::<serde_json::Value>(&rows[0].signals_json).is_ok());
+
+    // Each phase advance records another decision.
+    manager.advance_phase(&task_id)?; // Implement
+    manager.advance_phase(&task_id)?; // Verify
+    assert_eq!(store.recent_decisions(10)?.len(), 3);
+
+    // Manual override closes the latest open decision as overridden.
+    let overridden = store.record_override(&task_id, "Mid", "Flagship")?;
+    assert_eq!(overridden, 1);
+    let rows = store.recent_decisions(10)?;
+    let latest = rows.iter().find(|r| r.phase.as_deref() == Some("Verify")).unwrap();
+    assert_eq!(latest.outcome.as_deref(), Some("overridden"));
+    assert!(latest.outcome_detail.as_deref().unwrap().contains("Flagship"));
+
+    // Finish → completion closes every remaining open row.
+    manager.advance_phase(&task_id)?; // Finish
+    let rows = store.recent_decisions(10)?;
+    assert_eq!(rows.len(), 4);
+    assert!(
+        rows.iter().all(|r| r.outcome.is_some()),
+        "no row left open after completion: {:?}",
+        rows.iter().map(|r| r.outcome.clone()).collect::<Vec<_>>()
+    );
+    let counts = store.outcome_counts()?;
+    assert_eq!(
+        counts,
+        vec![("completed".to_string(), 3), ("overridden".to_string(), 1)]
+    );
+
+    Ok(())
+}

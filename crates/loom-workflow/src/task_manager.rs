@@ -1,5 +1,5 @@
 use crate::phases::{default_model_tier, next_phase};
-use crate::routing::{Classifier, DecisionEngine};
+use crate::routing::{Classifier, DecisionEngine, RoutingOutcomeStore};
 use anyhow::{Context, Result};
 use loom_core::{
     config::ConfigReader, derive_level, derive_tier, types::WorkflowConfig, ModelTier,
@@ -38,6 +38,34 @@ impl TaskManager {
 
     fn task_path(&self, task_id: &str) -> PathBuf {
         self.tasks_dir.join(format!("{task_id}.json"))
+    }
+
+    /// Persist a routing decision with its signals (routing-debt.md Step 6).
+    /// Best-effort: telemetry warns on failure, never breaks the workflow.
+    fn record_outcome(
+        &self,
+        source: &str,
+        task_id: &str,
+        phase: Option<&str>,
+        score: &loom_core::ComplexityScore,
+        decision: Option<&loom_core::RoutingDecision>,
+    ) {
+        let Ok(store) = RoutingOutcomeStore::new(self.loom_dir.to_str().unwrap()) else {
+            return;
+        };
+        if let Err(e) = store.record_decision(source, task_id, phase, score, decision) {
+            eprintln!("routing telemetry: failed to record decision: {e}");
+        }
+    }
+
+    /// Close the task's open decisions as `completed` (task reached Finish).
+    fn close_outcomes(&self, task_id: &str) {
+        let Ok(store) = RoutingOutcomeStore::new(self.loom_dir.to_str().unwrap()) else {
+            return;
+        };
+        if let Err(e) = store.record_completion(task_id) {
+            eprintln!("routing telemetry: failed to record completion: {e}");
+        }
     }
 
     fn workflow_config(&self) -> WorkflowConfig {
@@ -210,6 +238,14 @@ impl TaskManager {
 
         let routing_decision = self.router.decide(complexity.clone());
 
+        self.record_outcome(
+            "create_task",
+            &task_id,
+            Some("Plan"),
+            &complexity,
+            Some(&routing_decision),
+        );
+
         // Determine if worktree should be created
         let config = self.workflow_config();
         let create_worktree = worktree && config.worktree_auto;
@@ -352,6 +388,14 @@ impl TaskManager {
         task.complexity_score = Some(complexity.clone());
         task.routing_decision = Some(self.router.decide(complexity.clone()));
 
+        self.record_outcome(
+            "advance_phase",
+            task_id,
+            Some(&format!("{next:?}")),
+            &complexity,
+            task.routing_decision.as_ref(),
+        );
+
         // Also store scoring in the phase history entry we just added
         if let Some(last) = task.phase_history.last_mut() {
             last.complexity_score = Some(complexity.clone());
@@ -360,6 +404,7 @@ impl TaskManager {
 
         if matches!(task.phase, TaskPhase::Finish) {
             task.status = TaskStatus::Completed;
+            self.close_outcomes(task_id);
         }
 
         self.write_task(&task)?;
