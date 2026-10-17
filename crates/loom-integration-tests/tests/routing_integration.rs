@@ -107,6 +107,53 @@ fn test_routing_uses_config_thresholds() -> Result<()> {
 }
 
 #[test]
+fn test_threshold_boundaries_and_contradiction_case() -> Result<()> {
+    let dir = tempdir()?;
+    let agents = loom_dir(&dir);
+    write_routing_config(&agents, "Balanced", 0.3, 0.7)?; // non-default cutoffs
+    ensure_catalog(&agents)?;
+
+    let config = ConfigReader::new(&agents).load()?.routing;
+    let engine = DecisionEngine::with_loom_dir(&agents, config.clone())?;
+    let thresholds = config
+        .as_ref()
+        .map(|c| c.complexity_thresholds.clone())
+        .unwrap_or_default();
+
+    // routing-debt Step 3 contradiction case: numeric=0.32 with
+    // low_max=0.3 used to yield level=Low (hardcoded 0.35 cutoff in the
+    // scorer/CLI) but tier=Mid (config cutoff in the router). Everything
+    // now derives through derive_level/derive_tier: Medium/Mid, consistent.
+    let score = loom_core::types::ComplexityScore {
+        level: ComplexityLevel::Low, // stale default-thresholds level on purpose
+        numeric: 0.32,
+        model_tier: ModelTier::Slm, // stale too: decide() re-derives
+        scored_at: "2026-05-17T00:00:00Z".to_string(),
+        signals: Default::default(),
+    };
+    let level = loom_core::derive_level(0.32, &thresholds);
+    assert!(matches!(level, ComplexityLevel::Medium));
+    let decision = engine.decide(score);
+    assert_eq!(decision.recommended_tier, loom_core::derive_tier(level));
+
+    // Boundary semantics (strict <): exactly low_max -> Mid, exactly
+    // high_min -> Flagship; just below low_max -> Slm.
+    let mk_score = |numeric| loom_core::types::ComplexityScore {
+        level: loom_core::derive_level(numeric, &thresholds),
+        numeric,
+        model_tier: ModelTier::Slm,
+        scored_at: "2026-05-17T00:00:00Z".to_string(),
+        signals: Default::default(),
+    };
+    assert!(matches!(engine.decide(mk_score(0.29)).recommended_tier, ModelTier::Slm));
+    assert!(matches!(engine.decide(mk_score(0.3)).recommended_tier, ModelTier::Mid));
+    assert!(matches!(engine.decide(mk_score(0.69)).recommended_tier, ModelTier::Mid));
+    assert!(matches!(engine.decide(mk_score(0.7)).recommended_tier, ModelTier::Flagship));
+
+    Ok(())
+}
+
+#[test]
 fn test_phase_transition_records_dynamic_signals() -> Result<()> {
     let dir = tempdir()?;
     let agents = loom_dir(&dir);

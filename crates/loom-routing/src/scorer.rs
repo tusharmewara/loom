@@ -1,4 +1,6 @@
-use loom_core::{ComplexityLevel, ComplexityScore, ComplexitySignals, ModelTier};
+use loom_core::{
+    ComplexityLevel, ComplexityScore, ComplexitySignals, ComplexityThresholds, ModelTier,
+};
 use serde::{Deserialize, Serialize};
 
 const HIGH_COMPLEXITY_KEYWORDS: &[&str] = &[
@@ -204,20 +206,10 @@ pub fn score(signals: &Signals, dynamic: Option<&Signals>) -> ComplexityScore {
         override_level
     } else {
         numeric = numeric.clamp(0.0, 1.0);
-        if numeric < 0.35 {
-            ComplexityLevel::Low
-        } else if numeric < 0.7 {
-            ComplexityLevel::Medium
-        } else {
-            ComplexityLevel::High
-        }
+        loom_core::derive_level(numeric, &ComplexityThresholds::default())
     };
 
-    let model_tier = match level {
-        ComplexityLevel::Low => ModelTier::Slm,
-        ComplexityLevel::Medium => ModelTier::Mid,
-        ComplexityLevel::High => ModelTier::Flagship,
-    };
+    let model_tier = loom_core::derive_tier(level);
 
     // Build full signals for output
     let mut full_signals = ComplexitySignals {

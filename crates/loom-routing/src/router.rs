@@ -1,7 +1,8 @@
 use crate::catalog::CatalogManager;
 use anyhow::Result;
 use loom_core::{
-    ComplexityScore, CostEstimate, ModelTier, RoutingConfig, RoutingDecision, RoutingStrategy,
+    derive_level, derive_tier, ComplexityScore, CostEstimate, ModelTier, RoutingConfig,
+    RoutingDecision, RoutingStrategy,
 };
 
 pub struct ModelRouter {
@@ -30,17 +31,10 @@ impl ModelRouter {
             if let Some(forced) = cfg.default_tier {
                 forced
             } else {
-                // Determine tier from complexity thresholds.
-                let base_tier = {
-                    let thresh = &cfg.complexity_thresholds;
-                    if score.numeric < thresh.low_max {
-                        ModelTier::Slm
-                    } else if score.numeric < thresh.high_min {
-                        ModelTier::Mid
-                    } else {
-                        ModelTier::Flagship
-                    }
-                };
+                // Determine tier from complexity thresholds — the same
+                // derivation that produces the level (routing-debt Step 3).
+                let base_tier =
+                    derive_tier(derive_level(score.numeric, &cfg.complexity_thresholds));
                 // Apply strategy adjustments to base_tier.
                 match cfg.strategy {
                     RoutingStrategy::QualityOptimize => ModelTier::Flagship,
