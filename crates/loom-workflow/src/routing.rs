@@ -1,1 +1,1 @@
-pub use loom_routing::{Classifier, DecisionEngine, DynamicSignals};
+pub use loom_routing::{Classifier, DecisionEngine, DynamicSignals, RoutingOutcomeStore};

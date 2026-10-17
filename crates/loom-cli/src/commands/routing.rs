@@ -1,7 +1,7 @@
 use crate::cli::RoutingAction;
 use loom_core::config::ConfigReader;
 use loom_core::types::{ModelTier, RoutingDecision, Task};
-use loom_routing::{CatalogManager, Classifier, DecisionEngine};
+use loom_routing::{CatalogManager, Classifier, DecisionEngine, RoutingOutcomeStore};
 use serde_json::json;
 use std::fs;
 use std::path::Path;
@@ -339,6 +339,13 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
                 },
             };
 
+            // Tier the heuristic picked, before the override replaces it —
+            // needed for the outcome record (routing-debt.md Step 6).
+            let from_tier = task
+                .routing_decision
+                .as_ref()
+                .map(|d| format!("{:?}", d.recommended_tier));
+
             task.routing_decision = Some(decision.clone());
             task.routed_provider = Some(model.provider_id.clone());
             task.updated_at = now;
@@ -350,10 +357,67 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
 
             save_task(loom_dir, &task)?;
 
+            // Mark the replaced decision as overridden — the misroute
+            // evidence a future scorer needs (routing-debt.md Step 6).
+            if let Some(from) = from_tier {
+                match RoutingOutcomeStore::new(loom_dir.to_str().unwrap()) {
+                    Ok(store) => {
+                        if let Err(e) =
+                            store.record_override(task_id, &from, &format!("{:?}", forced_tier))
+                        {
+                            eprintln!("routing telemetry: failed to record override: {e}");
+                        }
+                    }
+                    Err(e) => eprintln!("routing telemetry: {e}"),
+                }
+            }
+
             println!(
                 "Override applied to task {}: tier={:?}, model={} ({})",
                 task_id, forced_tier, model.model_id, model.provider_id
             );
+        }
+        RoutingAction::Outcomes { limit } => {
+            // Persisted (signals → decision → outcome) record
+            // (routing-debt.md Step 6). The summary counts are the
+            // misroute-evidence surface: a high overridden share is the
+            // signal that the heuristic misroutes and the flip condition
+            // for a model-based scorer.
+            let store = RoutingOutcomeStore::new(loom_dir.to_str().unwrap())?;
+            let counts = store.outcome_counts()?;
+            let summary = if counts.is_empty() {
+                "no decisions recorded yet".to_string()
+            } else {
+                counts
+                    .iter()
+                    .map(|(k, v)| format!("{v} {k}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            println!("Routing decisions: {summary}");
+
+            let rows = store.recent_decisions(*limit)?;
+            if rows.is_empty() {
+                println!("  (create a task or run a workflow to record decisions)");
+            }
+            for row in rows {
+                let outcome = row.outcome.as_deref().unwrap_or("open");
+                let detail = row
+                    .outcome_detail
+                    .as_deref()
+                    .unwrap_or("");
+                println!(
+                    "  [{outcome}] {} task={} phase={:?} {}→{} numeric={:.2}{} ({})",
+                    row.recorded_at,
+                    row.task_id,
+                    row.phase,
+                    row.level,
+                    row.tier,
+                    row.numeric,
+                    if detail.is_empty() { String::new() } else { format!(" {detail}") },
+                    row.source,
+                );
+            }
         }
         RoutingAction::Catalog { refresh, json } => {
             if *refresh {

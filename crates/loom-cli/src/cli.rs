@@ -1099,6 +1099,12 @@ pub enum RoutingAction {
         #[arg(long)]
         reason: Option<String>,
     },
+    /// Show persisted routing decisions and their outcomes
+    Outcomes {
+        /// Maximum rows to show
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
     /// Manage model catalog
     Catalog {
         /// Refresh catalog from providers

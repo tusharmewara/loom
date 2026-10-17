@@ -2,6 +2,7 @@ pub mod catalog;
 pub mod classifier;
 pub mod decision;
 pub mod metrics;
+pub mod outcomes;
 pub mod router;
 pub mod scorer;
 
@@ -11,6 +12,7 @@ pub use catalog::CatalogManager;
 pub use classifier::Classifier;
 pub use decision::DecisionEngine;
 pub use metrics::RoutingMetrics;
+pub use outcomes::{DecisionRow, RoutingOutcomeStore};
 pub use router::ModelRouter;
 pub use scorer::{
     score_dynamic, score_dynamic_signals, score_static, score_static_signals, DynamicSignals,
