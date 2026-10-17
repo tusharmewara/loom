@@ -31,7 +31,7 @@ If no rule matches, output {} (empty object).
 
 import sys
 import json
-import toml
+import tomllib  # stdlib since Python 3.11 — no pip dependency
 from pathlib import Path
 
 AGENTS_DIR = Path.home() / ".loom"
@@ -41,7 +41,8 @@ def load_rules():
     if not RULES_PATH.exists():
         return []
     try:
-        data = toml.load(RULES_PATH)
+        with open(RULES_PATH, "rb") as f:
+            data = tomllib.load(f)
         return data.get("rules", [])
     except Exception as e:
         print(f"Error loading routing rules: {e}", file=sys.stderr)

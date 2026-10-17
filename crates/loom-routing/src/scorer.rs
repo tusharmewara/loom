@@ -325,4 +325,45 @@ mod tests {
         assert_eq!(cjk_score.signals.description_length, 2000);
         assert!((ascii_score.numeric - cjk_score.numeric).abs() < f64::EPSILON);
     }
+
+    #[test]
+    fn user_override_forces_level_regardless_of_numeric() {
+        // Pin scorer.rs:200-202: the override decides the level outright;
+        // numeric is not consulted on this path.
+        let signals = Signals {
+            description_length: 5,
+            user_override: Some(ComplexityLevel::High),
+            ..Default::default()
+        };
+        let score = score(&signals, None);
+        assert!(matches!(score.level, ComplexityLevel::High));
+        assert!(matches!(score.model_tier, ModelTier::Flagship));
+        // Override stays visible in the emitted score signals.
+        assert!(matches!(score.signals.user_override, Some(ComplexityLevel::High)));
+        // Numeric still reflects the raw signals (would be Low without the
+        // override): the override changes the level, not the score.
+        assert!(score.numeric < 0.35);
+    }
+
+    #[test]
+    fn keywords_alone_cannot_force_flagship() {
+        // Adversarial prompt-stuffing: every high-complexity keyword, no
+        // other static signals (no cross-module refs, no "deep"/"through",
+        // no glob patterns, no agent role), and short enough that the
+        // length signal is ~0.
+        let prompt = "architect refactor security distributed migrate design system performance multi-file architecture redesign rewrite critical";
+        let score = score_static(prompt);
+        // keyword_score = 0.5 + 0.15/high keyword (-0.1/low), clamped to
+        // [0,1]; its weight is 0.35 → max keyword contribution is 0.35.
+        // High needs numeric >= 0.7, so keywords alone top out at Medium
+        // on the static path.
+        assert!(matches!(score.level, ComplexityLevel::Medium));
+        assert!(matches!(score.model_tier, ModelTier::Mid));
+        assert!(score.numeric >= 0.35 && score.numeric < 0.7);
+        // What CAN legitimately close the gap: the CLI knowledge-graph boost
+        // (0.0-0.25, loom-cli/src/commands/routing.rs knowledge_context) and
+        // dynamic signals (prd_length <= 0.15, context_lines <= 0.15,
+        // files_modified <= 0.20, phase_iterations <= 0.20,
+        // error_rate <= 0.075).
+    }
 }
