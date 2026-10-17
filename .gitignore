@@ -8,3 +8,4 @@ release-bottle/
 blueprint/
 data/
 dist/
+__pycache__/
