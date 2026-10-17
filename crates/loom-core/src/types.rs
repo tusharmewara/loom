@@ -120,12 +120,25 @@ pub struct RoutingConfig {
     pub complexity_thresholds: ComplexityThresholds,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComplexityThresholds {
     #[serde(default = "default_complexity_low_max")]
     pub low_max: f64,
     #[serde(default = "default_complexity_high_min")]
     pub high_min: f64,
+}
+
+// Default must match the serde defaults (0.35 / 0.7), not f64::default().
+// The derived Default previously yielded 0.0/0.0, so any routing config
+// without a [complexity_thresholds] section treated every score as High
+// (routing-debt.md Step 3).
+impl Default for ComplexityThresholds {
+    fn default() -> Self {
+        Self {
+            low_max: default_complexity_low_max(),
+            high_min: default_complexity_high_min(),
+        }
+    }
 }
 
 fn default_complexity_low_max() -> f64 {
@@ -134,6 +147,32 @@ fn default_complexity_low_max() -> f64 {
 
 fn default_complexity_high_min() -> f64 {
     0.7
+}
+
+/// Derive a `ComplexityLevel` from a numeric score and configured thresholds.
+///
+/// Single source of truth for level cutoffs (routing-debt.md Step 3): every
+/// numeric→level derivation must route through here so config thresholds
+/// govern both level and tier.
+pub fn derive_level(numeric: f64, thresholds: &ComplexityThresholds) -> ComplexityLevel {
+    if numeric < thresholds.low_max {
+        ComplexityLevel::Low
+    } else if numeric < thresholds.high_min {
+        ComplexityLevel::Medium
+    } else {
+        ComplexityLevel::High
+    }
+}
+
+/// Derive a `ModelTier` from a `ComplexityLevel`.
+///
+/// Single source of truth for the level→tier mapping (routing-debt.md Step 3).
+pub fn derive_tier(level: ComplexityLevel) -> ModelTier {
+    match level {
+        ComplexityLevel::Low => ModelTier::Slm,
+        ComplexityLevel::Medium => ModelTier::Mid,
+        ComplexityLevel::High => ModelTier::Flagship,
+    }
 }
 
 fn default_routing_strategy() -> RoutingStrategy {
@@ -1030,4 +1069,42 @@ pub struct RelatedEntity {
     pub relationship: Relationship,
     /// Traversal depth from the query root.
     pub depth: u32,
+}
+
+#[cfg(test)]
+mod derive_tests {
+    use super::*;
+
+    #[test]
+    fn level_boundaries_follow_thresholds() {
+        let t = ComplexityThresholds::default();
+        assert_eq!(t.low_max, 0.35);
+        assert_eq!(t.high_min, 0.7);
+        assert!(matches!(derive_level(0.0, &t), ComplexityLevel::Low));
+        assert!(matches!(derive_level(0.34999, &t), ComplexityLevel::Low));
+        assert!(matches!(derive_level(0.35, &t), ComplexityLevel::Medium));
+        assert!(matches!(derive_level(0.69999, &t), ComplexityLevel::Medium));
+        assert!(matches!(derive_level(0.7, &t), ComplexityLevel::High));
+    }
+
+    #[test]
+    fn custom_thresholds_resolve_contradiction_case() {
+        // routing-debt Step 3 live bug: config low_max=0.3 + numeric=0.32
+        // used to yield level=Low (hardcoded 0.35 cutoff) but tier=Mid
+        // (config cutoff). One derivation now: both sides say Medium/Mid.
+        let t = ComplexityThresholds {
+            low_max: 0.3,
+            high_min: 0.7,
+        };
+        let level = derive_level(0.32, &t);
+        assert!(matches!(level, ComplexityLevel::Medium));
+        assert!(matches!(derive_tier(level), ModelTier::Mid));
+    }
+
+    #[test]
+    fn tier_maps_levels() {
+        assert_eq!(derive_tier(ComplexityLevel::Low), ModelTier::Slm);
+        assert_eq!(derive_tier(ComplexityLevel::Medium), ModelTier::Mid);
+        assert_eq!(derive_tier(ComplexityLevel::High), ModelTier::Flagship);
+    }
 }

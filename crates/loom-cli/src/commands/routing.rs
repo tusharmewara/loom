@@ -170,19 +170,14 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
             if knowledge_boost > 0.0 {
                 score.numeric = (score.numeric + knowledge_boost).clamp(0.0, 1.0);
                 score.signals.knowledge_entities = knowledge_entities.clone();
-                // Recompute level and model_tier based on boosted score
-                score.level = if score.numeric < 0.35 {
-                    loom_core::ComplexityLevel::Low
-                } else if score.numeric < 0.7 {
-                    loom_core::ComplexityLevel::Medium
-                } else {
-                    loom_core::ComplexityLevel::High
-                };
-                score.model_tier = match score.level {
-                    loom_core::ComplexityLevel::Low => loom_core::ModelTier::Slm,
-                    loom_core::ComplexityLevel::Medium => loom_core::ModelTier::Mid,
-                    loom_core::ComplexityLevel::High => loom_core::ModelTier::Flagship,
-                };
+                // Recompute level and model_tier based on boosted score,
+                // using the configured thresholds (routing-debt Step 3).
+                let thresholds = config
+                    .as_ref()
+                    .map(|c| c.complexity_thresholds.clone())
+                    .unwrap_or_default();
+                score.level = loom_core::derive_level(score.numeric, &thresholds);
+                score.model_tier = loom_core::derive_tier(score.level);
             }
             let decision = engine.decide(score.clone());
             let result = json!({
@@ -227,18 +222,13 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
             if knowledge_boost > 0.0 {
                 score.numeric = (score.numeric + knowledge_boost).clamp(0.0, 1.0);
                 score.signals.knowledge_entities = knowledge_entities.clone();
-                score.level = if score.numeric < 0.35 {
-                    loom_core::ComplexityLevel::Low
-                } else if score.numeric < 0.7 {
-                    loom_core::ComplexityLevel::Medium
-                } else {
-                    loom_core::ComplexityLevel::High
-                };
-                score.model_tier = match score.level {
-                    loom_core::ComplexityLevel::Low => loom_core::ModelTier::Slm,
-                    loom_core::ComplexityLevel::Medium => loom_core::ModelTier::Mid,
-                    loom_core::ComplexityLevel::High => loom_core::ModelTier::Flagship,
-                };
+                // Recompute level/tier from configured thresholds (routing-debt Step 3)
+                let thresholds = config
+                    .as_ref()
+                    .map(|c| c.complexity_thresholds.clone())
+                    .unwrap_or_default();
+                score.level = loom_core::derive_level(score.numeric, &thresholds);
+                score.model_tier = loom_core::derive_tier(score.level);
             }
             let result = json!({
                 "schema_version": 1,

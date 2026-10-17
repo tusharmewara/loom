@@ -2,8 +2,8 @@ use crate::phases::{default_model_tier, next_phase};
 use crate::routing::{Classifier, DecisionEngine};
 use anyhow::{Context, Result};
 use loom_core::{
-    config::ConfigReader, types::WorkflowConfig, ComplexityLevel, ModelTier, PhaseHistoryEntry,
-    RoutingDecision, Task, TaskPhase, TaskStatus,
+    config::ConfigReader, derive_level, derive_tier, types::WorkflowConfig, ModelTier,
+    PhaseHistoryEntry, RoutingDecision, Task, TaskPhase, TaskStatus,
 };
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -197,19 +197,9 @@ impl TaskManager {
 
         // Apply config thresholds if provided
         if let Some(thresholds) = self.router.thresholds() {
-            let new_level = if complexity.numeric < thresholds.low_max {
-                ComplexityLevel::Low
-            } else if complexity.numeric < thresholds.high_min {
-                ComplexityLevel::Medium
-            } else {
-                ComplexityLevel::High
-            };
+            let new_level = derive_level(complexity.numeric, thresholds);
             complexity.level = new_level;
-            complexity.model_tier = match new_level {
-                ComplexityLevel::Low => ModelTier::Slm,
-                ComplexityLevel::Medium => ModelTier::Mid,
-                ComplexityLevel::High => ModelTier::Flagship,
-            };
+            complexity.model_tier = derive_tier(new_level);
         }
 
         // Apply phase default for Plan (Flagship), taking higher tier
@@ -348,19 +338,9 @@ impl TaskManager {
 
         // Apply config thresholds if provided (overrides level/tier from numeric)
         if let Some(thresholds) = self.router.thresholds() {
-            let new_level = if complexity.numeric < thresholds.low_max {
-                ComplexityLevel::Low
-            } else if complexity.numeric < thresholds.high_min {
-                ComplexityLevel::Medium
-            } else {
-                ComplexityLevel::High
-            };
+            let new_level = derive_level(complexity.numeric, thresholds);
             complexity.level = new_level;
-            complexity.model_tier = match new_level {
-                ComplexityLevel::Low => ModelTier::Slm,
-                ComplexityLevel::Medium => ModelTier::Mid,
-                ComplexityLevel::High => ModelTier::Flagship,
-            };
+            complexity.model_tier = derive_tier(new_level);
         }
 
         // Apply phase default, taking the higher tier (Flagship > Mid > Slm)
