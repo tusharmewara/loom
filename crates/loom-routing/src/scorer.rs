@@ -76,7 +76,9 @@ pub type StaticSignals = Signals;
 
 /// Extract signals from prompt text.
 pub fn extract_signals(prompt: &str, agent_role: Option<&str>) -> Signals {
-    let description_length = prompt.len();
+    // Chars, not bytes: UTF-8 CJK text is ~3 bytes/char and would inflate the
+    // length signal 3x (routing-debt.md Step 1).
+    let description_length = prompt.chars().count();
     let lower = prompt.to_lowercase();
     let mut keyword_indicators = Vec::new();
 
@@ -287,4 +289,40 @@ pub fn score_dynamic(prompt: &str, context_token_estimate: u32) -> ComplexitySco
 /// Backward compat: extract static signals
 pub fn extract_static_signals(prompt: &str, agent_role: Option<&str>) -> Signals {
     extract_signals(prompt, agent_role)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn description_length_counts_chars_not_bytes() {
+        // Equal visual length: 50 ASCII chars vs 50 CJK chars.
+        // Before the fix the CJK prompt reported 150 (bytes), tripling its
+        // length-signal contribution.
+        let ascii = "a".repeat(50);
+        let cjk = "复".repeat(50); // 3 bytes/char in UTF-8 = 150 bytes pre-fix
+
+        let ascii_signals = extract_signals(&ascii, None);
+        let cjk_signals = extract_signals(&cjk, None);
+
+        assert_eq!(ascii_signals.description_length, 50);
+        assert_eq!(cjk_signals.description_length, 50);
+        assert_eq!(cjk.chars().count(), 50); // guard: test string stays 50 chars
+    }
+
+    #[test]
+    fn cjk_prompt_scores_same_length_signal_as_equal_ascii() {
+        // Full-pipeline check: the length contribution comes from
+        // description_length, so equal chars => equal length signal.
+        let ascii = "a".repeat(2000); // maxes the 0.15 length contribution
+        let cjk = "复".repeat(2000);
+
+        let ascii_score = score_static(&ascii);
+        let cjk_score = score_static(&cjk);
+
+        assert_eq!(ascii_score.signals.description_length, 2000);
+        assert_eq!(cjk_score.signals.description_length, 2000);
+        assert!((ascii_score.numeric - cjk_score.numeric).abs() < f64::EPSILON);
+    }
 }
