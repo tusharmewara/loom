@@ -5,6 +5,44 @@ All notable changes to the Loom project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.4] - 2026-10-18
+
+### Added
+
+- feat(routing): persisted decision + outcome telemetry (`crates/loom-routing/src/outcomes.rs`) — SQLite store at `~/.loom/telemetry/routing.db` records one row per task-bound decision (signals JSON, numeric, level, tier, model, token estimates) and closes it with an outcome: `completed` when the task reaches Finish, `overridden` when a manual tier override rejects the heuristic's pick; new `loom routing outcomes [--limit N]` reports recent decisions and outcome counts, giving the decision-model flip condition its evidence surface
+- feat(core): `[security] require_signature` config flag (default off) — when enabled, unsigned hooks are skipped and unsigned plugins are rejected at install; documents the trust model explicitly (loom dir contents are user-owned local state)
+- feat(config): `config/security.toml` overlay joins the merge chain alongside `routing.toml`/`mcp.toml`/`hooks.toml`/`acp.toml`
+- feat(core): `derive_level(numeric, thresholds)` and `derive_tier(level)` — one exported source of truth for complexity level and model tier derivation
+- docs: track `ROADMAP.md` (previously untracked, referenced by the routing debt record)
+
+### Changed
+
+- refactor(routing): the level/tier derivation duplicated across `scorer.rs`, `router.rs`, `task_manager.rs` (×2) and the CLI now routes through `derive_level`/`derive_tier`; configurable `complexity_thresholds` govern **level** as well as tier, making the Supplement's "these thresholds are configurable" claim true
+- refactor: dedupe cross-crate helpers into `loom-core`, split workflow machinery, dependency hygiene
+- chore: workspace `cargo fmt` and clippy 1.99 drift lints (`result_large_err`, `useless_format`, borrow in `println`)
+- chore: `__pycache__/` gitignored; release-bottle script untracked (artifact dirs are gitignored)
+
+### Fixed
+
+- fix(routing): `extract_signals` counted **bytes**, not chars, inflating the length signal ~3× for UTF-8 CJK prompts and biasing CJK tasks toward higher tiers
+- fix(core): `ComplexityThresholds` derived `Default` was `{0.0, 0.0}` rather than the serde defaults (`0.35`/`0.7`), so any routing config without a `[complexity_thresholds]` section treated every score as High → Flagship
+- fix(routing): the level-vs-tier contradiction (config `low_max = 0.3` + `numeric = 0.32` yielded `level = Low` but `tier = Mid`) is resolved by the unified derivation
+- fix(cli): `init`'s `routing.toml` template claimed threshold defaults `0.33`/`0.66`; corrected to the shipped `0.35`/`0.7`
+- fix(routing-hook): the Python hook imported third-party `toml` (ImportError on any machine without `pip install toml`); now uses stdlib `tomllib` (Python ≥ 3.11), with the no-op-on-error contract unchanged
+- ci: install `protoc` for the integration and test-matrix jobs; fail cargo steps properly (`set -o pipefail`); `--all-features` builds no longer break on duplicate cfg-gated imports
+
+### Security
+
+- fix(core): plugin downloads were HTTPS-only for remote config but accepted plain `http://` for plugins — `install_from_url` **and** `update()` now reject non-HTTPS URLs before any network I/O, closing an on-path tool-TOML swap
+- feat(security): `require_signature` trusts nothing unsigned when enabled — hooks skip and plugin installs fail rather than running unverified code
+
+### Tests
+
+- test(routing): characterization suite pinning hook and scorer behavior before the refactor — 7 `routing_hook.py` contract tests (plain asserts, `tempfile` rules files, never `~/.loom`), user-override precedence, and the adversarial keyword ceiling (keyword weight 0.35 clamps at max 0.35 contribution, so keywords alone cannot force Flagship on the static path)
+- test(routing): boundary and contradiction coverage for `derive_level`/`derive_tier`, including the strict-`<` edges at `low_max`/`high_min` (previously only the 0.5 midpoint was tested)
+- test(core): HTTPS rejection on install and update, unsigned-plugin policy follows the flag, half-signed manifests rejected, `security` config parse and default
+- test(routing): outcome-telemetry store and full workflow flow (create → advance ×3 → override → Finish = 4 rows: 3 `completed`, 1 `overridden`)
+
 ## [0.9.3] - 2026-10-09
 
 ### Fixed
