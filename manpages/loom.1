@@ -1,4 +1,4 @@
-.TH LOOM 1 "June 2026" "loom 0.3.7" "User Commands"
+.TH LOOM 1 "October 2026" "loom 0.9.5" "User Commands"
 .SH NAME
 loom \- unified agentic ecosystem for sharing skills, sessions, and MCP servers
 .SH SYNOPSIS
@@ -6,8 +6,21 @@ loom \- unified agentic ecosystem for sharing skills, sessions, and MCP servers
 [\fIOPTIONS\fR] \fICOMMAND\fR [\fIARGS\fR]...
 .SH DESCRIPTION
 .B loom
-is a single CLI front\-end for an ecosystem of agentic coding tools
-(claude\-code, jcode, crush, opencode, goose, and others).
+is a single CLI front\-end for an ecosystem of agentic coding tools.
+It ships preset adapters for twelve agent tools:
+.BR jcode ,
+.BR crush ,
+.BR claude\-code ,
+.BR opencode ,
+.BR goose ,
+.BR codex ,
+.BR cursor ,
+.BR gemini\-cli ,
+.BR aider ,
+.BR kiro ,
+.BR juno ,
+and
+.BR github\-copilot .
 .PP
 It manages a shared directory at
 .BR ~/.loom/
@@ -19,8 +32,20 @@ launches.
 A background daemon,
 .BR loomd (1),
 aggregates the per\-crate subsystems and exposes them over a Unix
-domain socket; the CLI connects to the daemon when one is running, or
-runs a small subset of operations standalone.
+domain socket at
+.BR ~/.loom/loomd.sock ;
+the CLI connects to the daemon when one is running, or runs a small
+subset of operations standalone.  The daemon is auto\-started on
+demand and shuts itself down after 5 minutes of idle IPC traffic.
+Loom targets Unix\-like systems (Linux/macOS); on Windows it requires
+WSL2 \(em native Windows is not supported, because the daemon relies
+on Unix domain sockets.
+.PP
+Model routing scores each task's complexity and routes it to one of
+three tiers
+.RI ( Slm ", Mid, " Flagship ")"
+mapped onto concrete provider/model pairs from a configurable
+catalog.
 .SH COMMANDS
 .SS Lifecycle
 .TP
@@ -29,34 +54,72 @@ Initialize the
 .B ~/.loom/
 ecosystem directory.  Accepts
 .B \-\-import
-to scan the local filesystem and
+(short
+.BR \-i )
+to scan the local filesystem and build the initial snapshot,
 .B \-\-recommended
-to install the recommended set of MCP servers.  Use
+(short
+.BR \-r )
+to install the recommended set of MCP servers (filesystem, github,
+playwright, agentmemory), and
 .B \-\-source \fIURL\fR
 to bootstrap from a remote config (HTTPS only); the URL is written to
 .B config.toml
 as
 .B remote_config_url
-and the content is fetched and cached locally so subsequent
+and the content is fetched and cached immediately, so subsequent
 .B loom
-commands deep\-merge the cached remote config on top of the local tree.
+commands deep\-merge the cached remote config on top of the local
+tree.
 .TP
-.B scan
+.B scan \fR[\-\-json]
 Print a summary of the resources currently registered with the
 ecosystem.
 .TP
-.B status
+.B status \fR[\-\-json]
 Show ecosystem and daemon health.
 .TP
-.B doctor
+.B doctor \fR[\-\-json] [\-\-fix] [\-\-verbose]
 Run deep diagnostics for the daemon, service installation, and
 persistence layer.
+.B \-\-fix
+(short
+.BR \-f )
+creates missing directories and initializes missing files;
+.B \-\-verbose
+(short
+.BR \-v )
+prints explanations for each check.
 .TP
 .B tui
-Launch the terminal UI dashboard (seven tabs, 1s auto refresh).
+Launch the terminal UI dashboard (built when the
+.B tui
+cargo feature is enabled, which is the default).  The dashboard has
+fifteen tabs: Dashboard, Daemon, Discovery, MCP, Skills, Sessions,
+Logs, Knowledge, PRs, Runtime, Kanban, Graph, Cost, Orchestrator,
+and Review.
+.TP
+.B self\-update \fR[\-\-force] [\-\-source \fISOURCE\fR]
+Check for a newer version and install it.
+.I SOURCE
+is
+.B github
+(the default) or
+.BR releases.loom.sh .
+.B \-\-force
+re\-downloads even when the versions match.
+.TP
+.B completions \fISHELL\fR
+Generate shell completions for
+.BR bash ,
+.BR zsh ,
+.BR fish ,
+.BR powershell ,
+or
+.BR elvish .
 .SS Config inspection
 .TP
-.B config show
+.B config show \fR[\-\-json] [\-\-extends] [\-\-no\-extend] [\-\-no\-remote]
 Print the merged
 .B LoomConfig
 after applying all five precedence layers
@@ -78,8 +141,11 @@ skip the corresponding layer for a single command (env var
 equivalents:
 .BR LOOM_NO_EXTEND=1 ,
 .BR LOOM_NO_REMOTE=1 ).
+The
+.B extends
+chain is limited to a depth of 10 with cycle detection.
 .TP
-.B config validate
+.B config validate \fR[\-\-no\-extend] [\-\-no\-remote]
 Validate the merged
 .B LoomConfig
 without writing anything.  Same
@@ -87,119 +153,636 @@ without writing anything.  Same
 and
 .B \-\-no\-remote
 flags as
-.BR config show .
+.BR "config show" .
 .TP
-.B config fetch \fI[\-\-url \fIURL\fR]\fR
+.B config fetch \fR[\-\-url \fIURL\fR]
 Download the remote config (HTTPS only) to
-.BR ~/.loom/.cache/remote_config/ .
-If
+.BR ~/.loom/.cache/remote_config/ ,
+with SHA\-256 based caching.  If
 .B \-\-url
 is omitted, uses
 .B remote_config_url
 from the current
-.B config.toml.
+.BR config.toml .
 .SS Tool and integration management
 .TP
-.B thread \fItool\fR
-Register or update an agentic tool.  Accepts
-.B \-\-apply\-routing \fIdecision\fR
-to immediately adopt a routing decision.
+.B thread \fITOOL\fR \fR[\-\-apply\-routing \fIDECISION\fR]
+Register or update an agentic tool.
+.B \-\-apply\-routing
+immediately adopts a routing decision into the tool environment.
 .TP
-.B exec \fItools...\fR
-Execute one or more tools with the Loom ecosystem loaded.
+.B exec \fITOOLS...\fR \fR[\-\-dry\-run] [\-\-parallel] [\-\-pool\-size \fIN\fR] [\-\-no\-isolation] [\-\- \fIARGS...\fR]
+Execute agentic tool(s) with the Loom ecosystem loaded.  Sequential
+mode (the default) enables the ecosystem for every named tool and
+launches the last one, passing arguments after
+.B \-\-
+to it.  Parallel mode
+.B (\-\-parallel)
+runs all named tools concurrently with per\-task git worktree
+isolation: each agent is launched in a detached\-HEAD worktree on a
+.B loom\-parallel/<agent>\-<timestamp>
+branch created next to the repository.
+.B \-\-pool\-size
+caps concurrency (default 4),
+.B \-\-no\-isolation
+skips worktree isolation in parallel mode, and
+.B \-\-dry\-run
+prints the injected environment without executing anything.
 .TP
-.B init\-shell \fI[\-\-shell bash|zsh|fish]\fR
+.B init\-shell \fR[\-\-shell bash|zsh|fish]
 Generate shell integration that activates Loom on
-.BR cd .
+.BR cd
+(shell defaults to auto\-detection).
 .TP
-.B add\-acp\-agent \fIagent_id\fR
-Pull an agent entry from the public ACP registry and add it locally.
+.B sync \fR[\-\-tool \fITOOL\fR] [\-\-json]
+Sync Loom\-managed resources to tool\-native filesystem locations,
+optionally limited to a single tool.
 .TP
+.B add\-acp\-agent \fIAGENT_ID\fR
+Pull an agent entry from the public ACP registry
+(cdn.agentclientprotocol.com) and add it locally.
+.TP
+.B lock \fR[\-\-generate] [\-\-verify] [\-\-diff]
+Manage the skill lock file
+.RB ( ~/.loom/skills/skills.lock )
+used to pin skill versions for reproducibility.
+.B \-\-generate
+(short
+.BR \-g )
+writes the lock file from current registry state,
+.B \-\-verify
+(short
+.BR \-V )
+checks installed skills against it, and
+.B \-\-diff
+shows violations in diff style.
+.TP
+.B plugin \fIACTION\fR
+Manage the plugin registry:
+.B search
+(query),
+.B install
+(name, URL of a tool TOML, optional
+.B \-\-version
+and
+.B \-\-verify
+for Ed25519 signature checking),
+.B register
+(from a local tool TOML file),
+.BR update ,
+.BR remove ,
+.BR list ,
+and
+.BR show .
+.TP
+.B remote \fIACTION\fR
+Manage remote SSH connections:
+.B list ,
+.B add
+(name, host; options
+.BR \-\-port ,
+.BR \-\-user ,
+.BR \-\-key ,
+.BR \-\-store\-in\-vault ,
+.BR \-\-vault\-password ,
+.BR \-\-agent ,
+.BR \-\-jump ),
+.BR remove ,
+.B exec
+(run a command on a remote host;
+.B \-\-capture\-session
+stores the output as an indexed Loom session), and
 .B sync
-Sync Loom\-managed resources to tool\-native filesystem locations.
+(push or pull files with rsync, or scp with
+.BR \-\-scp ;
+.B \-\-pull
+reverses the direction).
+.TP
+.B lsp \fIACTION\fR
+LSP integration:
+.B servers
+(list available language servers),
+.B rename
+.RB ( \-\-path ,
+.BR \-\-line ,
+.BR \-\-column ,
+new name),
+.B find\-references
+.RB ( \-\-path ,
+.BR \-\-symbol ),
+and
+.B exec
+(run rename, find\-references, gotodef, code\-action, or symbols
+through a registered tool adapter).  Each accepts
+.B \-\-server
+to override auto\-detection from the file extension.
+.TP
+.B debug \fIACTION\fR
+Debug Adapter Protocol integration:
+.B adapters
+(list available debug adapters),
+.B launch
+.RB ( \-\-program ,
+.BR \-\-language ,
+optional
+.BR \-\-args ),
+.B attach
+.RB ( \-\-pid ,
+.BR \-\-language ),
+.B breakpoints
+.RB ( \-\-file ,
+.BR \-\-line ,
+active session required),
+.B step
+(over, in, or out),
+.B evaluate
+(expression),
+.B stack
+(current stack trace), and
+.B continue
+(attach to a session launched via
+.B "debug launch"
+and continue it).
+.TP
+.B edit \fIACTION\fR
+Content\-hash anchored editing (Hashline):
+.B hash
+(compute the anchor for a line range),
+.B apply
+(replace the anchored region with new content;
+.B \-\-write
+writes, default is a dry run), and
+.B validate
+(check that an anchor still matches the file).  Lines are 1\-based.
+.TP
+.B ast \fIACTION\fR
+AST structural editing with tree\-sitter.  Sixteen actions:
+.BR parse ,
+.BR query ,
+.BR node\-at ,
+.BR move\-up ,
+.BR move\-down ,
+.BR swap ,
+.BR extract ,
+.BR wrap ,
+.BR unwrap ,
+.BR duplicate ,
+.BR insert ,
+.BR replace ,
+.BR kind\-at ,
+.BR find\-kind ,
+.BR format ,
+and
+.BR stats .
+Positions are 0\-based
+.BI line / column
+pairs; most actions accept a
+.B \-\-language
+override (rust, python, javascript, go, json),
+.BR \-\-dry\-run ,
+and/or
+.BR \-\-json .
+.B wrap
+supports if, if_true, if_false, loop, while, block, parens,
+brackets, try, try_catch, unsafe, or a custom wrapper containing
+.BR $BODY .
+.TP
+.B conflict \fIACTION\fR
+Detect and resolve merge conflicts:
+.B scan
+(a file or directory),
+.B resolve
+(one file; strategies
+.BR ours ,
+.BR theirs ,
+.BR both\-ours\-theirs ,
+.BR both\-theirs\-ours ;
+.B \-\-write
+writes, default prints),
+.B resolve\-bulk
+(multiple files, one strategy), and
+.B show
+(detailed conflict info).
 .SS Subsystems
 .TP
-.B mcp
-Manage MCP servers (\fBlist\fR, \fBshow\fR, \fBadd\fR, \fBremove\fR,
-\fBinstall\fR, \fBlist\-known\fR).
+.B mcp \fIACTION\fR
+Manage MCP servers:
+.B list ,
+.B show ,
+.B add
+(stub),
+.BR remove ,
+.B install
+(a known npm\-based server;
+.B \-\-prewarm
+pre\-warms the npm cache),
+.B install\-recommended
+(all recommended servers),
+.B list\-known
+(installable servers), and
+.B serve
+(start the stdio\-based Loom MCP server for MCP\-compatible tools).
 .TP
-.B skills
-Manage skills (\fBlist\fR, \fBshow\fR, \fBinstall\fR, \fBremove\fR).
+.B skills \fIACTION\fR
+Manage skills:
+.B list
+.RB ( \-\-locked
+verifies against the lock file),
+.B show
+(by name),
+.B install
+(from a file path), and
+.B remove
+(by name).  There is no
+.B "skills add"
+subcommand.
 .TP
-.B sessions
-Manage session exports (\fBlist\fR, \fBshow\fR, \fBexport\fR,
-\fBimport\fR, \fBresume\fR, \fBsearch\fR, \fBrecall\fR, \fBindex\fR,
-\fBbranch\fR, \fBtag\fR, \fBtags\fR, \fBsummarize\fR).  Resumption
-can inject memory and knowledge entities.  \fBrecall\fR groups
-matching messages by session, returning the top sessions (hit
-count + best match) for a query.  \fBtag\fR mutates a session's
-tag set (\fB--add\fR/\fB--remove\fR); \fBtags\fR lists every distinct
-tag in the index.  \fBlist\fR, \fBsearch\fR, and \fBrecall\fR all
-accept \fB--tag\fR to filter to sessions whose tag set intersects
-the given set.  \fBsummarize\fR auto-compresses a session once its
-message count exceeds the compression threshold (default 20):
-older messages are folded into a single System-role summary at the
-head of the message list, and the last 10 messages are kept
-verbatim; auto-runs on \fBappend_message\fR once a session crosses
-the threshold.  \fB--force\fR re-runs even when the session is
-already at or below the threshold.
+.B sessions \fIACTION\fR
+Manage session exports.  Actions:
+.BR list ,
+.BR show ,
+.BR export ,
+.BR import ,
+.BR resume ,
+.BR search ,
+.BR recall ,
+.BR index ,
+.BR branch ,
+.BR tag ,
+.BR tags ,
+.BR summarize ,
+and
+.BR merge .
+.B list
+and
+.B search
+accept
+.B \-\-tag
+to filter to sessions whose tag set intersects the given tags
+(repeatable, OR semantics).
+.B export
+writes a portable JSON bundle (default
+.IR sessions/exports/{id}.loom.json ,
+override with
+.BR \-o/\-\-output );
+.B import
+reads one back.
+.B resume
+restarts a session interactively with an LLM provider
+.RB ( \-\-provider ,
+.BR \-\-model )
+or launches an agent tool with the session context
+.RB ( \-\-agent );
+.B \-\-inject\-memory
+and
+.B \-\-inject\-knowledge
+prepend cross\-session memory and knowledge\-graph entities.
+.B recall
+groups matching messages by session, returning the top sessions
+(hit count + best match) for a query, while
+.B search
+returns individual messages (both FTS5).
+.B branch
+forks a session at a checkpoint
+.RB ( \-\-from ,
+.BR \-\-checkpoint ).
+.B tag
+mutates a session's tag set
+.RB ( \-\-add /
+.BR \-\-remove );
+.B tags
+lists every distinct tag in the index.
+.B summarize
+auto\-compresses a session once its message count exceeds the
+compression threshold (default 20,
+.IR SESSION_COMPRESSION_THRESHOLD ):
+older messages are folded into a single System\-role summary at the
+head of the message list, and the last 10 messages
+.RI ( SESSION_FULL_FIDELITY_COUNT )
+are kept verbatim; it auto\-runs when a session crosses the
+threshold, and
+.B \-\-force
+re\-runs it even below the threshold.
+.B merge
+appends messages from one session into another.
 .TP
-.B auth
-Manage authentication providers and the encrypted credential vault.
+.B auth \fIACTION\fR
+Manage authentication providers and the encrypted credential vault:
+.B list
+(auth entries),
+.B providers
+(registered LLM providers),
+.B show
+(a provider's configuration), and
+.B validate
+(a provider's credential).
 .TP
-.B hooks
-Manage event hooks (\fBlist\fR, \fBshow\fR, \fBregister\fR,
-\fBremove\fR, \fBrun\fR, \fBverify\fR).  Supported event types include
-\fBPreToolUse\fR, \fBPostToolUse\fR, \fBUserPromptSubmit\fR, and
-\fBPostPhase\fR (fired after a workflow phase completes).
+.B hooks \fIACTION\fR
+Manage event hooks:
+.BR list ,
+.BR show ,
+.B register
+(from a file path),
+.BR remove ,
+.B run
+.RB ( \-\-event ,
+.BR \-\-tool ,
+optional
+.BR \-\-matcher ),
+and
+.B verify
+(hook signatures).
+Supported event types are
+.B PreToolUse
+(a non\-zero exit blocks the tool call),
+.BR PostToolUse ,
+.BR SessionStart ,
+and
+.B PostPhase
+(fired after a workflow phase completes, with
+.IR LOOM_TASK_ID ,
+.IR LOOM_TASK_PHASE ,
+.IR LOOM_AGENT ,
+and
+.IR LOOM_EXIT_CODE
+set for the hook script).
 .TP
-.B workflow
-Manage workflow tasks (\fBlist\fR, \fBshow\fR, \fBcreate\fR,
-\fBadvance\fR, \fBassign\fR, \fBdispatch\fR).  The \fBdispatch\fR
-subcommand accepts
+.B workflow \fIACTION\fR
+Manage workflow tasks:
+.BR list ,
+.BR show ,
+.BR create ,
+.BR remove ,
+.BR draft\-plan ,
+.BR advance ,
+.BR assign ,
+.BR dispatch ,
+.BR set\-sub\-agents ,
+and
+.B template
+.RB ( list / show / create / remove ).
+.B create
+accepts
+.BR \-\-title ,
+.BR \-\-description ,
+.B \-\-from\-issue
+.RI ( owner/repo#123 ),
+.B \-\-from\-ticket
+.RI ( github: ,
+.BR linear: ,
+.BR gitlab: ,
+or
+.BR jira: )
+prefixes),
+.BR \-\-repo ,
+.BR \-\-token ,
+.BR \-\-template ,
+.B \-\-from\-plan
+(chief plan JSON), and
+.BR \-\-worktree /
+.B \-\-no\-worktree
+(a per\-task git worktree under
+.B ~/.loom/worktrees/
+is created by default).
+.B draft\-plan
+turns a goal plus free\-text details into task lines
+.RB ( \-\-create
+imports them as tasks).
+.B advance
+moves a task to its next phase
+.RB ( \-\-update\-issue
+posts a comment on the linked issue, with optional
+.BR \-\-comment ).
+.B assign
+overrides the routed provider/model and sets the agent tool.
+.B dispatch
+sends the task to an agent tool (default: the task's last agent),
+with
+.BR \-\-link\-issue ,
+.BR \-\-create\-branch ,
+.B \-\-mode \fIsingle|sub\-agents\fR,
+.B \-\-runtime \fIprocess|docker|podman|kubernetes\fR,
+.BR \-\-dry\-run ,
+and extra tool arguments after
+.BR \-\- .
+With
 .B \-\-auto\-advance
-which runs every phase of a task back to back, capturing each
-phase's result and passing it to the next phase as the
+(sub\-agents mode) the daemon loops phase after phase: each agent
+writes its result to
+.IR ~/.loom/workflow/tasks/{task_id}.{phase}.result.json
+(or
+.BR .result.md ),
+exposed via
+.BR LOOM_EXPECTED_RESULT_PATH ;
+the previous phase's result and sessions are injected via
 .B LOOM_PRIOR_PHASE_RESULT
-environment variable.
+and
+.BR LOOM_PRIOR_SESSIONS .
+Every dispatch is captured as a session and indexed into memory and
+the knowledge graph unless
+.B \-\-no\-capture\-session
+is given.
+.B set\-sub\-agents
+configures per\-phase agents
+.RB ( \-\-plan ,
+.BR \-\-implement ,
+.BR \-\-verify ,
+.BR \-\-finish )
+with
+.B \-\-max\-retries
+(default 3) and
+.BR \-\-fallback\-agent .
 .TP
-.B routing
-Inspect and override the complexity\-scoring based model router
-(\fBshow\fR, \fBevaluate\fR, \fBscore\fR, \fBrecommend\fR,
-\fBoverride\fR, \fBcatalog\fR).
+.B routing \fIACTION\fR
+Inspect and override the complexity\-scoring model router:
+.B show
+(config and catalog),
+.B evaluate
+(score + decision for a prompt),
+.B score
+(complexity score only),
+.B recommend
+(for an existing task),
+.B override
+.RB ( \-\-tier \fIslm|mid|flagship\fR ,
+optional
+.BR \-\-reason ),
+.B outcomes
+(persisted decisions and their outcomes), and
+.B catalog
+.RB ( \-\-refresh ,
+.BR \-\-json ).
 .TP
-.B knowledge
-Build and query the SQLite knowledge graph (\fBbuild\fR,
-\fBquery\fR, \fBstats\fR, \fBadd\fR, \fBrelate\fR, \fBsearch\fR).
+.B runtime \fIACTION\fR
+Runtime management:
+.B list
+(available runtimes),
+.B set\-default
+.RI ( process ,
+.BR docker ),
+and
+.B status
+(current default and health).
 .TP
-.B memory
-Manage the AgentMemory persistent memory server.
+.B rules \fIACTION\fR
+Event\-stream rules:
+.BR list ,
+.B show ,
+.B add
+.RB ( \-\-name ,
+.BR \-\-event\-type ,
+.BR \-\-field ,
+.B \-\-operator \fIequals|neq|gt|lt|contains|starts-with|ends-with\fR,
+.BR \-\-value ,
+.BR \-\-action\-log ,
+.BR \-\-action\-suppress ,
+.BR \-\-priority ),
+.BR remove ,
+and
+.B eval
+(test a synthetic event against all rules).
 .TP
-.B issues
-Manage the issue tracker integration (currently GitHub Issues).
+.B knowledge \fIACTION\fR
+Build and query the SQLite knowledge graph:
+.B build
+(from indexed sessions;
+.B \-\-llm
+switches to LLM\-based extraction),
+.B query
+(subgraph around an entity,
+.B \-\-depth
+default 2),
+.BR stats ,
+.B add
+.RB ( \-\-entity\-type ,
+.BR \-\-canonical ),
+.B relate
+(from, predicate, to,
+.B \-\-weight
+0.0\(en1.0),
+.B search
+(by name/type), and
+.B clear
+.RB ( \-\-force
+required).
 .TP
-.B lock
-Manage the skill lock file used to pin skill versions for
-reproducibility.
+.B memory \fIACTION\fR
+Manage the AgentMemory persistent memory server:
+.B status ,
+.BR start ,
+.BR stop ,
+.B retain
+(store a durable fact;
+.BR \-\-type ,
+.BR \-\-source ,
+.BR \-\-importance ),
+.B recall
+(search hindsight memory), and
+.B reflect
+(synthesize an overview for a question or topic).
 .TP
-.B plugin
-Manage the plugin registry (\fBsearch\fR, \fBinstall\fR,
-\fBupdate\fR, \fBremove\fR).
+.B issues \fIACTION\fR
+Manage issue tracker integration:
+.B list
+.RB ( \-\-repo ,
+.BR \-\-state ,
+.BR \-\-labels ,
+.BR \-\-token ,
+.BR \-\-provider ,
+.BR \-\-host ),
+.B show ,
+.B create\-branch
+(branch from an issue),
+.B link\-pr
+(comment a PR URL on an issue),
+.B pull\-requests
+(GitHub only),
+.B diff
+(a PR's diff),
+.B ci\-status
+(a PR's CI state), and
+.B create\-pr
+(create via
+.BR gh ).
+Providers:
+.B github
+(default),
+.BR linear ,
+.BR jira ,
+and
+.B gitlab
+.RB ( \-\-host
+for Jira/GitLab instances;
+.I GITHUB_TOKEN
+is the default token source).
+.TP
+.B telemetry \fIACTION\fR
+Telemetry metrics and counters:
+.B show
+.RB ( \-\-json )
+and
+.B reset
+(both require a running daemon).
 .SS Daemon
 .TP
 .B daemon \fIstart|stop|status|restart\fR
 Manage the background
 .BR loomd (1)
 process.
+.B start
+spawns
+.B loomd
+with
+.B LOOM_AGENTS_DIR
+set and records its pid in
+.BR ~/.loom/.cache/loomd.pid ;
+.B status
+accepts
+.BR \-\-json .
 .TP
 .B daemon install\-service
 Install
 .B loomd
-as a user\-level launchd service.
+as a user\-level service (launchd on macOS, systemd on Linux).
 .TP
 .B daemon uninstall\-service
-Remove the launchd service.
+Remove the user service.
+.TP
+.B acp \fIACTION\fR
+Manage the ACP dispatch server hosted by the daemon:
+.B status ,
+.BR start ,
+.BR stop ,
+.B show
+(detailed info), and
+.B agents
+(list launchable agents).
+.B acp run
+runs one canonical ACP prompt turn against an agent program
+directly:
+.RS
+.B loom acp run \fIPROGRAM\fR \-\-prompt \fITEXT\fR
+.RB [ \-\-cwd \fIDIR\fR]
+.RB [ \-\-timeout\-secs \fIN\fR]
+.RB [ \-\-runtime \fIprocess|docker|podman|kubernetes\fR]
+.RB [ \-\-json ]
+.RB [ \-\- \fIARGS...\fR ]
+.RE
+.I PROGRAM
+is an absolute path or a name on
+.BR PATH ;
+the timeout defaults to 120 seconds.
+.B acp run\-status \-\-run\-id \fIID\fR
+shows a tracked dispatch run's status.
 .SH OPTIONS
+.TP
+.B \-\-no\-update
+Skip the automatic update check.  By default
+.B loom
+checks GitHub for a newer release at most once per 24 hours (marker
+file
+.BR ~/.loom/.cache/version_check )
+and prints a notice to stderr when one is available.
 .TP
 .BR \-h ", " \-\-help
 Print help information.
@@ -208,50 +791,138 @@ Print help information.
 Print the Loom version.
 .SH ENVIRONMENT
 .TP
-.B LOOM_TASK_ID
-Set during hook script execution to the current workflow task id.
+.B LOOM_AGENTS_DIR
+The Loom data directory used by
+.B loomd
+and passed to spawned agent tools (default
+.BR ~/.loom/ ).
 .TP
-.B LOOM_PHASE
-Set during hook script execution to the current workflow phase.
+.B LOOM_DIR
+The host Loom data directory mounted read\-only into container
+runtimes (docker/podman/kubernetes) so containerized agents can see
+the ecosystem.
 .TP
-.B LOOM_AGENT
-Set during hook script execution to the current agent identifier.
+.B LOOM_NO_EXTEND
+Set to
+.B 1
+to skip the
+.B extends
+config layer for this invocation.
 .TP
-.B LOOM_EXIT_CODE
-Set during \fBPostPhase\fR hook execution to the agent's exit code.
+.B LOOM_NO_REMOTE
+Set to
+.B 1
+to skip the cached remote config layer for this invocation.
+.TP
+.B LOOM_TASK_ID ", " LOOM_TASK_PHASE ", " LOOM_TASK_TITLE ", " LOOM_TASK_DESCRIPTION
+Set for agents dispatched by
+.B "workflow dispatch" .
+.TP
+.B LOOM_PHASE ", " LOOM_AGENT ", " LOOM_EXIT_CODE
+Set during
+.B PostPhase
+hook execution (the workflow phase and agent that just exited).
 .TP
 .B LOOM_EXPECTED_RESULT_PATH
 Set during workflow dispatch to the path the agent should write its
-result file to.
+phase result file to.
 .TP
 .B LOOM_PRIOR_PHASE_RESULT
 Set during workflow dispatch to the JSON of the most recent phase
 result, when one exists.
 .TP
-.B LOOM_DIR
-Override the location of the Loom data directory (default
-.BR ~/.loom/ ).
+.B LOOM_PRIOR_SESSIONS
+Set during workflow dispatch to the comma\-separated session ids of
+prior phases.
+.TP
+.B LOOM_ROUTING_PROVIDER
+Default LLM provider for
+.B "sessions resume"
+(flag, then this variable, then
+.B routing.default_provider
+in config).
+.TP
+.B LOOM_SKILLS_DIR ", " LOOM_MCP_DIR ", " LOOM_SESSIONS_DIR
+Set for launched agent tools when skills, MCP, or session sharing is
+enabled for them.
+.TP
+.B GITHUB_TOKEN
+Default token for GitHub API calls
+.RB ( "issues" ,
+.B "workflow create \-\-from\-issue" ).
 .SH FILES
 .TP
 .B ~/.loom/
 The shared ecosystem directory.
 .TP
+.B ~/.loom/config.toml
+Main configuration.
+.TP
+.B ~/.loom/config/
+Optional per\-subsystem configuration overlays
+(\fBrouting.toml\fR, \fBmcp.toml\fR, \fBhooks.toml\fR, \fBacp.toml\fR).
+.TP
 .B ~/.loom/loomd.sock
 The daemon's Unix domain IPC socket.
 .TP
-.B ~/.loom/workflow/tasks/
-Workflow task manifests and per\-phase result files.
+.B ~/.loom/.loom\-events
+The ZeroMQ socket used to broadcast cross\-process events
+(cross\-process feature).
+.TP
+.B ~/.loom/skills/
+Shared skills, the SQLite registry
+.BR skills.db ,
+and the
+.B skills.lock
+lock file.
+.TP
+.B ~/.loom/mcp/
+MCP server configurations.
+.TP
+.B ~/.loom/mcp_registry.db
+SQLite registry of installed MCP servers.
+.TP
+.B ~/.loom/sessions/
+Session exports (JSONL) and portable bundles under
+.BR sessions/exports/ .
+.TP
+.B ~/.loom/auth/
+Encrypted credential vault and audit logs.
 .TP
 .B ~/.loom/hooks/
 Hook configuration files and scripts.
 .TP
+.B ~/.loom/tools/
+Per\-tool TOML registration files.
+.TP
+.B ~/.loom/workflow/tasks/
+Workflow task manifests and per\-phase result files
+.RB ( {task_id}.{phase}.result.json ).
+.TP
+.B ~/.loom/worktrees/
+Per\-task git worktrees created by
+.B "workflow create" .
+.TP
 .B ~/.loom/knowledge/graph.db
-The SQLite knowledge graph.
+The SQLite knowledge graph (entities, relationships, FTS5).
+.TP
+.B ~/.loom/runs/
+ACP dispatch run tracking.
+.TP
+.B ~/.loom/.cache/
+Snapshot cache, the remote config cache
+.BR remote_config/ ,
+.BR loomd.pid ,
+and the
+.B version_check
+marker.
 .SH EXIT STATUS
 The CLI exits 0 on success and non\-zero on error.  When
-\fBdispatch\fR is invoked with \fB\-\-auto\-advance\fR, the first
-non\-zero agent exit code propagates as the CLI exit code and aborts
-the phase chain.
+.B "workflow dispatch"
+is invoked with
+.BR \-\-auto\-advance ,
+the first non\-zero agent exit code propagates as the CLI exit code
+and aborts the phase chain.
 .SH SEE ALSO
 .BR loomd (1)
 .PP

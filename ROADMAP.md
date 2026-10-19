@@ -12,7 +12,7 @@ A 31-crate Rust workspace: daemon (`loomd`) + CLI + TUI, Unix-socket IPC, workin
 
 ## Pillars
 
-Four pillars, deliberately sequenced: nobody adopts — let alone pays for — infrastructure that breaks. Pillars 1–3 are the product; pillar 4 is the business built on top.
+Five pillars, deliberately sequenced: nobody adopts — let alone pays for — infrastructure that breaks. Pillars 1–3 are the product; pillar 4 is the business built on top; pillar 5 is the demand driver that makes the business worth paying for.
 
 ### 1. Harden the Core *(v0.9.x → v0.10)* — refine existing features
 
@@ -45,13 +45,17 @@ Adoption comes from being the easiest layer to plug into. The moat is the protoc
 
 ### 4. Commercialization *(post-1.0, gated on 1–3)*
 
-Market proof exists: Conductor at $50–60/mo/user sells orchestration with cloud execution and less infrastructure depth. Loom's defensible wedge is **team-grade shared infrastructure** — the vault, registries, and audit — not another UI.
+Market proof exists: Conductor at $50–60/mo/user sells orchestration with cloud execution and less infrastructure depth; Conifer sells the same thesis from the other end — a hosted gateway (drop-in provider-key replacement) monetized by Parallax review episodes. Both validate Loom's defensible wedge: **team-grade shared infrastructure** — the vault, registries, and audit — not another UI.
 
 - **Licensing.** Core stays MIT (it is the adoption funnel). Commercial surface = hosted services + team features under a separate license; no re-licensing the core. *Decision required — see Open Questions.*
 - **API key management as a product.** The team vault broker: daemon proxies and scopes every credential agents use, with full audit. loom-auth is already the strongest asset here; productize it.
 - **Deployment tiers.** Documented headless daemon for servers/containers; `loom-remote` as the managed-remote story; a hosted control plane (registry sync, relay, fleet status) — **not** hosted scale-out: the scaling investigation's verdict is local-first by design.
 - **Team tier.** Shared skill/MCP/template registries with org sync, RBAC on the vault, org-wide audit rollup, usage reporting.
-- **Usage metering.** Per-run, per-tool, per-token accounting from the routing/telemetry crates — the honesty layer for both cost-conscious users and future billing.
+- **Usage metering.** Per-run, per-tool, per-token accounting from the routing/telemetry crates — the honesty layer for both cost-conscious users and future billing. The verified review engine (pillar 5) is its flagship consumer: every review is a metered multi-seat workload.
+
+### 5. Verified Review Engine *(post-1.0, gated on 2; the pillar-4 demand driver)*
+
+When a session ends, agents that did not write the change re-do the important part blind; a sandbox labels every finding with what it established (`proven` / `suite_green` / `unverified` / `could_not_run` / `refuted`); one fix PR carries only verified patches; a lesson is written from each proven finding and injected into the next session touching that file; a scoreboard tracks which agent is right on which kind of task, at what cost. Conifer Parallax proved this loop is the thing people pay a gateway for. Loom already owns every stage's substrate — capture (`loom-sessions`), seating and outcomes (`loom-routing`), blind dispatch (`loom acp run`), worktree isolation (`loom-parallel`), test execution (`loom-runtime`), PR creation (`loom-trackers`), lessons (`loom-knowledge` + `loom-hindsight`). The two missing pieces are the review orchestration itself (a new `loom-review` crate) and the CI-tested container sandbox, which is pillar 2. Reviewers are existing registered agents dispatched over ACP — Loom does not build a reviewer model. Full build spec, MVP→V2 sequencing, and commercial framing: [docs/plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md](docs/plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md).
 
 ## Non-Goals
 
@@ -71,4 +75,5 @@ Decisions that change the plan, in order of when they bite:
 
 ## Changelog
 
+- 2026-10-19 — Conifer Parallax comparison → Pillar 5 added (verified review engine, the pillar-4 demand driver); build spec in docs/plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md; competitive-analysis.md gained §11 (Conifer Parallax) and pillar-4 market proof gained the Conifer anchor.
 - 2026-10-10 — initial roadmap drafted after v0.9.3 release; pillars validated against VISION.md, competitive analysis, and the 0.9.3 hardening experience.

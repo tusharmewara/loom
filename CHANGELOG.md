@@ -5,6 +5,25 @@ All notable changes to the Loom project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.5] - 2026-10-19
+
+### Added
+
+- docs: architecture diagrams — static SVG (`docs/diagrams/architecture-export.svg`) and interactive HTML (`docs/diagrams/architecture.html`), embedded in the README intro
+- docs: competitive analysis refresh — Orca (stablyai) tool-by-tool entry, Orca column in the feature matrix, shipped-status annotations across the P0/P1/P2 roadmap items (worktrees, containers, PR integration, remote SSH, Kanban/Graph/Cost tabs, ACP registry, cross-session recall all marked shipped)
+- docs: man pages rewritten for 0.9.x — `manpages/loom.1` covers all 36 subcommands (incl. cfg-gated `tui`), the 12 adapters, the 15 TUI tabs, corrected hook event types (PreToolUse/PostToolUse/SessionStart/PostPhase) and honest environment-variable docs (`LOOM_AGENTS_DIR`, not the never-honored `LOOM_DIR`); `manpages/loomd.1` documents the gRPC server, TLS env vars, ZeroMQ event socket, and the WSL2/Unix-socket constraint
+- docs: `docs/` is no longer gitignored — analysis docs and diagrams are tracked; only the archify JSON intermediates (`docs/diagrams/*.json`) stay ignored
+
+### Changed
+
+- docs: README rewritten with source-verified facts (12 adapters, 15 tabs, 31 crates, CHANGELOG-driven version history, working links) replacing the 0.3.x-era drift
+- feat(tui): tab bar shows per-tab shortcut labels (`1`–`9`, `0`, `!`, `@`, `#`) and scrolls to keep the active tab visible on narrow terminals
+- feat(tui): Kanban tab renders workflow phases (Plan → Implement → Verify → Finish) as columns with per-task selection; the custom scrollbar widget was removed in favor of native scrolling
+
+### Fixed
+
+- fix(workflow): `git worktree add` now retries with `--orphan` (git ≥ 2.42) for repositories without any commit, and worktree isolation is best-effort — a non-git project directory or missing git no longer blocks task creation (the task runs in the project directory instead)
+
 ## [0.9.4] - 2026-10-18
 
 ### Added

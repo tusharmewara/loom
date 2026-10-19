@@ -2,7 +2,7 @@ planning/
 target/
 .brv/
 docs/superpowers/specs/
-docs/
+docs/diagrams/*.json
 release/
 release-bottle/
 blueprint/

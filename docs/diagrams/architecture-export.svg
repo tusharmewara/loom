@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 760" font-family="system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial" text-rendering="optimizeLegibility">
+<rect width="100%" height="100%" fill="#0f1115"/>
+<defs>
+<style><![CDATA[
+.t{font-size:11px;fill:#9aa0b1}
+.h{font-size:12px;font-weight:600;fill:#e9ecef}
+.title{font-size:22px;font-weight:700;fill:#e9ecef}
+.sub{font-size:12px;fill:#9aa0b1}
+]]></style>
+<marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+<path fill="#444859" d="M0 0 L8 4 L0 8 z"/>
+</marker>
+</defs>
+
+<!-- TITLE -->
+<text x="500" y="44" text-anchor="middle" class="title">Loom Architecture — the dispatch→capture journey</text>
+<text x="500" y="64" text-anchor="middle" class="sub">JSON-line over ~/.loom/loomd.sock (auto-start; 5-min idle auto-shutdown) · interactive version: docs/diagrams/architecture.html</text>
+
+<!-- MAIN JOURNEY EDGES -->
+<g stroke="#444859" stroke-width="2" fill="none" marker-end="url(#arrow)">
+<path d="M120 200 L215 200"/>
+<path d="M275 200 L335 200"/>
+<path d="M445 200 L505 200"/>
+<path d="M595 200 L660 200"/>
+</g>
+<!-- daemon → subsystems -->
+<g stroke="#2e323e" stroke-width="1.5" fill="none" marker-end="url(#arrow)">
+<path d="M390 226 L140 374"/>
+<path d="M390 226 L300 374"/>
+<path d="M390 226 L460 374"/>
+<path d="M390 226 L620 374"/>
+<path d="M390 226 L780 374"/>
+</g>
+<!-- frontends → daemon (dashed: they drive the same engine) -->
+<g stroke="#2e323e" stroke-width="1.5" fill="none" marker-end="url(#arrow)" stroke-dasharray="4 3">
+<path d="M180 326 L330 218"/>
+<path d="M880 326 L450 218"/>
+</g>
+<!-- daemon → store -->
+<g stroke="#2e323e" stroke-width="1.5" fill="none" marker-end="url(#arrow)">
+<path d="M500 226 L500 494"/>
+</g>
+
+<!-- MAIN JOURNEY NODES -->
+<g transform="translate(70,174)" text-anchor="middle">
+<rect x="-50" y="-34" width="100" height="48" rx="8" fill="#2a2f3d"/>
+<text class="h" dy="-2">Developer</text><text class="t" dy="12">runs CLI</text>
+</g>
+<g transform="translate(230,174)" text-anchor="middle">
+<rect x="-55" y="-34" width="110" height="48" rx="8" fill="#2a2f3d"/>
+<text class="h" dy="-2">loom CLI</text><text class="t" dy="12">loom-cli</text>
+</g>
+<g transform="translate(390,174)" text-anchor="middle">
+<rect x="-55" y="-34" width="110" height="48" rx="8" fill="#c0392b" stroke="#ff6b6b" stroke-width="2"/>
+<text class="h" dy="-2" fill="#ff6b6b">loomd daemon</text><text class="t" dy="12" fill="#ffcccc">src/lib.rs:30</text>
+</g>
+<g transform="translate(550,174)" text-anchor="middle">
+<rect x="-55" y="-34" width="110" height="48" rx="8" fill="#2a2f3d"/>
+<text class="h" dy="-2">ACP dispatch</text><text class="t" dy="12">capture.rs · --acp</text>
+</g>
+<g transform="translate(740,174)" text-anchor="middle">
+<rect x="-70" y="-34" width="140" height="48" rx="8" fill="#2a2f3d"/>
+<text class="h" dy="-2">Agent CLI</text><text class="t" dy="12">12 adapters</text>
+</g>
+
+<!-- FRONTENDS -->
+<g transform="translate(130,326)" text-anchor="middle">
+<rect x="-60" y="-22" width="120" height="44" rx="6" fill="#2a2f3d"/>
+<text class="h" dy="-4">loom TUI</text><text class="t" dy="14">loom-tui · 15 tabs</text>
+</g>
+<g transform="translate(880,326)" text-anchor="middle">
+<rect x="-75" y="-22" width="150" height="44" rx="6" fill="#2a2f3d"/>
+<text class="h" dy="-4">loom-mcp-server</text><text class="t" dy="14">reverse MCP over stdio</text>
+</g>
+
+<!-- DAEMON SUBSYSTEMS -->
+<g transform="translate(140,400)" text-anchor="middle">
+<rect x="-65" y="-26" width="130" height="52" rx="8" fill="#1e222e"/>
+<text class="h" dy="-6">Event bus</text><text class="t" dy="8">tokio broadcast</text><text class="t" dy="22">+ ZeroMQ ipc://</text>
+</g>
+<g transform="translate(300,400)" text-anchor="middle">
+<rect x="-65" y="-26" width="130" height="52" rx="8" fill="#1e222e"/>
+<text class="h" dy="-6">Skills</text><text class="t" dy="8">loom-skills</text><text class="t" dy="22">skills.db</text>
+</g>
+<g transform="translate(460,400)" text-anchor="middle">
+<rect x="-65" y="-26" width="130" height="52" rx="8" fill="#1e222e"/>
+<text class="h" dy="-6">Sessions</text><text class="t" dy="8">loom-sessions</text><text class="t" dy="22">messages.jsonl · FTS5</text>
+</g>
+<g transform="translate(620,400)" text-anchor="middle">
+<rect x="-65" y="-26" width="130" height="52" rx="8" fill="#1e222e"/>
+<text class="h" dy="-6">MCP registry</text><text class="t" dy="8">loom-mcp</text><text class="t" dy="22">mcp_registry.db</text>
+</g>
+<g transform="translate(780,400)" text-anchor="middle">
+<rect x="-65" y="-26" width="130" height="52" rx="8" fill="#1e222e"/>
+<text class="h" dy="-6">Vault / Knowledge</text><text class="t" dy="8">ChaCha20+Argon2</text><text class="t" dy="22">graph.db</text>
+</g>
+
+<!-- SHARED STORE -->
+<g transform="translate(500,520)" text-anchor="middle">
+<rect x="-90" y="-22" width="180" height="44" rx="6" fill="#1e222e" stroke="#2e323e"/>
+<text class="h" dy="-4">~/.loom</text><text class="t" dy="14">shared state · owned by loomd</text>
+</g>
+
+<!-- LEGEND -->
+<text x="40" y="600" class="t">Solid = JSON-line IPC over loomd.sock · dashed = alternate frontend drives the same engine.</text>
+<text x="40" y="618" class="t">Boxes = crates. loomd is the single source of truth: CLI, TUI, and MCP clients all talk to it.</text>
+<text x="40" y="636" class="t">Agent adapters: claude-code, codex, opencode, goose, aider, cursor, gemini-cli, kiro, juno, crush, jcode, github-copilot.</text>
+</svg>

@@ -1,37 +1,101 @@
-.TH LOOMD 1 "June 2026" "loom 0.3.7" "User Commands"
+.TH LOOMD 1 "October 2026" "loom 0.9.5" "User Commands"
 .SH NAME
 loomd \- Loom background daemon
 .SH SYNOPSIS
 .B loomd
-[\fIOPTIONS\fR]
 .SH DESCRIPTION
 .B loomd
 is the background daemon that aggregates the Loom subsystem crates
 (skills, MCP, sessions, auth, hooks, workflow, routing, knowledge,
-telemetry, etc.) and exposes them over a Unix domain socket so the
+telemetry, memory, ACP dispatch, runtimes) and exposes them so the
 .BR loom (1)
-CLI and other clients can talk to a single long\-lived process instead
-of paying startup cost on every invocation.
+CLI and other clients can talk to a single long\-lived process
+instead of paying startup cost on every invocation.
+.PP
+It serves three interfaces:
+.TP
+.B Unix domain socket IPC
+A JSON\-line protocol on
+.IR LOOM_AGENTS_DIR /loomd.sock
+(default
+.BR ~/.loom/loomd.sock ).
+Unix sockets only \(em there is no TCP or named\-pipe fallback, which
+is why native Windows is unsupported and WSL2 is required there.
+.TP
+.B gRPC server
+Listens on
+.B 127.0.0.1:50051
+by default (override with
+.BR LOOM_GRPC_ADDR );
+optional TLS via
+.B LOOM_GRPC_TLS
+with
+.B LOOM_GRPC_CERT
+and
+.BR LOOM_GRPC_KEY .
+.TP
+.B ZeroMQ event bus
+When built with the
+.B cross\-process
+feature, publishes ecosystem events on
+.BR ipc://~/.loom/.loom-events .
 .PP
 The daemon reads its configuration from
-.BR ~/.loom/config.toml
+.B ~/.loom/config.toml
 (plus any layer overlays under
 .BR ~/.loom/config/ ),
 stores per\-crate state in
 .BR ~/.loom/ ,
-and emits events on the cross\-process ZeroMQ socket
-.BR ~/.loom/.loom-events
-when built with the
-.B cross-process
-feature.
-.PP
+and tracks ACP dispatch runs under
+.BR ~/.loom/runs/ .
+It is normally auto\-started on demand by the
+.B loom
+CLI, which spawns it with
+.B LOOM_AGENTS_DIR
+set and records its pid in
+.BR ~/.loom/.cache/loomd.pid .
 If the daemon receives no IPC traffic for
 .B DAEMON_DEFAULT_IDLE_TIMEOUT_MS
 (5 minutes by default), it shuts itself down.
 .SH OPTIONS
-The daemon currently takes no command line options; it reads its
-configuration from
+The daemon takes no command line options; it reads its data
+directory from the
+.B LOOM_AGENTS_DIR
+environment variable (default
+.BR .loom )
+and its configuration from
 .BR ~/.loom/config.toml .
+.SH ENVIRONMENT
+.TP
+.B LOOM_AGENTS_DIR
+The Loom data directory the daemon operates on (default
+.BR .loom ,
+relative to the working directory; the CLI passes
+.B ~/.loom
+when spawning it).
+.TP
+.B LOOM_GRPC_ADDR
+Listen address for the gRPC server (default
+.BR 127.0.0.1:50051 ).
+.TP
+.B LOOM_GRPC_TLS
+Set to any value to enable TLS on the gRPC server.
+.TP
+.B LOOM_GRPC_CERT ", " LOOM_GRPC_KEY
+Paths to the TLS certificate and key.
+.TP
+.B LOOM_DIR
+The host Loom data directory mounted read\-only into container
+runtimes (docker/podman/kubernetes) so containerized agents can see
+the ecosystem.
+.TP
+.B LOOM_NO_EXTEND ", " LOOM_NO_REMOTE
+Set to
+.B 1
+to skip the
+.B extends
+or cached\-remote config layer when the daemon loads its
+configuration.
 .SH FILES
 .TP
 .B ~/.loom/config.toml
@@ -45,10 +109,17 @@ Optional per\-subsystem configuration overlays
 The Unix domain socket the daemon listens on.
 .TP
 .B ~/.loom/.loom-events
-The ZeroMQ socket used to broadcast cross\-process events.
+The ZeroMQ socket used to broadcast cross\-process events
+(cross\-process feature).
+.TP
+.B ~/.loom/runs/
+ACP dispatch run tracking.
 .TP
 .BR ~/.loom/.cache/ " (or \fB$CACHE_DIR\fR)"
-Snapshot cache used to keep cold starts below the 50ms budget.
+Snapshot cache used to keep cold starts below the 50ms budget, plus
+.B loomd.pid
+and the remote config cache
+.BR remote_config/ .
 .SH SIGNALS
 .TP
 .B SIGINT ", " SIGTERM
@@ -58,7 +129,7 @@ in\-flight requests, then exit.
 .TP
 .B 0
 Clean shutdown after a
-.BR SIGINT / SIGTERM
+.BR SIGINT / SIGTERM ,
 or after the idle timeout fires.
 .TP
 .B non\-zero

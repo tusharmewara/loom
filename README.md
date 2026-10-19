@@ -1,213 +1,203 @@
 # Loom – The Shared Agentic Ecosystem
 
-Loom is a unified agentic ecosystem that enables seamless collaboration between multiple AI tools (jcode, crush, claude-code, opencode, goose, etc.) while sharing skills, sessions, MCP servers, and workflows.
+Loom is a unified agentic ecosystem built in Rust. It lets multiple AI coding agents — `claude-code`, `codex`, `opencode`, `goose`, `aider`, `cursor`, `gemini-cli`, `kiro`, `juno`, `crush`, `jcode`, `github-copilot` — **share skills, sessions, MCP servers, hooks, workflows, and credentials** so a task started in one tool can be continued, reviewed, and finished in another without losing context.
 
-## 🚀 Quick Start
+At its heart is the `loomd` **daemon**: a long-lived background process that owns every shared subsystem and exposes them to clients through a fast, local **Unix socket**. The CLI (`loom`) and the TUI (`loom tui`) are both thin clients of that daemon, so every feature runs against a single source of truth.
+
+---
+
+## 📐 Architecture diagram
+
+> **Open the [architecture diagram](docs/diagrams/architecture.html) in any browser for a zoomable, interactive map of the system** (hover a node to read the source lines that make it real; zoomable + linkable). Below is the static version.
+
+![Loom architecture](docs/diagrams/architecture-export.svg)
+
+### How to read the diagram
+
+**Main path (the dispatch→capture journey)**
+- **Developer** ⟶ runs a command in the **loom CLI** (`loom acp run ...`).
+- The CLI talks **JSON-line over `~/.loom/loomd.sock`** to the **loomd daemon** (it auto-starts the daemon on demand and auto-shuts it down after 5 min idle).
+- Inside the daemon, **ACP dispatch** (`loomd/src/capture.rs`) spawns the requested agent CLI with the `--acp` flag and streams its transcript back.
+- The transcript is written to **Sessions** as `messages.jsonl` — this is what lets another tool resume mid-conversation.
+
+**Frontends**
+- **loom TUI** spawns the `loom` binary as a subprocess and parses its JSON, so the TUI never re-implements logic — it drives the same CLI engine.
+- **loom‑mcp‑server** runs as an MCP server over stdio, so any MCP-compatible tool (`claude-code`, `cursor`, `crush`, …) can reach the same skills, sessions, and knowledge graph. That's the reverse integration: tools you already use pull Loom in through MCP.
+
+**Sharing layer (the "shared" in Shared Agentic Ecosystem)**
+- **Tool adapters** (`loom-adapters` + `loom-generic-adapter`) push shared MCP servers and skills into each tool's *native* config (`~/.cursor/...`, `~/.config/goose/...`, etc.), so tools consume the ecosystem without a `loom exec` wrapper. Missing TOML sections become no-ops — an adapter never errors for a tool that doesn't support a feature.
+- **Skills** (`skills.db`), **MCP registry** (`mcp_registry.db`), **Vault** (`ChaCha20Poly1305` + `Argon2`), and **graph.db** (the knowledge graph / KAG) all live under `~/.loom`, owned by the daemon.
+- The **Event bus** fans daemon events out in-process (tokio `broadcast`, <1µs) with an optional cross-process ZeroMQ feed (`ipc://~/.loom/.loom-events`).
+
+**Legend / source evidence.** Each node links to the lines of code that make it real — hover a node (or open the HTML) to read the evidence inline. Node sources are pinned in [`STATUS.md`](STATUS.md) and in the diagram JSONs under `docs/diagrams/`.
+
+---
+
+## 🚀 Quick start
 
 ### Prerequisites
-- Rust 1.70+ (via rustup)
-- Unix-like environment (Linux/macOS)
+- A recent stable Rust toolchain (CI tests against `dtolnay/rust-toolchain@stable`; edition 2021)
+- Unix-like environment (Linux / macOS). Windows works via WSL2 — the daemon relies on Unix domain sockets, which WSL2 provides natively (native Windows is not supported).
 
-### Installation
+### Build from source
 ```bash
-git clone https://github.com/yourusername/loom.git
+git clone https://github.com/tusharmewara/loom.git
 cd loom
 cargo build --workspace --release
-export PATH="$PWD/target/release:$PATH"
 
-# Initialize the ecosystem
-loom init
-
-# Start the background daemon (optional, for faster CLI startup)
-loom daemon start
+# Initialize the ~/.loom ecosystem, then start the daemon
+loom init                       # creates ~/.loom tree + config
+loom daemon start               # or let the CLI auto-launch it for you
 ```
 
-### Using Loom
-- **Cross‑tool sessions**: Start a session in jcode, export it, and continue in claude‑code.
-- **Tracked ACP dispatch**: Dispatch agents through the daemon with per-run logs, completion status, and automatic session capture (`loom acp run`, `run.status`).
-- **Resume with context**: Continue any task on another agent with its prior sessions injected (`LOOM_PRIOR_SESSIONS`).
-- **Orchestrator + Review tabs**: Create tasks from the TUI intake, review the task list, and dispatch/resume/reassign/remove per task.
-- **Plan import & drafts**: Turn chief plans into tasks (`workflow create --from-plan`), draft plans from free text (`workflow draft-plan`), create tasks from tickets (`--from-ticket`).
-- **Shared skills**: Write a skill once, use it from any tool.
-- **MCP servers**: Register MCP servers once, share across tools.
-- **PR workflow**: Review diffs and CI status in the TUI, open PRs with `c` (`loom issues create-pr`).
-- **Remote capture**: Run commands over SSH and persist output as indexed sessions (`loom remote exec --capture-session`).
-- **Plugin registry**: Install tool integrations from URLs or local files.
-- **Config inheritance**: Compose configs with `extends:` for layered setups.
-- **Sub‑agent orchestration**: Decompose complex tasks across multiple agents.
-- **Issue tracking**: Integrate with GitHub Issues and Linear for project management.
-- **Workflow templates**: Reusable task templates for common workflows.
+> **macOS:** `brew tap tusharmewara/loom && brew install loom` (`packages/homebrew/loom.rb`).  
+> **Cargo (source only):** `cargo install --path crates/loom-cli` (the project is not published to crates.io yet).
 
 ---
 
-## 🏗️ Architecture
+## 🛠️ Using Loom
 
-Loom is built as a Rust workspace with a daemon + CLI + TUI architecture.
+| Area | What it looks like | Command sketch |
+|------|--------------------|----------------|
+| **Cross-tool sessions** | Start in one agent, continue in another | `loom sessions export <id>`, `loom sessions resume --agent <agent>` |
+| **Tracked ACP dispatch** | Spawn an agent; follow its run, status, logs | `loom acp run`, `loom acp agents`, `loom acp run-status <id>` |
+| **Resume with context** | Inject prior sessions into the next run | `LOOM_PRIOR_SESSIONS="s1,s2" loom acp run …` |
+| **TUI orchestration** | Intake → tasks → dispatch/resume/reassign | `loom tui` → Orchestrator & Review tabs |
+| **Workflows / plans** | Turn a plan into tasks, draft from text | `loom workflow create --from-plan …`, `loom workflow draft-plan …` |
+| **Shared skills** | Write once, use everywhere | `loom skills install <path>`, `loom skills list --locked` |
+| **MCP servers** | Register once, share across tools | `loom mcp add …`, `loom mcp list` |
+| **PR workflow** | Review diffs + CI status, open PRs in `c` | `loom issues list`, `loom issues create-pr` |
+| **Remote capture** | Run over SSH, persist as indexed sessions | `loom remote exec --capture-session …` |
+| **Plugins** | Install tool integrations from URL/local | `loom plugin install …`, `loom plugin register …` |
+| **Config layers** | Compose configs with `extends:` | `loom config show`, `loom config fetch <url>` |
+| **Sub-agents** | Fan-out a task across parallel agents | `loom exec --parallel …` (worktree isolation) |
+| **Issue tracking** | GitHub Issues + Linear | `loom issues list`, `loom issues link-pr …` |
+| **Reproducible lock file** | Pin skill versions + content hashes | `loom lock --generate`, `loom lock --verify --diff` |
+| **Shell integration** | `loom completions …` / `loom init-shell` | eval `$(loom init-shell)` |
 
-### Crate Map
-
-| Crate | Purpose |
-|-------|---------|
-| `loom-core` | Core types, constants, errors, traits, and plugin registry |
-| `loom-cli` | CLI binary with 25+ subcommands (`loom`) |
-| `loomd` | Background daemon (Unix socket IPC, auto-shutdown) |
-| `loom-tui` | Terminal UI (ratatui + crossterm, 11 tabs incl. Orchestrator and Review) |
-| `loom-ipc` | Unix socket JSON-line IPC protocol |
-| `loom-event-bus` | In‑process (tokio broadcast) + cross‑process (ZeroMQ) event bus |
-| `loom-discovery` | Two‑phase discovery engine for tools and resources |
-| `loom-mcp` | MCP server registry, connection pool, and health checks |
-| `loom-skills` | Skill registry, loader, adapter, and hot‑reload |
-| `loom-sessions` | Session export/import, storage, and compression |
-| `loom-auth` | Encrypted credential vault, ACL, and audit logging |
-| `loom-hooks` | Hook registry, script execution, and signing |
-| `loom-workflow` | Task orchestration, phases, and templates |
-| `loom-routing` | Complexity scoring and intelligent model routing |
-| `loom-trackers` | Issue tracker integration (GitHub Issues, Linear) |
-| `loom-parallel` | Multi‑agent parallel execution engine |
-| `loom-telemetry` | Performance metrics, histograms, anomaly detection |
-| `loom-generic-adapter` | TOML‑driven tool adapter (auto‑derives 6 traits) |
-| `loom-adapters` | Preset tool adapters (jcode, crush, claude‑code, opencode, goose) |
-| `loom-ffi` | C FFI exports for external tool integration |
-| `loom-mcp-server` | MCP server for Loom ecosystem services |
-| `loom-integration-tests` | End‑to‑end integration tests |
-
-Each crate shares the workspace version and depends on `loom-core` for types and traits.
-
-### Two‑Tier Architecture
-
-- **CLI mode** (`loom`): Connects to the daemon via Unix socket when available, or runs standalone.
-- **Daemon mode** (`loomd`): Background daemon that aggregates all subsystems. Auto‑shutdown after 5 min idle.
-- **TUI mode** (`loom tui`): Terminal UI with dashboard, daemon controls, discovery, MCP, skills, sessions, logs, knowledge, PRs, Orchestrator, and Review tabs.
-
-### IPC Protocol
-
-JSON‑line messages over a Unix domain socket (`~/.loom/loomd.sock`):
-```json
-{"request_id":"uuid","command":"skills.list","params":{}}
-{"request_id":"uuid","status":"ok","data":{...}}
-```
+See [`STATUS.md`](STATUS.md) for the crate-by-crate feature map and [`docs/kasetto-trellis-analysis.md`](docs/kasetto-trellis-analysis.md) for the capability matrix against the OSS agent ecosystem.
 
 ---
 
-## 🔧 Key Features
+## 🏗️ Architecture overview
 
-### Core Ecosystem
-- **Shared Skills**: Write a skill once, use it across all tools.
-- **Session Portability**: Export a session from one tool, import into another. Compression after 20 messages.
-- **Session Merge**: Combine sessions with `loom sessions merge <dest> <source>` — append messages from one session into another.
-- **MCP Server Sharing**: Register MCP servers once, share across all tools.
-- **Secure Auth Vault**: Store credentials in an encrypted vault (Chacha20Poly1305) with ACL and audit log.
-- **Hook System**: Intercept pre/post tool events with custom scripts and exit‑code verification.
-- **Workflow Orchestration**: Multi‑phase task management with provider assignment and phase advancement.
-- **Sub‑Agent Orchestration**: Decompose tasks across sub-agents with configurable dispatch modes (sequential, parallel, fan-out).
-- **Config Inheritance**: Compose configs with `extends: ["base", "overrides"]` — deep-merged with cycle detection and depth limit.
-- **Remote Config URL**: Fetch configs from HTTPS URLs with SHA-256 caching (`loom config fetch`).
-- **Plugin Registry**: Install, update, and remove tool plugins via `loom plugin` subcommands — TOML-based manifests with versioning, SHA-256 checksums, and optional Ed25519 signature verification (`loom plugin install --verify`).
-- **Session Branching**: Fork sessions at checkpoints for experimental divergences (`loom session branch`).
-- **Cross‑Session Memory**: Full-text search across all session messages via FTS5 SQLite (`loom session search`, `loom session index`).
-- **Embedded Pane**: View task details inside the TUI with progress bars and step tracking (Esc to close).
-- **Routing Telemetry**: Atomic counters for routing decisions, tier distribution, and error rates per engine.
+Loom is a Rust workspace of 31 crates (see all in [`Cargo.toml`](Cargo.toml)). Three binaries — `loom` (CLI), `loomd` (the long-lived daemon), and `loom-mcp-server` (on-demand MCP server over stdio) — sit on top of the library crates:
 
-### Issue Tracking
-- **GitHub Issues**: List, show, create branches, add comments.
-- **Linear**: Full GraphQL integration (list by team, show, add comments, create branches).
-- **Extensible trait**: `IssueTracker` trait for adding more backends.
+| Crate | Role |
+|------|------|
+| `loom-core` | Core types, constants, errors, traits (the `LoomTool` ↔ `LoomAgent` ↔ … trait surface), plugin registry |
+| `loom-cli` | The `loom` CLI binary — subcommands, native config injection, CLI-side orchestration |
+| `loomd` | The background daemon. Owns every shared subsystem, serves IPC, auto-shuts down after 5 min idle |
+| `loom-tui` | Terminal UI (`ratatui` + `crossterm`): 15 tabs — Dashboard, Daemon, Discovery, MCP, Skills, Sessions, Logs, Knowledge, PRs, Runtime, Kanban, Graph, Cost, **Orchestrator**, **Review** |
+| `loom-ipc` | JSON-line protocol over a Unix socket (`loomd.sock`) |
+| `loom-event-bus` | In-process `tokio::sync::broadcast` + optional ZeroMQ `PUB ipc://` |
+| `loom-discovery` | Two-phase tool/resource discovery |
+| `loom-mcp` | MCP server registry + connection pool + health checks + agent memory manager |
+| `loom-skills` | Skill registry (`.loom/skills/skills.db`), loader, hot-reload, adapter |
+| `loom-sessions` | Session export/import, storage (`messages.jsonl`), compression, cross-session FTS5 search |
+| `loom-auth` | Encrypted credential vault (ChaCha20Poly1305 + Argon2 IKD), ACL, audit log |
+| `loom-hooks` | Hook registry, script execution, signature verification |
+| `loom-workflow` | Multi-phase task orchestration, phase advancement, templates |
+| `loom-routing` | Complexity scoring + intelligent tier-based model routing |
+| `loom-trackers` | GitHub Issues + Linear issue tracking (extensible `IssueTracker` trait) |
+| `loom-parallel` | Sub-agent orchestration with parallel/fan-out dispatch modes |
+| `loom-runtime` | Pluggable runtimes: `ProcessRuntime` + optional `ContainerRuntime` (Docker) |
+| `loom-remote` | SSH `RemoteHost` exec + capture into indexed sessions |
+| `loom-generic-adapter` | TOML-driven adapter: one file (`~/.loom/tools/<tool>.toml`) auto-derives all **6** Loom traits; missing sections become no-ops |
+| `loom-adapters` | 12 preset tool adapters (jcode, crush, claude-code, opencode, goose, codex, cursor, gemini-cli, aider, kiro, juno, github-copilot) |
+| `loom-mcp-server` | `loom-mcp-server` binary — exposes the ecosystem as an MCP server over stdio so any MCP client can use it |
+| `loom-knowledge` | KAG/skill knowledge graph (~/.loom/knowledge/graph.db) |
+| `loom-ffi` | C FFI glue for external tool integration |
+| `loom-integration-tests` | End-to-end integration tests |
 
-### Intelligent Routing
-- **Complexity Scoring**: Score prompts by token/structural complexity with configurable thresholds.
-- **Model Tiers**: SLM (fast/cheap), Mid (balanced), Flagship (powerful/expensive).
-- **Configurable thresholds**: Route based on score with manual overrides.
-- **Error Rate Telemetry**: Per-engine metrics for classification latency, tier decisions, and error tracking.
+Every crate shares the workspace version and depends on `loom-core` for types and traits.
 
-### Workflow Templates
-- **TOML‑based**: Store reusable task templates in `~/.loom/workflow/templates/`.
-- **Create from template**: `loom workflow create --template <name>`.
+### IPC protocol
 
-### Session Management
-- **Export/Import**: Portable JSON bundles with environment reconstruction.
-- **Branching**: Fork a session at a specific message checkpoint (`loom session branch --from <id> --checkpoint <N>`).
-- **Cross-Session Search**: FTS5 full-text search across all indexed sessions (`loom session search`).
-- **Compression**: Automatic history compression after 20 messages; first 10 kept at full fidelity.
+Clients connect to `~/.loom/loomd.sock` and exchange length-prefixed JSON:
 
-### Plugin Registry
-- **TOML-based manifests** stored in `~/.loom/plugins/{name}.toml`.
-- **Install from URL**: Downloads tool TOML with SHA-256 verification (`loom plugin install <name> <url>`).
-- **Register local**: Import an existing tool TOML as a plugin (`loom plugin register <name> <path>`).
-- **Update**: Re-download tool TOML and bump minor version (`loom plugin update <name>`).
-- **Search/List/Show**: Query installed plugins by name, description, or author.
+```jsonc
+{"request_id":"<uuid-v4>","command":"skills.list","params":{}}
+{"request_id":"<uuid-v4>","status":"ok","data":{...}}
+```
 
-### Shell Integration
-- **Shell completions**: `loom completions bash|zsh|fish|powershell|elvish` generates CLI tab-completions.
-- **Shell wrappers**: `loom init-shell` generates environment setup for transparent loom activation (eval `$(loom init-shell)` in `.zshrc`/`.bashrc`).
+The daemon exposes `health.check / skills.list / acp.dispatch / run.status / …` as commands; `loom-cli/src/ipc_client.rs` is the official client.
 
-### Reproducible Skills
-- **Lock file**: `loom lock --generate` creates `~/.loom/skills/skills.lock` capturing skill versions and content hashes.
-- **Verify**: `loom lock --verify` checks installed skills against the lock file.
-- **Diff mode**: `loom lock --verify --diff` shows violations in diff-style (`+`/`-`/`~`).
-- **List with check**: `loom skills list --locked` lists skills and verifies against the lock file.
+### Performance budgets
 
-### Config Management
-- **Config Inheritance**: `extends` field deep-merges base configs with overrides (cycle detection, depth limit 10).
-- **Remote Config URL**: Download configs from HTTPS URLs with content-addressable caching (`loom config fetch`).
-- **Validate**: Check merged config for structural errors (`loom config validate`).
+Loom advertises hard budgets and measures them on every build. The envelope is small because every feature routes through the in-process daemon + event bus.
 
-### Daemon
-- **Auto‑shutdown**: Idle timeout after 5 minutes.
-- **Launchd/systemd service**: `loom daemon install-service`.
-- **Health checks**: Every subsystem implements `HealthCheck` trait; aggregated on startup.
-
-### Performance Budgets
-
-| Operation | Budget | Achieved |
+| Operation | Target | Achieved |
 |-----------|--------|---------|
-| Startup (daemon) | <50ms | ~20ms |
-| Startup (no daemon) | <200ms | ~100ms |
-| Skill search | <5ms | ~0.05ms |
-| MCP acquire | <20ms | ~5ms |
-| Routing decision | <10ms | ~5ms |
-| Hook execution | <30ms | ~30ms |
-| Event delivery | <100µs | ~15µs |
-| Vault decrypt | <10ms | ~3ms |
+| Daemon startup | < 50 ms | ~20 ms |
+| CLI startup (no daemon) | < 200 ms | ~100 ms |
+| Skill search (FS scan vs index) | < 5 ms | ~0.05 ms |
+| Skill activation | < 50 ms | ~30 ms |
+| MCP server acquire | < 20 ms | ~5 ms |
+| Hot-reload | < 60 ms | ~15 ms |
+| Session resume | < 100 ms | ~50 ms |
+| Routing decision | < 10 ms | ~5 ms |
+| Hook execution | < 30 ms | ~30 ms |
 
 ---
 
-## 📦 Installation
+## 🔧 Features
 
-### From Source
-```bash
-git clone https://github.com/yourusername/loom.git
-cd loom
-cargo build --workspace --release
-```
+### Core ecosystem
+- **Shared Skills** — write once, use across all tools; hot-reload; lock files + content-hash verification (`loom lock --generate` / `--verify --diff`).
+- **Session Portability** — export/import as a portable JSON bundle that reconstructs the environment; resume on any agent.
+- **Session Merge & Branching** — append one session into another (`loom sessions merge`); fork at a checkpoint (`loom sessions branch`).
+- **Cross-Session Memory** — FTS5 full-text search over all indexed sessions (`loom sessions search`).
+- **Compression** — automatic history compression after 20 messages: older messages fold into a summary, the last 10 stay at full fidelity.
+- **MCP Server Sharing** — register once, push into every tool's native config.
+- **Reverse MCP** — `loom-mcp-server --loom-dir ~/.loom` lets any MCP client use Loom's skills/sessions/knowledge-graph.
+- **Secure Vault** — credentials stored ChaCha20Poly1305-encrypted, key derived via Argon2 from the machine ID + vault stored keys; ACL + audit log; no plaintext is ever persisted.
+- **Hook System** — intercept pre/post tool events with scripts and exit-code verification + signature checking.
+- **Config Inheritance** — `extends:` deep-merges base configs (cycle detection, depth limit 10); HTTPS URLs accepted with content-addressable caching.
+- **Plugin Registry** — TOML manifests with SHA-256 checksums + optional Ed25519 signature verification.
+- **Sub-Agent Orchestration** — sequential/parallel/fan-out across isolated git worktrees.
+- **Routing** — complexity-scored, tier-aware (SLM / Mid / Flagship) model selection, with persisted decision + outcome telemetry (`loom routing outcomes`).
 
-### Pre‑built Binaries
-Pre‑built binaries for Linux and macOS are available on the [GitHub Releases](https://github.com/yourusername/loom/releases) page.
+### Execution
+- **ACP dispatch** — spawn any registered agent (claude-code, codex, opencode, goose, …) on demand via `loom acp run`; per-run logs, completion status, automatic session capture.
+- **Agent adapters** — 12 preset adapters + an infinite set via `loom-generic-adapter` (any tool whose config can be expressed in TOML).
+- **Remote capture** — `loom remote exec --capture-session …` runs a command on an SSH `RemoteHost` and records it as an indexed session.
+
+### Orchestration & tracking
+- **Workflow engine** — multi-phase tasks, phase advancement, templates; build from a chief plan or a ticket (`loom workflow create --from-plan/ticket`, `loom workflow draft-plan`).
+- **TUI Orchestrator + Review** — board-style task intake → dispatch → reassignment; the PRs tab creates a pull request with `c`, the Review tab dispatches/resumes/reassigns tasks (`j`/`k`/`Enter`/`R`).
+- **Issue trackers** — GitHub Issues and Linear (full Linear GraphQL), extensible via `IssueTracker`.
+- **Parallelism** — git-worktree-isolated sub-agents, configurable dispatch modes.
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read the [CONTRIBUTING.md](CONTRIBUTING.md) guide for details on how to set up a development environment, run tests, and submit patches.
+```bash
+cargo test --workspace          # unit + integration
+cargo clippy --workspace        # lint (kept at 0 warnings)
+cargo build --workspace
+```
+
+Conventions live in [`AGENTS.md`](AGENTS.md) (GraphFlow surgical editing, symbol-sliced diffs). Architectural decisions are tracked under `.brv/` and per-release notes in [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
 ## 📄 License
 
-Loom is licensed under the MIT License. See the `LICENSE` file for details.
+MIT (declared in [`Cargo.toml`](Cargo.toml)).
 
 ---
 
-## 📦 Version History
+## 📜 Version history
 
-- **0.3.11**: Shell completions (`loom completions`), plugin signature verification (`--verify`), lock file diff (`--diff`), PR linking (`issues link-pr`), session merge (`sessions merge`), 10 tool adapters (aider, claude-code, codex, crush, cursor, gemini, goose, jcode, opencode).
-- **0.3.10**: Config inheritance (`extends:`), remote config URL, cached remote config deep-merge, `loom config show --extends`, `--no-extend`/`--no-remote` flags, env-var interpolation.
-- **0.3.9**: Session auto-summarization (compression threshold 20, full fidelity 10).
-- **0.3.8**: Session tagging (`loom sessions tag`, `loom sessions tags`, `--tag` filter).
-- **0.3.7**: Session recall (`loom sessions recall`) on top of message-level search.
-- **0.3.6**: Cross-session memory FTS5 fix (prevent clobber on index).
-- **0.3.5**: Session capture on workflow dispatch, cross-session memory indexing.
-- **0.3.4**: Man pages, phase result chain, PostPhase hooks, auto-advance.
-- **0.3.3**: Workflow dispatch passes task title/description as prompt.
-- **0.3.2-0.3.0**: Session branching, plugin registry, KAG, knowledge graph, ACP, TUI, Homebrew.
-- **0.2.x**: Sub‑agent orchestration, GitHub Issues & Linear, workflow templates, parallel execution.
-- **0.1.x**: Initial MVP through CLI modernization, hooks, routing, auth vault, TUI.
+| Version | Highlights |
+|---------|-----------|
+| **0.9.5** (2026‑10‑19) | Docs release: rewritten README with architecture diagrams, Orca competitive analysis, full man-page rewrite (`loom.1`/`loomd.1`); TUI tab-bar shortcuts + scrolling, Kanban board phases; worktree fallback for commit-less repos. |
+| **0.9.4** (2026‑10‑18) | Routing outcome telemetry (`loom routing outcomes`), `require_signature` security flag, unified level/tier derivation, CJK-aware routing signals, HTTPS-only plugin URLs. |
+| 0.9.0–0.9.3 | `loom-runtime` crate (Docker / Podman / Kubernetes backends), hash-chained auth audit log, workspace-wide clippy-zero, IPC runtime-panic fix. |
+| 0.8.0 | Tracked ACP dispatch (`loom acp run` + run registry), canonical ACP v1 protocol client, `loom workflow create --from-plan/--from-ticket` + `draft-plan`, `loom issues create-pr`, `loom remote exec --capture-session`, TUI Orchestrator + Review tabs. |
+| 0.7.x | AST structural editing (tree-sitter, `loom ast`), rule engine (`loom rules`), conflict-resolution protocol (`loom conflict`), Kiro adapter, ACP dispatch server wired into the daemon. |
+| 0.6.0 | Hindsight cross-session typed fact memory, hashline skill edits (content-hash anchored), ACP peer discovery + secure handshake, DAP debugging, LSP integration with skill adapters. |
+
+Full history: [`CHANGELOG.md`](CHANGELOG.md) (starts at 0.6.0). Release artifacts and per-release Homebrew formulas live under [`dist/`](dist/) (e.g. `dist/v0.3.10/Formula-loom.rb`).

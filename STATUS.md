@@ -108,8 +108,7 @@ Main config: `~/.loom/config.toml`
 
 ## Roadmap
 
-- Improve telemetry and anomaly detection
-- Add more cross-tool adapters
+Direction and pillars: [ROADMAP.md](ROADMAP.md). Open backlog: [docs/loom-improvements.md](docs/loom-improvements.md).
 
 ## Contributors
 
