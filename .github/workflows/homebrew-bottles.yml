@@ -204,14 +204,18 @@ jobs:
           SRC_SHA: ${{ steps.source_sha.outputs.sha }}
         run: |
           V=$(echo "$VERSION" | sed 's/^v//')
-          TAG="v$V"
+          # Homebrew bottle releases use a "-bottles" suffixed tag. The tap's own
+          # "vX.Y.Z" tag namespace is reserved by GitHub once a tag has been
+          # used by an immutable release, and can never be recreated.
+          TAG="v$V-bottles"
 
           # Create/update Homebrew release
-          echo "Creating Homebrew release..."
+          echo "Creating Homebrew release $TAG..."
           gh release create "$TAG" \
             --repo tusharmewara/homebrew-loom \
             --title "Loom $VERSION Bottles" \
             --notes "Bottles for Loom v$VERSION (macOS + Linux)" \
+            --target main \
             || true
 
           # Upload bottles
@@ -231,16 +235,15 @@ jobs:
             BOTTLE_ENTRIES=""
             for f in /tmp/bottles/loom-*.bottle.tar.gz; do
               BASENAME=$(basename "$f")
-              # Parse: loom-VERSION.TAG.bottle.tar.gz
-              # Use sed to extract TAG between version and .bottle.tar.gz
-              TAG=$(echo "$BASENAME" | sed -E 's/^loom-[0-9]+\.[0-9]+\.[0-9]+\.//' | sed 's/\.bottle\.tar\.gz$//')
+              # Parse: loom-VERSION.PLATFORM.bottle.tar.gz
+              PLATFORM=$(echo "$BASENAME" | sed -E 's/^loom-[0-9]+\.[0-9]+\.[0-9]+\.//' | sed 's/\.bottle\.tar\.gz$//')
               SHA=$(shasum -a 256 "$f" | cut -d' ' -f1)
-              case "$TAG" in
+              case "$PLATFORM" in
                 x86_64_linux)
                   BOTTLE_ENTRIES+="    sha256 cellar: :any_skip_relocation, x86_64_linux: \"$SHA\"\n"
                   ;;
                 *)
-                  BOTTLE_ENTRIES+="    sha256 cellar: :any, ${TAG}: \"$SHA\"\n"
+                  BOTTLE_ENTRIES+="    sha256 cellar: :any, ${PLATFORM}: \"$SHA\"\n"
                   ;;
               esac
             done
@@ -256,8 +259,8 @@ jobs:
               echo "  url \"https://github.com/tusharmewara/loom/archive/refs/tags/v$V.tar.gz\""
               echo "  sha256 \"$SRC_SHA\""
               echo ''
-              echo '  bottle do'
-              echo "    root_url \"https://github.com/tusharmewara/homebrew-loom/releases/download/v$V\""
+              echo "  bottle do"
+              echo "    root_url \"https://github.com/tusharmewara/homebrew-loom/releases/download/v$V-bottles\""
               echo -e "$BOTTLE_ENTRIES"
               echo '  end'
               echo ''
