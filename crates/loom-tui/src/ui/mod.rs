@@ -7,7 +7,7 @@ use crate::app::App;
 use crate::theme::Theme;
 use layout::compute_layout;
 use ratatui::Frame;
-use widgets::{draw_sidebar, draw_status_bar, draw_tab_bar, Scrollbar};
+use widgets::{draw_sidebar, draw_status_bar, draw_tab_bar};
 
 pub use layout::UILayout;
 
@@ -19,21 +19,6 @@ pub fn draw(frame: &mut Frame, app: &App) {
     draw_tab_bar(frame, layout.top_bar, app, theme);
 
     draw_content_body(frame, layout.content, app, theme);
-
-    let scroll_offset = app.scroll_offsets.get(app.tab_index).copied().unwrap_or(0);
-    let scrollbar = Scrollbar {
-        offset: scroll_offset,
-        content_len: 100,
-        visible_lines: layout.content.height as usize,
-        theme: *theme,
-    };
-    let scrollbar_area = ratatui::layout::Rect {
-        x: layout.content.right().saturating_sub(1),
-        y: layout.content.y,
-        width: 1,
-        height: layout.content.height,
-    };
-    frame.render_widget(scrollbar, scrollbar_area);
 
     if let Some(sidebar_area) = layout.sidebar {
         draw_sidebar(frame, sidebar_area, app, theme);

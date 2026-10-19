@@ -27,8 +27,8 @@ pub fn draw_help_overlay(frame: &mut Frame, area: Rect, theme: &Theme) {
             .add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::from(vec![
-        Span::styled("  1-9, 0     ", Style::default().fg(theme.primary)),
-        Span::styled("Switch tabs", theme.text),
+        Span::styled("  1-0 !@#   ", Style::default().fg(theme.primary)),
+        Span::styled("Switch tabs (last two: Tab/→)", theme.text),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  Tab/→     ", Style::default().fg(theme.primary)),
@@ -41,6 +41,10 @@ pub fn draw_help_overlay(frame: &mut Frame, area: Rect, theme: &Theme) {
     lines.push(Line::from(vec![
         Span::styled("  ↑/↓       ", Style::default().fg(theme.primary)),
         Span::styled("Scroll / select tasks", theme.text),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  ←→↑↓/hjkl ", Style::default().fg(theme.primary)),
+        Span::styled("Move Kanban selection (Kanban tab)", theme.text),
     ]));
     lines.push(Line::from(Span::styled("", Style::default())));
 
@@ -69,6 +73,18 @@ pub fn draw_help_overlay(frame: &mut Frame, area: Rect, theme: &Theme) {
     lines.push(Line::from(vec![
         Span::styled("  a         ", Style::default().fg(theme.primary)),
         Span::styled("Dispatch selected task", theme.text),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  Enter     ", Style::default().fg(theme.primary)),
+        Span::styled("Dispatch Kanban selection (Kanban tab)", theme.text),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  > / p     ", Style::default().fg(theme.primary)),
+        Span::styled("Advance Kanban task to next phase", theme.text),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  x         ", Style::default().fg(theme.primary)),
+        Span::styled("Remove selected task (Review/Kanban)", theme.text),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  D         ", Style::default().fg(theme.primary)),

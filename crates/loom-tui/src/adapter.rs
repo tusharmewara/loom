@@ -127,6 +127,18 @@ impl LoomCliAdapter {
         .map(|_| ())
     }
 
+    /// Advance a task to its next workflow phase. `workflow advance`
+    /// has no JSON mode, so success is the process exit code.
+    pub async fn advance_task_phase(&self, task_id: &str) -> Result<()> {
+        self.run_text(vec![
+            "workflow".to_string(),
+            "advance".to_string(),
+            task_id.to_string(),
+        ])
+        .await
+        .map(|_| ())
+    }
+
     /// Fetch launchable ACP agents: daemon-registered handlers plus
     /// `config/agents.toml` entries (what `loom add-acp-agent` writes).
     pub async fn fetch_acp_agents(&self) -> Result<Value> {

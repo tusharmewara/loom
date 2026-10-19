@@ -8,7 +8,10 @@ use crate::adapter::LoomCliAdapter;
 use crate::app::App;
 use crate::dispatch::Dispatcher;
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{
+    self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEventKind,
+};
+use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
@@ -40,6 +43,10 @@ pub async fn run() -> Result<()> {
 
 fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
     enable_raw_mode()?;
+    // Bracketed paste keeps a multi-line terminal paste a single
+    // Event::Paste, so pasting a description cannot submit the
+    // Orchestrator form mid-paste.
+    execute!(io::stdout(), EnableBracketedPaste)?;
     let stdout = io::stdout();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
@@ -48,6 +55,7 @@ fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
 }
 
 fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+    let _ = execute!(io::stdout(), DisableBracketedPaste);
     disable_raw_mode()?;
     terminal.clear()?;
     terminal.show_cursor()?;
@@ -65,7 +73,8 @@ async fn run_loop(
         terminal.draw(|f| ui::draw(f, app))?;
 
         if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
+            let ev = event::read()?;
+            if let Event::Key(key) = ev {
                 if key.kind != KeyEventKind::Press {
                     continue;
                 }
@@ -364,6 +373,47 @@ async fn run_loop(
                     }
                 }
 
+                // Kanban tab: arrows/hjkl move the selection across
+                // columns and rows, Enter or a opens the dispatch menu
+                // for the selected task. Other keys fall through.
+                if app.is_kanban_tab() {
+                    match key.code {
+                        KeyCode::Left | KeyCode::Char('h') => {
+                            app.kanban_select_prev_col();
+                            continue;
+                        }
+                        KeyCode::Right | KeyCode::Char('l') => {
+                            app.kanban_select_next_col();
+                            continue;
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            app.kanban_select_prev_row();
+                            continue;
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            app.kanban_select_next_row();
+                            continue;
+                        }
+                        KeyCode::Enter | KeyCode::Char('a') => {
+                            if let Some(task_id) = app.kanban_selected_task_id() {
+                                if app.select_task_by_id(&task_id) {
+                                    app.open_dispatch_menu();
+                                }
+                            }
+                            continue;
+                        }
+                        KeyCode::Char('>') | KeyCode::Char('p') => {
+                            app.advance_kanban_task().await;
+                            continue;
+                        }
+                        KeyCode::Char('x') => {
+                            app.remove_kanban_task().await;
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+
                 // Embedded pane: Esc to close, j/k to scroll log, i to send input, Ctrl-C to interrupt
                 if app.embedded_task.is_some() {
                     match key.code {
@@ -467,6 +517,8 @@ async fn run_loop(
                     }
                     _ => {}
                 }
+            } else if let Event::Paste(text) = ev {
+                app.orchestrator_paste(&text);
             }
         }
 

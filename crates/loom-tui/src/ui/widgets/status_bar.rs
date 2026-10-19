@@ -102,5 +102,7 @@ fn build_status_spans<'a>(app: &App, theme: &Theme) -> Vec<Span<'a>> {
         theme.text_dim,
     ));
 
+    spans.push(Span::styled(" ? help", theme.text_dim));
+
     spans
 }

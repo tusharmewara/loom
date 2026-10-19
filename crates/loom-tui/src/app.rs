@@ -66,6 +66,10 @@ pub fn format_run_line(run: &OrchestratorRun) -> String {
     line
 }
 
+/// Workflow phases shown as Kanban columns, in board order. Kept in
+/// sync with the phase values the daemon writes (`loom-core` Task).
+pub(crate) const PHASES: &[&str] = &["Plan", "Implement", "Verify", "Finish"];
+
 /// Task ids for the Review tab, in workflow-list order.
 pub fn review_task_ids(workflow: &Value) -> Vec<String> {
     workflow
@@ -262,6 +266,8 @@ pub struct App {
     pub review_selection_index: usize,
     pub review_detail: Option<Value>,
     pub review_detail_task_id: Option<String>,
+    pub kanban_col: usize,
+    pub kanban_row: usize,
     theme_manager: crate::theme::ThemeManager,
     pub adapter: LoomCliAdapter,
     /// Time of the last GitHub-backed poll, used to throttle PR/CI/diff fetches.
@@ -346,6 +352,8 @@ impl App {
             review_selection_index: 0,
             review_detail: None,
             review_detail_task_id: None,
+            kanban_col: 0,
+            kanban_row: 0,
             theme_manager,
             adapter,
             last_pr_poll: None,
@@ -857,6 +865,158 @@ impl App {
         }
     }
 
+    /// Dynamic index of the Kanban tab.
+    pub fn kanban_tab_index(&self) -> Option<usize> {
+        self.tabs.iter().position(|&t| t == "Kanban")
+    }
+
+    pub fn is_kanban_tab(&self) -> bool {
+        self.kanban_tab_index() == Some(self.tab_index)
+    }
+
+    /// Task ids in the selected Kanban column, in workflow-list order.
+    pub fn kanban_column_task_ids(&self) -> Vec<String> {
+        let phase = PHASES.get(self.kanban_col).copied().unwrap_or("");
+        self.workflow
+            .pointer("/tasks")
+            .and_then(Value::as_array)
+            .map(|tasks| {
+                tasks
+                    .iter()
+                    .filter(|t| t.get("phase").and_then(Value::as_str) == Some(phase))
+                    .filter_map(|t| t.get("task_id"))
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Task id under the Kanban cursor, if the column has any task.
+    /// Self-clamps, so a refresh that shrinks the board can never
+    /// leave the cursor dangling past the end.
+    pub fn kanban_selected_task_id(&self) -> Option<String> {
+        let ids = self.kanban_column_task_ids();
+        if ids.is_empty() {
+            None
+        } else {
+            ids.get(self.kanban_row.min(ids.len() - 1)).cloned()
+        }
+    }
+
+    fn kanban_clamp_row(&mut self) {
+        let count = self.kanban_column_task_ids().len();
+        self.kanban_row = if count == 0 {
+            0
+        } else {
+            self.kanban_row.min(count - 1)
+        };
+    }
+
+    pub fn kanban_select_next_col(&mut self) {
+        self.kanban_col = (self.kanban_col + 1) % PHASES.len();
+        self.kanban_clamp_row();
+    }
+
+    pub fn kanban_select_prev_col(&mut self) {
+        if self.kanban_col == 0 {
+            self.kanban_col = PHASES.len() - 1;
+        } else {
+            self.kanban_col -= 1;
+        }
+        self.kanban_clamp_row();
+    }
+
+    pub fn kanban_select_next_row(&mut self) {
+        self.kanban_row += 1;
+        self.kanban_clamp_row();
+    }
+
+    pub fn kanban_select_prev_row(&mut self) {
+        self.kanban_row = self.kanban_row.saturating_sub(1);
+    }
+
+    /// Point the flat task cursor (used by the dispatch menu) at the
+    /// given task id. Returns false if the id is not on the board.
+    pub fn select_task_by_id(&mut self, id: &str) -> bool {
+        let found = self
+            .workflow
+            .pointer("/tasks")
+            .and_then(Value::as_array)
+            .and_then(|tasks| {
+                tasks
+                    .iter()
+                    .position(|t| t.get("task_id").and_then(Value::as_str) == Some(id))
+            });
+        match found {
+            Some(i) => {
+                self.task_selection_index = i;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Advance the selected Kanban task to its next phase
+    /// (`workflow advance`), the board's "move card right" gesture.
+    pub async fn advance_kanban_task(&mut self) {
+        let Some(task_id) = self.kanban_selected_task_id() else {
+            self.last_action_result = Some(CommandResult {
+                action: "kanban advance".to_string(),
+                success: false,
+                message: "No task selected.".to_string(),
+            });
+            return;
+        };
+        match self.adapter.advance_task_phase(&task_id).await {
+            Ok(()) => {
+                self.last_action_result = Some(CommandResult {
+                    action: "kanban advance".to_string(),
+                    success: true,
+                    message: format!("Advanced task {task_id} to the next phase."),
+                });
+            }
+            Err(e) => {
+                self.last_action_result = Some(CommandResult {
+                    action: "kanban advance".to_string(),
+                    success: false,
+                    message: format!("Could not advance task {task_id}: {e}"),
+                });
+            }
+        }
+        self.refresh_safe().await;
+    }
+
+    /// Remove the selected Kanban task and its per-phase sidecars,
+    /// mirroring the Review tab's `x` action.
+    pub async fn remove_kanban_task(&mut self) {
+        let Some(task_id) = self.kanban_selected_task_id() else {
+            self.last_action_result = Some(CommandResult {
+                action: "kanban remove".to_string(),
+                success: false,
+                message: "No task selected.".to_string(),
+            });
+            return;
+        };
+        match self.adapter.remove_task(&task_id).await {
+            Ok(()) => {
+                self.last_action_result = Some(CommandResult {
+                    action: "kanban remove".to_string(),
+                    success: true,
+                    message: format!("Removed task {task_id}."),
+                });
+            }
+            Err(e) => {
+                self.last_action_result = Some(CommandResult {
+                    action: "kanban remove".to_string(),
+                    success: false,
+                    message: format!("Could not remove task {task_id}: {e}"),
+                });
+            }
+        }
+        self.refresh_safe().await;
+    }
+
     /// Fetch full detail for the selected Review task when the cached
     /// detail belongs to another task (or is missing). Runs inside the
     /// 1s refresh so selection changes resolve on the next tick without
@@ -1216,6 +1376,25 @@ impl App {
             OrchestratorField::Details => {
                 self.orchestrator_details.pop();
             }
+            OrchestratorField::Agent => {}
+        }
+    }
+
+    /// Insert terminal-pasted text into the focused Orchestrator
+    /// field. Newlines and other control characters become spaces so
+    /// a multi-line paste cannot submit the form mid-paste. Pastes on
+    /// any other tab are ignored.
+    pub fn orchestrator_paste(&mut self, text: &str) {
+        if !self.is_orchestrator_tab() {
+            return;
+        }
+        let cleaned: String = text
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect();
+        match self.orchestrator_field {
+            OrchestratorField::Title => self.orchestrator_title.push_str(&cleaned),
+            OrchestratorField::Details => self.orchestrator_details.push_str(&cleaned),
             OrchestratorField::Agent => {}
         }
     }
@@ -1710,5 +1889,92 @@ mod tests {
         let result = app.last_action_result.expect("status must be set");
         assert!(!result.success);
         assert!(result.message.contains("repository"));
+    }
+
+    #[test]
+    fn kanban_selection_moves_and_clamps() {
+        let mut app = app();
+        app.workflow = json!({"tasks": [
+            {"task_id": "t1", "phase": "Plan"},
+            {"task_id": "t2", "phase": "Plan"},
+            {"task_id": "t3", "phase": "Implement"},
+        ]});
+
+        assert_eq!(app.kanban_selected_task_id().as_deref(), Some("t1"));
+        app.kanban_select_next_row();
+        assert_eq!(app.kanban_selected_task_id().as_deref(), Some("t2"));
+        app.kanban_select_next_row(); // clamps at the last row
+        assert_eq!(app.kanban_selected_task_id().as_deref(), Some("t2"));
+        app.kanban_select_prev_row();
+        assert_eq!(app.kanban_selected_task_id().as_deref(), Some("t1"));
+
+        app.kanban_select_next_col(); // row clamps into the new column
+        assert_eq!(app.kanban_selected_task_id().as_deref(), Some("t3"));
+        app.kanban_select_next_col(); // Verify: empty
+        app.kanban_select_next_col(); // Finish: empty
+        app.kanban_select_next_col(); // wraps back to Plan
+        assert_eq!(app.kanban_selected_task_id().as_deref(), Some("t1"));
+    }
+
+    #[test]
+    fn kanban_selection_wraps_columns_backwards_and_skips_empty() {
+        let mut app = app();
+        app.workflow = json!({"tasks": [{"task_id": "t9", "phase": "Finish"}]});
+        assert_eq!(app.kanban_selected_task_id(), None); // Plan is empty
+        app.kanban_select_prev_col(); // wraps to Finish
+        assert_eq!(app.kanban_selected_task_id().as_deref(), Some("t9"));
+    }
+
+    #[test]
+    fn select_task_by_id_points_flat_cursor_at_the_task() {
+        let mut app = app();
+        app.workflow = json!({"tasks": [
+            {"task_id": "t1", "phase": "Plan"},
+            {"task_id": "t2", "phase": "Plan"},
+            {"task_id": "t3", "phase": "Implement"},
+        ]});
+
+        assert!(app.select_task_by_id("t3"));
+        assert_eq!(app.task_selection_index, 2);
+        assert_eq!(
+            app.selected_task().unwrap().get("task_id").unwrap(),
+            "t3"
+        );
+        assert!(!app.select_task_by_id("missing"));
+
+        // The dispatch menu acts on the task the Kanban cursor picked.
+        app.open_dispatch_menu();
+        assert!(app.dispatch_menu_open);
+    }
+
+    #[tokio::test]
+    async fn kanban_actions_without_selection_report_failure() {
+        let mut app = app();
+        app.workflow = json!({"tasks": []});
+
+        app.advance_kanban_task().await;
+        let result = app.last_action_result.as_ref().expect("advance must set a status");
+        assert!(!result.success);
+        assert!(result.message.contains("No task"));
+
+        app.remove_kanban_task().await;
+        let result = app.last_action_result.as_ref().expect("remove must set a status");
+        assert!(!result.success);
+        assert!(result.message.contains("No task"));
+    }
+
+    #[test]
+    fn paste_lands_in_the_focused_orchestrator_field_only() {
+        let mut app = app();
+        // Not on the Orchestrator tab: pastes are ignored.
+        app.orchestrator_paste("hello\nworld");
+        assert_eq!(app.orchestrator_title_value(), "");
+        // On the form: newlines become spaces, one Event::Paste lands
+        // whole — no mid-paste Enter submit.
+        let idx = app.orchestrator_tab_index().expect("tab exists");
+        app.set_tab_from_digit(idx);
+        assert!(app.is_orchestrator_tab());
+        app.orchestrator_paste("fix:\n- line one\n- line two");
+        assert_eq!(app.orchestrator_title_value(), "fix: - line one - line two");
     }
 }
