@@ -126,8 +126,21 @@ impl TaskManager {
             .context("Failed to create git worktree")?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("git worktree add failed: {}", stderr.trim());
+            // Repositories without any commit (e.g. freshly cloned or
+            // created locally with no remote) reject --detach; retry
+            // with --orphan (git >= 2.42) before giving up.
+            let retry = std::process::Command::new("git")
+                .args(["worktree", "add", "--orphan", worktree_path.to_str().unwrap()])
+                .current_dir(&repo_root)
+                .output();
+            match retry {
+                Ok(out) if out.status.success() => {}
+                Ok(out) => {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    anyhow::bail!("git worktree add failed: {}", stderr.trim());
+                }
+                Err(e) => anyhow::bail!("git worktree add retry failed: {e}"),
+            }
         }
 
         tracing::info!(
@@ -250,8 +263,18 @@ impl TaskManager {
         let config = self.workflow_config();
         let create_worktree = worktree && config.worktree_auto;
 
+        // Worktree isolation is best-effort: a non-git directory, a
+        // repository without commits (e.g. never pushed anywhere), or
+        // missing git must not block task creation. The task then runs
+        // in the project directory instead of an isolated worktree.
         let worktree_path = if create_worktree {
-            Some(self.create_worktree(&task_id, title)?)
+            match self.create_worktree(&task_id, title) {
+                Ok(path) => Some(path),
+                Err(e) => {
+                    tracing::warn!("worktree skipped for task {task_id}: {e}");
+                    None
+                }
+            }
         } else {
             None
         };
@@ -693,5 +716,32 @@ mod tests {
             .create_task("Test task", "Test description", false, None)
             .unwrap();
         assert!(task.worktree_path.is_none());
+    }
+
+    #[test]
+    fn create_task_survives_worktree_failure() {
+        // Hermetic: a regular file at the worktree base path makes
+        // worktree creation fail deterministically without relying on
+        // git or touching the real ~/.loom.
+        let dir = tempfile::tempdir().unwrap();
+        let loom = dir.path().join("loom");
+        std::fs::create_dir_all(&loom).unwrap();
+        let blocker = dir.path().join("blocker");
+        std::fs::write(&blocker, "x").unwrap();
+        std::fs::write(
+            loom.join("config.toml"),
+            format!(
+                "[workflow]\nworktree_auto = true\nworktree_base = \"{}\"\n",
+                blocker.join("worktrees").display()
+            ),
+        )
+        .unwrap();
+        let manager = TaskManager::new(loom.to_str().unwrap());
+
+        let task = manager.create_task("t", "d", true, None).unwrap();
+        assert_eq!(task.title, "t");
+        assert!(task.worktree_path.is_none());
+        // The task must be fully usable despite the skipped worktree.
+        assert!(manager.get(&task.task_id).unwrap().is_some());
     }
 }
