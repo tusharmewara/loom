@@ -56,7 +56,10 @@ Loom is a multi-agent orchestration framework built in Rust. It provides a unifi
 - Two-tier architecture: CLI (standalone or daemon-connected) and daemon
 - IPC over Unix domain sockets, versioned envelope, 30s request timeout
 - Daemon single-instance lock (`.cache/loomd.lock`, `File::try_lock`) with stale-socket recovery
+- Daemon handles SIGTERM/SIGHUP and cleans up its socket; the idle timeout is configurable via `LOOM_IDLE_TIMEOUT_MS` (`0` = disabled, which the installed service unit sets)
+- Service units restart only on a crash (`KeepAlive{SuccessfulExit:false}` / `Restart=on-failure`), so a deliberate clean exit is not resurrected
 - CLI↔daemon version handshake: `loom doctor` fails on skew, `loom status` warns
+- One-command release: `scripts/release.sh <version>` (version guard → bump → changelog → lock → commit → tag → CI dispatch command)
 - Event bus with in-process and cross-process (ZeroMQ) support
 - Skill registry with hot-reload
 - MCP server registry and health checks
@@ -132,8 +135,9 @@ LOOM_AGENTS_DIR=/tmp/loom-sandbox loom init
 - ~~Auth vault export requires encryption enforcement~~ — **Fixed**: `export_credential()` re-encrypts in-memory with fresh nonce (no plaintext persistence)
 - ~~Cross-pool MCP process reuse~~ — **Fixed**: all pools sharing a registry now share a single live process map (`RegistryShared::processes`), so a process spawned by one pool is reused by any other pool referencing the same registry, and a pool can only kill a process when the shared refcount reaches zero (closes the "terminated" orphan bug). `shutdown_all` clears the shared refcounts once after killing, per the documented daemon-restart reset semantics.
 - **Seeding scope**: `McpRegistry::new()` does not auto-seed defaults; built-in defaults (context-mode, rtk, loom, agentmemory) are seeded by the daemon-facing `RegistryShared` path only when the shared table is empty, so explicit setup (`loom init`, `loom init --recommended`, user registration) controls the registry contents without defaults being forced in.
-- **Service unit ownership**: `loom daemon install-service` writes a launchd/systemd unit with `KeepAlive=true` / `Restart=always`, and the daemon idle-shuts-down after 5 minutes — together they produce an endless respawn loop. The single-instance lock now prevents duplicate live daemons, but the unit still needs to own its lifecycle (stop the idle timeout, or exit cleanly and let the supervisor restart deliberately).
-- **SIGTERM**: loomd handles only SIGINT, so a service stop leaves a stale socket behind until the next `daemon start` cleans it up.
+- ~~**Service unit ownership**: endless respawn loop from `KeepAlive=true` / `Restart=always` + the 5-minute idle shutdown~~ — **Fixed**: the unit now sets `LOOM_IDLE_TIMEOUT_MS=0` (no idle self-exit) and restarts only on a crash (`KeepAlive{SuccessfulExit:false}` / `Restart=on-failure`). A manually started daemon keeps the 5-minute idle default. An existing installed unit from an older version must be reinstalled (`loom daemon install-service`) to pick this up.
+- ~~**SIGTERM**: loomd handled only SIGINT, so a service stop left a stale socket~~ — **Fixed**: loomd now handles SIGTERM and SIGHUP and takes the same clean-shutdown path as Ctrl+C (socket removed, serve/gRPC handles aborted).
+- **Service unit ownership (remaining)**: the unit files are still written by `loom daemon install-service`; the supervisor does not yet prevent a *second*, unrelated agent from keeping its own duplicate daemon alive. The single-instance lock makes the duplicate harmless.
 
 ## Roadmap
 

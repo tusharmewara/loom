@@ -11,9 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - feat(acp): `loom acp registry [--available] [--json]` lists all 42 agents in the public ACP registry, marking locally registered ones with `*`
 - feat(acp): ACP agents can now be launched with an `env` map (registry `env` blocks are honored, e.g. `FAST_AGENT_MODEL` for `fast-agent`)
+- feat(daemon): single-instance lock — loomd takes an exclusive `File::try_lock` on `<loom-dir>/.cache/loomd.lock` for its whole lifetime, so a second daemon can no longer steal the running one's Unix socket. `loom daemon start` reports the holder's pid, and a leftover socket is treated as stale
+- feat(cli): CLI↔daemon version handshake — `loom doctor` fails on a version mismatch, `loom status` warns
+- feat(ipc): the IPC envelope carries a protocol version, and requests time out (30s default) instead of hanging forever
+- feat(daemon): loomd handles SIGTERM and SIGHUP and takes the same clean-shutdown path as Ctrl+C (socket removed, serve/gRPC handles aborted) — a service stop no longer leaves a stale socket
+- feat(daemon): the idle-shutdown timeout is configurable via `LOOM_IDLE_TIMEOUT_MS` (`0` disables it)
+- feat(scripts): `scripts/release.sh <version>` performs a release in one command — version guard (semver, strictly greater, no leading zeros, no existing tag, clean tree), workspace version bump, changelog section from `RELEASE_NOTES.md`, `Cargo.lock` refresh + verification, commit, annotated tag, and the exact CI dispatch command. `--dry-run` prints the plan, `--push` pushes and dispatches
 
 ### Fixed
 
+- fix(daemon): the installed launchd/systemd unit no longer resurrects a deliberate clean exit — the unit sets `LOOM_IDLE_TIMEOUT_MS=0` and restarts only on a crash (`KeepAlive{SuccessfulExit:false}` / `Restart=on-failure`). The old combination of `KeepAlive=true` / `Restart=always` with the 5-minute idle shutdown produced an endless respawn loop (~397 restarts in 24h on the dev machine)
+- fix(daemon): the lock file distinguishes "held by another daemon" from "unusable lock file" — an unusable lock file (permissions, read-only fs) is now reported as such instead of being misread as "a daemon is already running", and loomd refuses to start unlocked
+- fix(cli,daemon): the ecosystem directory is resolved once, from `LOOM_AGENTS_DIR` (falling back to `~/.loom`), for the CLI, the daemon and every TUI-spawned CLI — the CLI used to hardcode `~/.loom` while the daemon honored the env var, so the two could talk to different directories
 - fix(tui): the Kanban and Orchestrator tabs no longer trap tab navigation — both tab-specific key handlers ran before the global handler and swallowed `Tab`/`Shift-Tab`/`←`/`→`, so the Orchestrator tab could not be left at all and the Kanban tab could not be switched away from. Kanban now uses `h`/`l` for columns and `j`/`k` for rows; the Orchestrator uses `↑`/`↓` for field focus and `←`/`→` for tool selection
 - fix(acp): `loom acp run <agent>` now resolves the agent's real launch command — explicit path → local `config/agents.toml` entry → public ACP registry → `PATH` binary — instead of spawning a bare binary with no arguments. Agents were previously started outside ACP mode (e.g. `opencode` without its `acp` flag) and timed out on `initialize`
 - fix(acp): `loom add-acp-agent` now picks a usable distribution deterministically (`npx` > `uvx` > `binary`, resolved for the current platform) instead of an arbitrary first key of the registry distribution map, so agents like `kilo` and `sigit` keep their package runner and their `acp` mode flag
@@ -22,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- chore(loomd): removed the unwired `loomd/src/snapshot_builder.rs` orphan (211 lines, never compiled, duplicated `loom-discovery`'s snapshot handling and used a dependency loomd does not have)
+- docs: corrected the stale claims in `AGENTS.md`, `ROADMAP.md` and `VISION.md` (CI workflows do exist, the TUI has 15 tabs not 7, the crate list was missing 11 members, the workspace version is 0.9.6)
 - fix(homebrew): bottle releases are published under a `vX.Y.Z-bottles` tag in the tap repo. The tap's plain `vX.Y.Z` tag namespace is permanently reserved by GitHub once a tag has been used by an immutable release and can never be recreated, which broke the 0.9.5 publish
 - chore: `cargo fmt --all` across the workspace — 8 files that had drifted out of rustfmt compliance (loom-routing `outcomes.rs`/`scorer.rs`, loom-cli `commands/routing.rs`, loom-tui `app.rs`/`ui/tabs/kanban.rs`, loom-workflow `task_manager.rs`, two loom-integration-tests)
 
