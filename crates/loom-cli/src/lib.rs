@@ -1,6 +1,7 @@
 mod cli;
 mod commands;
 mod ipc_client;
+mod service;
 mod version_check;
 
 use clap::Parser;
