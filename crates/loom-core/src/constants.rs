@@ -12,6 +12,11 @@ pub const CACHE_DIR: &str = ".cache";
 pub const CONFIG_DIR: &str = "config";
 
 pub const DAEMON_DEFAULT_IDLE_TIMEOUT_MS: u64 = 300_000; // 5 min
+/// Env var read by loomd to configure the idle-shutdown timeout in
+/// milliseconds. `0` disables idle shutdown entirely — the installed
+/// service unit sets it to 0 so the supervisor owns the daemon lifecycle
+/// instead of the daemon exiting (and being restarted) on its own.
+pub const DAEMON_IDLE_TIMEOUT_ENV: &str = "LOOM_IDLE_TIMEOUT_MS";
 pub const MCP_DEFAULT_HEALTH_INTERVAL_MS: u64 = 300_000; // 5 min
 pub const HOOK_DEFAULT_TIMEOUT_MS: u64 = 30_000;
 pub const AUDIT_LOG_MAX_SIZE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB

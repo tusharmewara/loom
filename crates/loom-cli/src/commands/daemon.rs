@@ -342,6 +342,11 @@ fn render_launchd_plist(
     stdout_log: &Path,
     stderr_log: &Path,
 ) -> String {
+    // LOOM_IDLE_TIMEOUT_MS=0 disables loomd's self-managed 5-minute idle
+    // shutdown: under a supervisor the supervisor owns the lifecycle, and a
+    // daemon that exits on its own is immediately restarted (respawn loop).
+    // KeepAlive{SuccessfulExit=false} restarts only on a *crash* (non-zero
+    // exit); a deliberate clean shutdown (exit 0) is not resurrected.
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -357,11 +362,16 @@ fn render_launchd_plist(
   <dict>
     <key>LOOM_AGENTS_DIR</key>
     <string>{}</string>
+    <key>LOOM_IDLE_TIMEOUT_MS</key>
+    <string>0</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
-  <true/>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
   <key>StandardOutPath</key>
   <string>{}</string>
   <key>StandardErrorPath</key>
@@ -378,6 +388,11 @@ fn render_launchd_plist(
 
 #[cfg(target_os = "linux")]
 fn render_systemd_unit(loomd_bin: &Path, loom_dir: &Path) -> String {
+    // LOOM_IDLE_TIMEOUT_MS=0 disables loomd's self-managed 5-minute idle
+    // shutdown: under systemd the unit owns the lifecycle, and a daemon that
+    // exits on its own is immediately restarted (respawn loop).
+    // Restart=on-failure restarts only on a *crash* (non-zero exit); a
+    // deliberate clean shutdown (exit 0) is not resurrected.
     format!(
         r#"[Unit]
 Description=Loom Daemon
@@ -386,9 +401,10 @@ After=network.target
 [Service]
 Type=simple
 ExecStart="{}"
-Restart=always
+Restart=on-failure
 RestartSec=2
 Environment=LOOM_AGENTS_DIR={}
+Environment=LOOM_IDLE_TIMEOUT_MS=0
 
 [Install]
 WantedBy=default.target
@@ -513,12 +529,33 @@ mod tests {
         assert!(plist.contains("LOOM_AGENTS_DIR"));
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_render_launchd_plist_disables_idle_shutdown() {
+        let plist = render_launchd_plist(
+            "com.loom.test",
+            Path::new("/usr/local/bin/loomd"),
+            Path::new("/tmp/.loom"),
+            Path::new("/tmp/.loom/.cache/out.log"),
+            Path::new("/tmp/.loom/.cache/err.log"),
+        );
+        // The service owns the lifecycle: no idle self-exit, and a clean
+        // exit is not resurrected (only a crash is).
+        assert!(plist.contains("<key>LOOM_IDLE_TIMEOUT_MS</key>"));
+        assert!(plist.contains("<key>SuccessfulExit</key>"));
+        assert!(!plist.contains("<key>KeepAlive</key>\n  <true/>"));
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn test_render_systemd_unit() {
         let unit = render_systemd_unit(Path::new("/usr/local/bin/loomd"), Path::new("/tmp/.loom"));
         assert!(unit.contains("ExecStart=\"/usr/local/bin/loomd\""));
         assert!(unit.contains("LOOM_AGENTS_DIR=/tmp/.loom"));
-        assert!(unit.contains("Restart=always"));
+        // The service owns the lifecycle: no idle self-exit, and a clean
+        // exit is not resurrected (only a crash is).
+        assert!(unit.contains("Restart=on-failure"));
+        assert!(unit.contains("LOOM_IDLE_TIMEOUT_MS=0"));
+        assert!(!unit.contains("Restart=always"));
     }
 }
