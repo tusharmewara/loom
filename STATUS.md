@@ -60,6 +60,7 @@ Loom is a multi-agent orchestration framework built in Rust. It provides a unifi
 - Service units restart only on a crash (`KeepAlive{SuccessfulExit:false}` / `Restart=on-failure`), so a deliberate clean exit is not resurrected
 - CLI↔daemon version handshake: `loom doctor` fails on skew, `loom status` warns
 - One-command release: `scripts/release.sh <version>` (version guard → bump → changelog → lock → commit → tag → CI dispatch command)
+- Daemon-lifecycle integration tests (`crates/loomd/tests/daemon_lifecycle.rs`): IPC version handshake, duplicate-daemon refusal, SIGTERM shutdown, stale-socket recovery
 - Event bus with in-process and cross-process (ZeroMQ) support
 - Skill registry with hot-reload
 - MCP server registry and health checks

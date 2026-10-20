@@ -23,7 +23,7 @@ Verification (2026-10-10): stub-marker scan of `loom-lsp`/`loom-debug`/`loom-ast
 - IPC protocol: ~~versioned envelope~~, ~~request timeouts~~ — landed in v0.9.6. Panic isolation is already implemented (`crates/loom-ipc/src/server.rs`).
 - Finish-or-delete sweep: ~~`loomd/src/snapshot_builder.rs` orphan (never declared in lib.rs)~~ — deleted in v0.9.6. Still open: end-to-end runtime verification of the embedded-pane dispatch path.
 - Release automation: ~~one-command release (version → changelog → tag → CI → bottles dispatch with version input)~~ — landed in v0.9.6 as `scripts/release.sh <version>`; the bottles workflow now validates the dispatched version against `Cargo.toml`.
-- Daemon-lifecycle integration tests: restart races, socket contention, version skew.
+- ~~Daemon-lifecycle integration tests: restart races, socket contention, version skew~~ — landed in v0.9.6 as `crates/loomd/tests/daemon_lifecycle.rs`: the IPC version handshake, a second daemon refusing to start instead of stealing the live socket, SIGTERM stopping the daemon and releasing the lock, and a stale socket left by a crashed daemon not blocking a new one.
 - Docs coherence: ~~README/STATUS/VISION drift (subcommand counts, clone URLs, stale sections) reconciled into one truth~~ — done in v0.9.6.
 
 ### Pillar 3 — Ecosystem & Protocol

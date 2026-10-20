@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat(daemon): loomd handles SIGTERM and SIGHUP and takes the same clean-shutdown path as Ctrl+C (socket removed, serve/gRPC handles aborted) — a service stop no longer leaves a stale socket
 - feat(daemon): the idle-shutdown timeout is configurable via `LOOM_IDLE_TIMEOUT_MS` (`0` disables it)
 - feat(scripts): `scripts/release.sh <version>` performs a release in one command — version guard (semver, strictly greater, no leading zeros, no existing tag, clean tree), workspace version bump, changelog section from `RELEASE_NOTES.md`, `Cargo.lock` refresh + verification, commit, annotated tag, and the exact CI dispatch command. `--dry-run` prints the plan, `--push` pushes and dispatches
+- test(loomd): daemon-lifecycle integration tests run the real `loomd` binary against a throwaway ecosystem dir — IPC version handshake, a second daemon refusing to start instead of stealing the live socket, SIGTERM stopping the daemon and releasing the lock, and a stale socket left by a crashed daemon not blocking a new one
 
 ### Fixed
 
