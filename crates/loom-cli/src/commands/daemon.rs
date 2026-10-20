@@ -1,4 +1,5 @@
 use crate::cli::DaemonAction;
+use crate::service::{self, Ownership, Supervisor};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -7,11 +8,62 @@ const DAEMON_SOCKET: &str = "loomd.sock";
 #[cfg(target_os = "macos")]
 const SERVICE_LABEL: &str = "com.loom.loomd";
 
+/// How long to wait for a daemon to come up or go down, in milliseconds.
+const LIFECYCLE_WAIT_MS: u64 = 5_000;
+const LIFECYCLE_POLL_MS: u64 = 50;
+
+/// Whether something is listening on the daemon socket.
+///
+/// A socket *file* can outlive the daemon that bound it (a crash), so the
+/// file's presence says nothing about liveness — only a successful connect
+/// does.
+#[cfg(unix)]
+pub(crate) fn socket_live(path: &Path) -> bool {
+    std::os::unix::net::UnixStream::connect(path).is_ok()
+}
+
+#[cfg(not(unix))]
+pub(crate) fn socket_live(path: &Path) -> bool {
+    path.exists()
+}
+
+/// Whether a daemon is currently serving this ecosystem directory.
+///
+/// The lock is the authoritative signal for a current daemon, but a daemon
+/// from an older build (before the lock existed) still answers on the
+/// socket — so a live socket counts too.
+fn daemon_running(loom_dir: &Path) -> bool {
+    let holds_lock = matches!(
+        loom_core::lock::probe(loom_dir),
+        Err(loom_core::lock::LockError::Held { .. })
+    );
+    holds_lock || socket_live(&loom_dir.join(DAEMON_SOCKET))
+}
+
 pub fn start_daemon(loom_dir: &Path) -> anyhow::Result<()> {
     let socket_path = loom_dir.join(DAEMON_SOCKET);
     let pid_path = loom_dir.join(".cache").join(PID_FILE);
 
     std::fs::create_dir_all(loom_dir.join(".cache"))?;
+
+    // A service unit owns the daemon when one is installed for this
+    // directory: starting a second, competing daemon is exactly what the
+    // unit exists to prevent.
+    match service::ownership(loom_dir) {
+        Ownership::Unit { supervisor } => return start_via_supervisor(loom_dir, supervisor),
+        Ownership::ForeignUnit { supervisor, dir } => {
+            // The unit serves a *different* ecosystem dir, so it is not the
+            // owner of this one. The manual daemon below is legitimate, but
+            // both daemons will contend for the default gRPC port.
+            eprintln!(
+                "  ⚠ The installed {} service serves {} — starting a separate loomd for {}",
+                supervisor.unit_name(),
+                dir.display(),
+                loom_dir.display()
+            );
+        }
+        Ownership::None => {}
+    }
 
     // Probe the single-instance lock: if another loomd holds it, we are done.
     // The probe lock is dropped before spawning so the fresh daemon can take
@@ -57,7 +109,60 @@ pub fn start_daemon(loom_dir: &Path) -> anyhow::Result<()> {
     }
 }
 
+/// Start the daemon through its service unit and wait for it to serve.
+fn start_via_supervisor(loom_dir: &Path, supervisor: Supervisor) -> anyhow::Result<()> {
+    let socket_path = loom_dir.join(DAEMON_SOCKET);
+
+    if daemon_running(loom_dir) {
+        println!(
+            "loomd already running (owned by the {} service)",
+            supervisor.unit_name()
+        );
+        return Ok(());
+    }
+
+    service::start(supervisor)?;
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(LIFECYCLE_WAIT_MS);
+    while std::time::Instant::now() < deadline {
+        if socket_live(&socket_path) {
+            println!("Started loomd via the {} service", supervisor.unit_name());
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(LIFECYCLE_POLL_MS));
+    }
+
+    anyhow::bail!(
+        "The {} service did not bring loomd up within {}ms",
+        supervisor.unit_name(),
+        LIFECYCLE_WAIT_MS
+    )
+}
+
 fn stop_daemon(loom_dir: &Path) {
+    let socket_path = loom_dir.join(DAEMON_SOCKET);
+    let pid_path = loom_dir.join(".cache").join(PID_FILE);
+
+    // A service unit owns the daemon: stopping means telling the supervisor
+    // to stop it. The unit stays installed (and enabled), so a later
+    // `daemon start` brings the same daemon back.
+    if let Ownership::Unit { supervisor } = service::ownership(loom_dir) {
+        stop_via_supervisor(loom_dir, supervisor);
+        return;
+    }
+
+    if !stop_manual_daemon(loom_dir) {
+        // Nothing holds the lock and there is no pid file: no daemon.
+        let _ = std::fs::remove_file(&pid_path);
+        let _ = std::fs::remove_file(&socket_path);
+        println!("loomd is not running; removed stale socket if present");
+    }
+}
+
+/// Stop a daemon that was started directly (not by a service unit).
+///
+/// Returns whether a daemon was actually stopped.
+fn stop_manual_daemon(loom_dir: &Path) -> bool {
     let socket_path = loom_dir.join(DAEMON_SOCKET);
     let pid_path = loom_dir.join(".cache").join(PID_FILE);
 
@@ -79,11 +184,7 @@ fn stop_daemon(loom_dir: &Path) {
             .ok()
             .and_then(|s| s.trim().parse::<u32>().ok())
     }) else {
-        // Nothing holds the lock and there is no pid file: no daemon.
-        let _ = std::fs::remove_file(&pid_path);
-        let _ = std::fs::remove_file(&socket_path);
-        println!("loomd is not running; removed stale socket if present");
-        return;
+        return false;
     };
 
     let killed = Command::new("kill")
@@ -102,9 +203,62 @@ fn stop_daemon(loom_dir: &Path) {
     if killed {
         let _ = std::fs::remove_file(&socket_path);
         println!("Stopped loomd (pid {pid})");
+        true
     } else {
         // Still alive: leave its socket alone.
         println!("Could not stop loomd (pid {pid}); it may already be gone");
+        false
+    }
+}
+
+/// Stop the daemon through its service unit and wait for it to go down.
+fn stop_via_supervisor(loom_dir: &Path, supervisor: Supervisor) {
+    let socket_path = loom_dir.join(DAEMON_SOCKET);
+
+    if !daemon_running(loom_dir) {
+        println!(
+            "loomd is not running (the {} service is installed but idle)",
+            supervisor.unit_name()
+        );
+        return;
+    }
+
+    // Remember the daemon we are about to stop: a unit that still has a
+    // blanket "keep alive" restarts it immediately, and the new daemon gets
+    // a different pid.
+    let pid_before = loom_core::lock::holder_pid(loom_dir);
+
+    if let Err(e) = service::stop(supervisor) {
+        eprintln!("Could not stop the {} service: {e}", supervisor.unit_name());
+        return;
+    }
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(LIFECYCLE_WAIT_MS);
+    while std::time::Instant::now() < deadline {
+        if !daemon_running(loom_dir) {
+            let _ = std::fs::remove_file(&socket_path);
+            println!("Stopped loomd (via the {} service)", supervisor.unit_name());
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(LIFECYCLE_POLL_MS));
+    }
+
+    // Still running: either the unit refused to stop it, or it came back.
+    let pid_after = loom_core::lock::holder_pid(loom_dir);
+    if pid_before.is_some() && pid_after.is_some() && pid_before != pid_after {
+        eprintln!(
+            "The {} service restarted loomd (pid {} → {}). Its unit file still has a blanket \
+             keep-alive; re-run `loom daemon install-service` to update it.",
+            supervisor.unit_name(),
+            pid_before.unwrap_or(0),
+            pid_after.unwrap_or(0)
+        );
+    } else {
+        eprintln!(
+            "The {} service did not stop loomd within {}ms",
+            supervisor.unit_name(),
+            LIFECYCLE_WAIT_MS
+        );
     }
 }
 
@@ -139,6 +293,27 @@ fn install_service(loom_dir: &Path) -> anyhow::Result<()> {
     let stdout_log = cache_dir.join("loomd.stdout.log");
     let stderr_log = cache_dir.join("loomd.stderr.log");
 
+    // A daemon started outside the unit would keep holding the single-instance
+    // lock, and the unit's own daemon would refuse to start. Hand ownership
+    // over: stop the manual daemon first.
+    if daemon_running(loom_dir) {
+        println!("Stopping the manually started loomd so the service can take over");
+        stop_manual_daemon(loom_dir);
+    }
+
+    // A unit that is already installed is replaced below, but the old job
+    // must leave the domain first: `launchctl bootstrap` refuses a label that
+    // is still loaded.
+    let uid = detect_uid()?;
+    let domain = format!("gui/{uid}");
+    let target = format!("{domain}/{SERVICE_LABEL}");
+    let _ = Command::new("launchctl")
+        .arg("bootout")
+        .arg(&target)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
     let plist = render_launchd_plist(
         SERVICE_LABEL,
         &loomed_bin,
@@ -148,37 +323,21 @@ fn install_service(loom_dir: &Path) -> anyhow::Result<()> {
     );
     std::fs::write(&plist_path, plist)?;
 
-    let uid = detect_uid()?;
-    let domain = format!("gui/{uid}");
-    let target = format!("{domain}/{SERVICE_LABEL}");
-
-    let _ = Command::new("launchctl")
-        .arg("bootout")
-        .arg(&target)
-        .status();
-
-    let bootstrap = Command::new("launchctl")
-        .arg("bootstrap")
-        .arg(&domain)
-        .arg(&plist_path)
-        .status()?;
-    if !bootstrap.success() {
-        anyhow::bail!(
-            "launchctl bootstrap failed for {}. Try: launchctl bootstrap {} {}",
-            SERVICE_LABEL,
-            domain,
-            plist_path.display()
-        );
-    }
+    // `service::bootstrap` owns the launchctl plumbing.
+    service::bootstrap()?;
 
     let _ = Command::new("launchctl")
         .arg("enable")
         .arg(&target)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status();
     let _ = Command::new("launchctl")
         .arg("kickstart")
         .arg("-k")
         .arg(&target)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status();
 
     println!(
@@ -200,7 +359,17 @@ fn install_service(loom_dir: &Path) -> anyhow::Result<()> {
     let unit = render_systemd_unit(&loomed_bin, loom_dir);
     std::fs::write(&unit_path, unit)?;
 
+    // A daemon started outside the unit would keep holding the single-instance
+    // lock, and the unit's own daemon would refuse to start. Hand ownership
+    // over: stop the manual daemon first.
+    if daemon_running(loom_dir) {
+        println!("Stopping the manually started loomd so the service can take over");
+        stop_manual_daemon(loom_dir);
+    }
+
     run_systemctl_user(["daemon-reload"])?;
+    // `enable --now` keeps the unit enabled at login and starts it now; an
+    // already-running unit is restarted so the new unit file takes effect.
     run_systemctl_user(["enable", "--now", "loomd.service"])?;
 
     println!(
@@ -229,10 +398,14 @@ fn uninstall_service() -> anyhow::Result<()> {
     let _ = Command::new("launchctl")
         .arg("bootout")
         .arg(&target)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status();
     let _ = Command::new("launchctl")
         .arg("disable")
         .arg(&target)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status();
 
     if plist_path.exists() {
@@ -421,6 +594,26 @@ pub async fn run(loom_dir: &Path, action: &DaemonAction) -> anyhow::Result<()> {
         DaemonAction::Start => start_daemon(loom_dir)?,
         DaemonAction::Stop => stop_daemon(loom_dir),
         DaemonAction::Status { json } => {
+            // The supervisor that owns the daemon, and what it is doing.
+            let (supervised, supervisor_state) = match service::ownership(loom_dir) {
+                Ownership::Unit { supervisor } => {
+                    let state = if service::is_running(supervisor) {
+                        "running"
+                    } else {
+                        "idle"
+                    };
+                    (
+                        Some(supervisor.unit_name().to_string()),
+                        Some(state.to_string()),
+                    )
+                }
+                Ownership::ForeignUnit { supervisor, .. } => (
+                    Some(supervisor.unit_name().to_string()),
+                    Some("serves another directory".to_string()),
+                ),
+                Ownership::None => (None, None),
+            };
+
             if socket_path.exists() {
                 let req = loom_ipc::IpcRequest::new("health.check");
                 match crate::ipc_client::send_daemon_command(loom_dir, req).await {
@@ -434,12 +627,17 @@ pub async fn run(loom_dir: &Path, action: &DaemonAction) -> anyhow::Result<()> {
                                     "command": "daemon.status",
                                     "running": true,
                                     "socket_path": socket_path.display().to_string(),
+                                    "supervisor": supervised,
+                                    "supervisor_state": supervisor_state,
                                     "status": "ok",
                                     "data": data
                                 }))?
                             );
                         } else {
                             println!("loomd is running ({})", socket_path.display());
+                            if let (Some(unit), Some(state)) = (&supervised, &supervisor_state) {
+                                println!("  supervised by the {unit} service ({state})");
+                            }
                             println!("{}", serde_json::to_string_pretty(&data)?);
                         }
                     }
@@ -452,6 +650,8 @@ pub async fn run(loom_dir: &Path, action: &DaemonAction) -> anyhow::Result<()> {
                                     "command": "daemon.status",
                                     "running": false,
                                     "socket_path": socket_path.display().to_string(),
+                                    "supervisor": supervised,
+                                    "supervisor_state": supervisor_state,
                                     "status": resp.status,
                                     "error": resp.error
                                 }))?
@@ -469,6 +669,8 @@ pub async fn run(loom_dir: &Path, action: &DaemonAction) -> anyhow::Result<()> {
                                     "command": "daemon.status",
                                     "running": false,
                                     "socket_path": socket_path.display().to_string(),
+                                    "supervisor": supervised,
+                                    "supervisor_state": supervisor_state,
                                     "status": "unreachable",
                                     "error": e.to_string()
                                 }))?
@@ -487,6 +689,8 @@ pub async fn run(loom_dir: &Path, action: &DaemonAction) -> anyhow::Result<()> {
                             "command": "daemon.status",
                             "running": false,
                             "socket_path": socket_path.display().to_string(),
+                            "supervisor": supervised,
+                            "supervisor_state": supervisor_state,
                             "status": "not_running"
                         }))?
                     );
@@ -557,5 +761,33 @@ mod tests {
         assert!(unit.contains("Restart=on-failure"));
         assert!(unit.contains("LOOM_IDLE_TIMEOUT_MS=0"));
         assert!(!unit.contains("Restart=always"));
+    }
+
+    /// A held lock means a daemon owns this directory.
+    #[test]
+    fn daemon_running_follows_the_lock() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        assert!(!daemon_running(dir.path()), "no daemon, no lock");
+
+        let lock = loom_core::lock::acquire(dir.path()).expect("acquire the lock");
+        assert!(daemon_running(dir.path()), "the lock holder is a daemon");
+
+        drop(lock);
+        assert!(!daemon_running(dir.path()), "the lock is free again");
+    }
+
+    /// A socket file without a listener is not a running daemon.
+    #[cfg(unix)]
+    #[test]
+    fn a_stale_socket_file_is_not_a_running_daemon() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let socket = dir.path().join(DAEMON_SOCKET);
+        std::fs::write(&socket, b"stale").expect("write a stale socket file");
+
+        assert!(!socket_live(&socket), "a plain file is not a socket");
+        assert!(
+            !daemon_running(dir.path()),
+            "a stale socket is not a daemon"
+        );
     }
 }
