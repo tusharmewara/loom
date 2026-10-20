@@ -46,6 +46,27 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Using version: v$V"
 
+      - name: Validate version against Cargo.toml
+        env:
+          V: ${{ steps.extract_version.outputs.version }}
+        run: |
+          if ! printf '%s' "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Invalid version '$V': expected X.Y.Z (optional -prerelease suffix)"
+            exit 1
+          fi
+          CARGO_VERSION=$(awk '
+            /^\[workspace\.package\]/ { inpkg=1; next }
+            /^\[/ { inpkg=0 }
+            inpkg && /^version[[:space:]]*=/ {
+              gsub(/[ "]/, "", $0); sub(/^version=/, "", $0); print; exit
+            }' Cargo.toml)
+          if [ "$V" != "$CARGO_VERSION" ]; then
+            echo "::error::Version mismatch: dispatch requested '$V' but Cargo.toml has '$CARGO_VERSION'."
+            echo "::error::Bump Cargo.toml (scripts/release.sh) or dispatch with version=$CARGO_VERSION."
+            exit 1
+          fi
+          echo "Version $V matches Cargo.toml"
+
       - name: Build ARM64 binaries (native)
         env:
           V: ${{ steps.extract_version.outputs.version }}
@@ -133,6 +154,27 @@ jobs:
           V=$(echo "$VERSION_INPUT" | sed 's/^v//')
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Using version: v$V"
+
+      - name: Validate version against Cargo.toml
+        env:
+          V: ${{ steps.extract_version.outputs.version }}
+        run: |
+          if ! printf '%s' "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Invalid version '$V': expected X.Y.Z (optional -prerelease suffix)"
+            exit 1
+          fi
+          CARGO_VERSION=$(awk '
+            /^\[workspace\.package\]/ { inpkg=1; next }
+            /^\[/ { inpkg=0 }
+            inpkg && /^version[[:space:]]*=/ {
+              gsub(/[ "]/, "", $0); sub(/^version=/, "", $0); print; exit
+            }' Cargo.toml)
+          if [ "$V" != "$CARGO_VERSION" ]; then
+            echo "::error::Version mismatch: dispatch requested '$V' but Cargo.toml has '$CARGO_VERSION'."
+            echo "::error::Bump Cargo.toml (scripts/release.sh) or dispatch with version=$CARGO_VERSION."
+            exit 1
+          fi
+          echo "Version $V matches Cargo.toml"
 
       - name: Build Linux x86_64 binaries
         env:
