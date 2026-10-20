@@ -130,7 +130,12 @@ impl TaskManager {
             // created locally with no remote) reject --detach; retry
             // with --orphan (git >= 2.42) before giving up.
             let retry = std::process::Command::new("git")
-                .args(["worktree", "add", "--orphan", worktree_path.to_str().unwrap()])
+                .args([
+                    "worktree",
+                    "add",
+                    "--orphan",
+                    worktree_path.to_str().unwrap(),
+                ])
                 .current_dir(&repo_root)
                 .output();
             match retry {

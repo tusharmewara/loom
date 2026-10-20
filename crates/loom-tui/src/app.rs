@@ -1936,10 +1936,7 @@ mod tests {
 
         assert!(app.select_task_by_id("t3"));
         assert_eq!(app.task_selection_index, 2);
-        assert_eq!(
-            app.selected_task().unwrap().get("task_id").unwrap(),
-            "t3"
-        );
+        assert_eq!(app.selected_task().unwrap().get("task_id").unwrap(), "t3");
         assert!(!app.select_task_by_id("missing"));
 
         // The dispatch menu acts on the task the Kanban cursor picked.
@@ -1953,12 +1950,18 @@ mod tests {
         app.workflow = json!({"tasks": []});
 
         app.advance_kanban_task().await;
-        let result = app.last_action_result.as_ref().expect("advance must set a status");
+        let result = app
+            .last_action_result
+            .as_ref()
+            .expect("advance must set a status");
         assert!(!result.success);
         assert!(result.message.contains("No task"));
 
         app.remove_kanban_task().await;
-        let result = app.last_action_result.as_ref().expect("remove must set a status");
+        let result = app
+            .last_action_result
+            .as_ref()
+            .expect("remove must set a status");
         assert!(!result.success);
         assert!(result.message.contains("No task"));
     }

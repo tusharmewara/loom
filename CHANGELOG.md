@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(acp): `uvx` agents are resolvable — the daemon's agent launcher previously understood only `npm` and `pip` runners
 - fix(acp): a JSON-RPC error returned by the agent during `session/prompt` is now reported as `ACP session/prompt failed: <error>` instead of being masked as `ACP session/prompt timed out`
 
+### Changed
+
+- chore: `cargo fmt --all` across the workspace — 8 files that had drifted out of rustfmt compliance (loom-routing `outcomes.rs`/`scorer.rs`, loom-cli `commands/routing.rs`, loom-tui `app.rs`/`ui/tabs/kanban.rs`, loom-workflow `task_manager.rs`, two loom-integration-tests)
+
 ## [0.9.5] - 2026-10-19
 
 ### Added

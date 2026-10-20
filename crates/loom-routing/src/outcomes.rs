@@ -271,7 +271,11 @@ mod tests {
             .find(|r| r.task_id == "t1" && r.phase.as_deref() == Some("Implement"))
             .unwrap();
         assert_eq!(t1_latest.outcome.as_deref(), Some("overridden"));
-        assert!(t1_latest.outcome_detail.clone().unwrap().contains("Flagship"));
+        assert!(t1_latest
+            .outcome_detail
+            .clone()
+            .unwrap()
+            .contains("Flagship"));
         let t1_first = rows
             .iter()
             .find(|r| r.task_id == "t1" && r.phase.as_deref() == Some("Plan"))
@@ -294,7 +298,8 @@ mod tests {
 
         let counts = s.outcome_counts().unwrap();
         assert_eq!(counts, vec![("completed".to_string(), 2)]);
-        assert!(s.recent_decisions(10)
+        assert!(s
+            .recent_decisions(10)
             .unwrap()
             .iter()
             .all(|r| r.outcome.as_deref() == Some("completed")));

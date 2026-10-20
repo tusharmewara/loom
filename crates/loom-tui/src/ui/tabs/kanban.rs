@@ -98,7 +98,9 @@ pub fn draw_kanban(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, th
                     Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
                 };
                 let id_style = if selected {
-                    Style::default().fg(theme.selection_fg).bg(theme.selection_bg)
+                    Style::default()
+                        .fg(theme.selection_fg)
+                        .bg(theme.selection_bg)
                 } else {
                     Style::default().fg(theme.text_dim)
                 };

@@ -331,7 +331,10 @@ mod tests {
         assert!(matches!(score.level, ComplexityLevel::High));
         assert!(matches!(score.model_tier, ModelTier::Flagship));
         // Override stays visible in the emitted score signals.
-        assert!(matches!(score.signals.user_override, Some(ComplexityLevel::High)));
+        assert!(matches!(
+            score.signals.user_override,
+            Some(ComplexityLevel::High)
+        ));
         // Numeric still reflects the raw signals (would be Low without the
         // override): the override changes the level, not the score.
         assert!(score.numeric < 0.35);

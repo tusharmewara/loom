@@ -402,10 +402,7 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
             }
             for row in rows {
                 let outcome = row.outcome.as_deref().unwrap_or("open");
-                let detail = row
-                    .outcome_detail
-                    .as_deref()
-                    .unwrap_or("");
+                let detail = row.outcome_detail.as_deref().unwrap_or("");
                 println!(
                     "  [{outcome}] {} task={} phase={:?} {}→{} numeric={:.2}{} ({})",
                     row.recorded_at,
@@ -414,7 +411,11 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
                     row.level,
                     row.tier,
                     row.numeric,
-                    if detail.is_empty() { String::new() } else { format!(" {detail}") },
+                    if detail.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" {detail}")
+                    },
                     row.source,
                 );
             }

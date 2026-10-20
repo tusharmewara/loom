@@ -145,10 +145,22 @@ fn test_threshold_boundaries_and_contradiction_case() -> Result<()> {
         scored_at: "2026-05-17T00:00:00Z".to_string(),
         signals: Default::default(),
     };
-    assert!(matches!(engine.decide(mk_score(0.29)).recommended_tier, ModelTier::Slm));
-    assert!(matches!(engine.decide(mk_score(0.3)).recommended_tier, ModelTier::Mid));
-    assert!(matches!(engine.decide(mk_score(0.69)).recommended_tier, ModelTier::Mid));
-    assert!(matches!(engine.decide(mk_score(0.7)).recommended_tier, ModelTier::Flagship));
+    assert!(matches!(
+        engine.decide(mk_score(0.29)).recommended_tier,
+        ModelTier::Slm
+    ));
+    assert!(matches!(
+        engine.decide(mk_score(0.3)).recommended_tier,
+        ModelTier::Mid
+    ));
+    assert!(matches!(
+        engine.decide(mk_score(0.69)).recommended_tier,
+        ModelTier::Mid
+    ));
+    assert!(matches!(
+        engine.decide(mk_score(0.7)).recommended_tier,
+        ModelTier::Flagship
+    ));
 
     Ok(())
 }
@@ -350,9 +362,16 @@ fn test_routing_outcomes_recorded_and_closed() -> Result<()> {
     let overridden = store.record_override(&task_id, "Mid", "Flagship")?;
     assert_eq!(overridden, 1);
     let rows = store.recent_decisions(10)?;
-    let latest = rows.iter().find(|r| r.phase.as_deref() == Some("Verify")).unwrap();
+    let latest = rows
+        .iter()
+        .find(|r| r.phase.as_deref() == Some("Verify"))
+        .unwrap();
     assert_eq!(latest.outcome.as_deref(), Some("overridden"));
-    assert!(latest.outcome_detail.as_deref().unwrap().contains("Flagship"));
+    assert!(latest
+        .outcome_detail
+        .as_deref()
+        .unwrap()
+        .contains("Flagship"));
 
     // Finish → completion closes every remaining open row.
     manager.advance_phase(&task_id)?; // Finish
