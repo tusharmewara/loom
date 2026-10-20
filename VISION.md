@@ -13,11 +13,11 @@ Loom is a **shared agentic ecosystem** — a unifying layer that connects multip
 - **Hooks** — intercept and modify tool behavior
 - **Workflow** — cross-tool task orchestration
 
-It's written in Rust as a Cargo workspace of 22 crates plus 6 tool-adaptation packages.
+It's written in Rust as a Cargo workspace of 31 crates plus 8 tool-adaptation packages.
 
 ## What's Been Built (pushed to git)
 
-The codebase is substantial — ~28k lines across 184 files — but represents a single development day (May 19, 2026). The 18 commits tell the story:
+The codebase is substantial — ~28k lines across 184 files at that point — but represents a single development day (May 19, 2026). The 18 commits tell the story:
 
 ### Phase 1 — TUI Foundation (commits 1-10)
 The earliest commits built out the **terminal UI** (`loom-tui` crate):
@@ -60,18 +60,23 @@ The earliest commits built out the **terminal UI** (`loom-tui` crate):
 
 1. **Two-tier performance**: CLI works standalone (slower) or via daemon (fast, cached). Daemon auto-shuts down after 5 min idle.
 2. **TOML-driven tool adapters**: The `GenericAdapter` derives all 6 Loom traits from a single `{tool}.toml` file. Missing sections = no-op, never errors.
-3. **Non-blocking**: Even partial implementations are functional — `loom-hooks` has placeholder script execution, `ACPDispatch` and `EmbeddedPane` gracefully report "not yet wired".
+3. **Non-blocking**: Even partial implementations are functional — `loom-hooks` executes hook scripts for real and checks their exit code, `ACPDispatch` and `EmbeddedPane` are wired to the daemon and the embedded pane respectively.
 4. **Security-conscious**: Encrypted credential vault (ChaCha20Poly1305 + Argon2), hook signing (SHA-256), ACL-based access control, command injection hardening in dispatch layer.
 5. **Observable**: Every crate implements a `HealthCheck` trait; daemon aggregates and reports all on startup. Telemetry crate provides 3-sigma anomaly detection for latency regressions.
 
-## What's Still Missing (clear gaps)
+## Gap Status (as of v0.9.6)
 
-- **No CI workflow files** in `.github/workflows/` — Homebrew release workflow was built but not committed
-- **No comprehensive test suite** — unit tests exist per crate but no CI runner
-- **Hook execution is placeholder** — `execute_hook_script()` returns hardcoded "success"
-- **ACP dispatch not wired** — reports "requires daemon IPC" but no implementation
-- **EmbeddedPane dispatch** — explicit "not yet implemented"
-- **Auth vault export returns plaintext** — noted as "proper export would re-encrypt"
+Earlier drafts of this file listed the following as missing; they are now closed:
+
+- **CI workflows exist** in `.github/workflows/` — `ci.yml` (test matrix, integration, benchmarks, security audit), `test.yml`, `homebrew-bottles.yml`
+- **Tests run in CI** — `cargo test --workspace` plus clippy `-D warnings` and cargo-tarpaulin coverage
+- **Hook execution is real** — `execute_hook_script()` spawns the script and checks its exit code
+- **ACP dispatch is wired** — the TUI sends `acp.dispatch` over the daemon socket
+- **EmbeddedPane dispatch is implemented** — opens the embedded pane and streams dispatch output
+- **Auth vault export re-encrypts** — fresh random nonce in memory, plaintext never written to disk
+
+Still open:
+
 - **Multiple protocol registries** in the `acp_registry/` dir — notably this is a *separate* repository (has its own README, license, AGENTS.md, gitignore) that was mounted into this workspace for sharing ACP agent schemas
 
 ## The Big Picture Vision
