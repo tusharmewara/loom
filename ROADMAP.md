@@ -16,11 +16,11 @@ Five pillars, deliberately sequenced: nobody adopts — let alone pays for — i
 
 ### 1. Harden the Core *(v0.9.x → v0.10)* — refine existing features
 
-Fix what exists before building what's next. Evidence: v0.9.3 shipped a five-handler panic class that CI had been greenwashing for months; daemon lifecycle still produces socket races and duplicate daemons.
+Fix what exists before building what's next. Evidence: v0.9.3 shipped a five-handler panic class that CI had been greenwashing for months; daemon lifecycle still produced socket races and duplicate daemons (single-instance lock landed in v0.9.6 — the launchd/systemd unit ownership is still open).
 
-- **Daemon lifecycle done right.** Single-instance lock (not socket-file-existence checks), stale-socket recovery in `daemon start`, and `loom daemon install/uninstall` that owns its launchd/systemd unit — no more competing agents keeping duplicate daemons alive. CLI↔daemon version handshake over IPC; warn hard on skew.
-- **IPC protocol hardening.** Versioned request envelope, request timeouts, panic isolation as a rule (the v0.9.3 scoped-thread pattern), connection-backoff guidance for CLI.
-- **Finish-or-delete sweep.** Every placeholder or unwired feature gets shipped or removed: end-to-end runtime verification of the embedded-pane dispatch path, anything still returning "not yet wired" (VISION.md gap list). Dead code is a lie the roadmap stops telling.
+- **Daemon lifecycle done right.** ~~Single-instance lock (not socket-file-existence checks)~~, ~~stale-socket recovery in `daemon start`~~, ~~CLI↔daemon version handshake over IPC; warn hard on skew~~ — all landed in v0.9.6 (lock in `loom-core::lock`, held for the daemon's lifetime; `doctor` fails on skew, `status` warns). Still open: `loom daemon install/uninstall` that owns its launchd/systemd unit — no more competing agents keeping duplicate daemons alive.
+- **IPC protocol hardening.** ~~Versioned request envelope~~, ~~request timeouts~~, ~~panic isolation as a rule (the v0.9.3 scoped-thread pattern)~~ — all landed in v0.9.6. Still open: connection-backoff guidance for CLI.
+- **Finish-or-delete sweep.** ~~Dead code~~ — the unwired `loomd/src/snapshot_builder.rs` orphan was deleted in v0.9.6. Every placeholder or unwired feature gets shipped or removed: end-to-end runtime verification of the embedded-pane dispatch path, anything still returning "not yet wired" (VISION.md gap list). Dead code is a lie the roadmap stops telling.
 - **Release automation.** One command: version bump → changelog → tag → CI → bottles dispatch. Today this is four manual steps, one of which (bottles) is easy to dispatch with the wrong `version` input.
 - **Docs coherence.** README/STATUS/VISION drift (subcommand counts, clone URLs, stale STATUS roadmap stub) reconciled into one truth; STATUS.md roadmap section points here.
 - **Test depth.** Daemon-lifecycle integration tests (restart races, socket contention, version skew). Continue burning the `docs/loom-improvements.md` backlog in priority order — that doc stays the feature inventory; this file stays the direction.
@@ -75,5 +75,7 @@ Decisions that change the plan, in order of when they bite:
 
 ## Changelog
 
+- 2026-10-20 — Pillar 1 "Harden the Core" sprint 1: daemon single-instance lock (`loom-core::lock`, `File::try_lock` on `.cache/loomd.lock`, held for the daemon's lifetime), stale-socket recovery, CLI↔daemon version handshake (`doctor` FAILs, `status` warns), versioned IPC envelope + 30s request timeouts, and deletion of the unwired `loomd/src/snapshot_builder.rs` orphan. Still open: launchd/systemd unit ownership, SIGTERM handling, daemon-lifecycle integration tests.
+- 2026-10-20 — Harness² (google-research/harness2) comparison → category analysis + Rust-native proposal in docs/LOOM_HARNESS2_ANALYSIS.md; verdict is adopt-mechanisms-not-system: per-tool editable-surface schema (Phase 0) and an outcome-gated experience library (Phase 1) proposed as Rust-native slices, probe/contrast loop deferred behind pillar-4 metering. No Python dependency.
 - 2026-10-19 — Conifer Parallax comparison → Pillar 5 added (verified review engine, the pillar-4 demand driver); build spec in docs/plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md; competitive-analysis.md gained §11 (Conifer Parallax) and pillar-4 market proof gained the Conifer anchor.
 - 2026-10-10 — initial roadmap drafted after v0.9.3 release; pillars validated against VISION.md, competitive analysis, and the 0.9.3 hardening experience.

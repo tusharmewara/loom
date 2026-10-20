@@ -6,7 +6,9 @@ Loom is a multi-agent orchestration framework built in Rust. It provides a unifi
 
 ## Crates
 
-- `loom-core`: Types, config, constants, errors, traits
+31 crates in the workspace (`cargo metadata` is the source of truth):
+
+- `loom-core`: Types, config, constants, errors, traits, single-instance lock
 - `loom`: CLI binary with 20+ subcommands
 - `loomd`: Background daemon aggregating all subsystems
 - `loom-tui`: Terminal UI (ratatui + crossterm)
@@ -22,8 +24,21 @@ Loom is a multi-agent orchestration framework built in Rust. It provides a unifi
 - `loom-routing`: Complexity scoring, model routing
 - `loom-generic-adapter`: TOML-driven tool adapter
 - `loom-adapters`: Preset adapters (jcode, crush, etc.)
+- `loom-ast`: AST structural editing with tree-sitter
 - `loom-telemetry`: Metrics, histograms, anomaly detection
 - `loom-ffi`: Foreign function interface (minimal)
+- `loom-conflict`: Conflict resolution protocol (detect/resolve merge conflicts)
+- `loom-debug`: Debug Adapter Protocol (DAP) client integration
+- `loom-hindsight`: Hindsight memory — cross-session typed fact storage
+- `loom-knowledge`: Knowledge graph (SQLite entities/relationships, FTS5)
+- `loom-lsp`: Language Server Protocol (LSP) client integration
+- `loom-mcp-server`: MCP server exposing Loom's shared resources
+- `loom-parallel`: Concurrent agent execution, git-worktree isolation
+- `loom-remote`: SSH remote development
+- `loom-rules`: Stream rules engine for LoomEvent processing
+- `loom-runtime`: Pluggable runtime backends (process, Docker, Podman, Kubernetes)
+- `loom-trackers`: GitHub/Linear issue and PR trackers
+- `loom-integration-tests`: Cross-crate integration tests
 
 ## Packages
 
@@ -34,11 +49,14 @@ Loom is a multi-agent orchestration framework built in Rust. It provides a unifi
 - `goose`: Goose tool package
 - `hooks`: Hooks package
 - `routing-hook`: Routing hook scripts
+- `homebrew`: Homebrew formula and bottles
 
 ## Features
 
 - Two-tier architecture: CLI (standalone or daemon-connected) and daemon
-- IPC over Unix domain sockets
+- IPC over Unix domain sockets, versioned envelope, 30s request timeout
+- Daemon single-instance lock (`.cache/loomd.lock`, `File::try_lock`) with stale-socket recovery
+- CLI↔daemon version handshake: `loom doctor` fails on skew, `loom status` warns
 - Event bus with in-process and cross-process (ZeroMQ) support
 - Skill registry with hot-reload
 - MCP server registry and health checks
@@ -53,6 +71,7 @@ Loom is a multi-agent orchestration framework built in Rust. It provides a unifi
 
 ```bash
 cargo build --workspace
+cargo test --workspace
 cargo test -p loom-mcp
 cargo test -p loom-auth
 # ... etc for each crate
@@ -84,7 +103,7 @@ cargo install loom
 ### From Source
 
 ```bash
-git clone https://github.com/loom/loom.git
+git clone https://github.com/tusharmewara/loom.git
 cd loom
 cargo build --release
 ```
@@ -105,6 +124,8 @@ Main config: `~/.loom/config.toml`
 - ~~Auth vault export requires encryption enforcement~~ — **Fixed**: `export_credential()` re-encrypts in-memory with fresh nonce (no plaintext persistence)
 - ~~Cross-pool MCP process reuse~~ — **Fixed**: all pools sharing a registry now share a single live process map (`RegistryShared::processes`), so a process spawned by one pool is reused by any other pool referencing the same registry, and a pool can only kill a process when the shared refcount reaches zero (closes the "terminated" orphan bug). `shutdown_all` clears the shared refcounts once after killing, per the documented daemon-restart reset semantics.
 - **Seeding scope**: `McpRegistry::new()` does not auto-seed defaults; built-in defaults (context-mode, rtk, loom, agentmemory) are seeded by the daemon-facing `RegistryShared` path only when the shared table is empty, so explicit setup (`loom init`, `loom init --recommended`, user registration) controls the registry contents without defaults being forced in.
+- **Service unit ownership**: `loom daemon install-service` writes a launchd/systemd unit with `KeepAlive=true` / `Restart=always`, and the daemon idle-shuts-down after 5 minutes — together they produce an endless respawn loop. The single-instance lock now prevents duplicate live daemons, but the unit still needs to own its lifecycle (stop the idle timeout, or exit cleanly and let the supervisor restart deliberately).
+- **SIGTERM**: loomd handles only SIGINT, so a service stop leaves a stale socket behind until the next `daemon start` cleans it up.
 
 ## Roadmap
 
