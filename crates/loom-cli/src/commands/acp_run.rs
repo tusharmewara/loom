@@ -1,6 +1,7 @@
 //! `loom acp run`: one canonical ACP prompt turn against an agent
 //! program, persisted as a Loom session.
 
+use loom_sessions::acp_launch::{ensure_runnable, resolve};
 use loom_sessions::acp_protocol::{build_acp_session, AcpClientConfig, AcpProtocolClient};
 use std::path::Path;
 
@@ -95,15 +96,24 @@ async fn run_acp_prompt_direct(
     if prompt.is_empty() {
         anyhow::bail!("prompt must not be empty");
     }
-    let mut config_args = args.to_vec();
-    if program == "cline" {
-        config_args.insert(0, "--acp".to_string());
+
+    // Resolve how to launch the agent: a local `config/agents.toml`
+    // entry, then the public ACP registry, then a plain PATH binary.
+    // Without this the agent is spawned without its protocol mode flag
+    // (`acp`, `--acp`) and never answers initialize.
+    let launch = resolve(loom_dir.to_string_lossy().as_ref(), program).await?;
+    let mut config_args = launch.args.clone();
+    // Explicit CLI args win over the resolved ones.
+    if !args.is_empty() {
+        config_args = args.to_vec();
     }
+    ensure_runnable(&launch)?;
     let config = AcpClientConfig {
-        program: program.to_string(),
+        program: launch.program.clone(),
         args: config_args,
         cwd: cwd.map(str::to_string),
         timeout_secs,
+        env: launch.env.clone(),
     };
     let transcript = AcpProtocolClient::run_prompt(&config, prompt)?;
 

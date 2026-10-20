@@ -6,6 +6,7 @@ Speaks newline-delimited JSON-RPC 2.0 on stdio. Modes (--mode=...):
   permission  asks session/request_permission, expects an allow* choice
   bad-version answers initialize with protocolVersion 999
   hang        answers initialize/session-new, then sleeps on prompt
+  error       answers session/prompt with a JSON-RPC error
 """
 
 import json
@@ -59,6 +60,12 @@ def main():
 
     if mode == "hang":
         time.sleep(3600)
+        return 0
+
+    if mode == "error":
+        send({"jsonrpc": "2.0", "id": prompt_id,
+              "error": {"code": -32000,
+                        "message": "Authentication required: provider authentication required"}})
         return 0
 
     if mode == "permission":

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Args;
+use loom_sessions::acp_launch::{pick_distribution, ACP_REGISTRY_URL};
 use loom_sessions::{AcpClient, AgentMetadata};
 use std::path::Path;
 
@@ -10,8 +11,7 @@ pub struct AddArgs {
 
 impl AddArgs {
     pub async fn handle(&self, loom_dir: &str) -> Result<()> {
-        let registry_url = "https://cdn.agentclientprotocol.com/registry";
-        let client = AcpClient::new(registry_url, std::time::Duration::from_secs(0))
+        let client = AcpClient::new(ACP_REGISTRY_URL, std::time::Duration::from_secs(0))
             .await
             .map_err(|e| anyhow::anyhow!("Failed to create ACP client: {}", e))?;
         let agents = client
@@ -26,7 +26,10 @@ impl AddArgs {
             .collect();
 
         if matching.is_empty() {
-            anyhow::bail!("Agent `{}` not found in ACP registry", self.agent_id);
+            anyhow::bail!(
+                "Agent `{}` not found in ACP registry (run `loom acp registry` to list available agents)",
+                self.agent_id
+            );
         }
 
         let entry = &matching[0];
@@ -54,30 +57,19 @@ impl AddArgs {
             toml::Value::String("acp-registry".to_string()),
         );
 
-        if let Some(map) = entry.distribution.as_object() {
-            if let Some((runner_key, val)) = map.iter().next() {
-                agent_entry.insert(
-                    "runner".to_string(),
-                    toml::Value::String(runner_key.clone()),
+        // Deterministic distribution choice: package runners first
+        // (they install on demand), binary last.
+        match pick_distribution(entry) {
+            Some(distribution) => {
+                for (key, value) in distribution.to_toml_entry() {
+                    agent_entry.insert(key, value);
+                }
+            }
+            None => {
+                anyhow::bail!(
+                    "Agent `{}` has no distribution available for this platform",
+                    entry.id
                 );
-                if let Some(pkg) = val.get("package").and_then(|v| v.as_str()) {
-                    agent_entry.insert("package".to_string(), toml::Value::String(pkg.to_string()));
-                }
-                if let Some(args) = val.get("args").and_then(|v| v.as_array()) {
-                    let args_vec: Vec<String> = args
-                        .iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect();
-                    agent_entry.insert(
-                        "args".to_string(),
-                        toml::Value::Array(
-                            args_vec
-                                .into_iter()
-                                .map(toml::Value::String)
-                                .collect::<Vec<_>>(),
-                        ),
-                    );
-                }
             }
         }
 
@@ -85,7 +77,6 @@ impl AddArgs {
         let toml_str = toml::to_string(&agent_servers)?;
         std::fs::write(agent_servers_path, toml_str)?;
 
-        println!("Registered ACP agent `{}` from registry", entry.id);
         Ok(())
     }
 }

@@ -7,6 +7,7 @@
 //! the CLI `workflow dispatch` path provides.
 
 use loom_generic_adapter::GenericAdapter;
+use loom_sessions::acp_launch::{from_agents_toml, AcpLaunch};
 use loom_sessions::acp_protocol::{build_acp_session, AcpClientConfig, AcpProtocolClient};
 use loom_sessions::store::SessionStore;
 use std::path::{Path, PathBuf};
@@ -16,6 +17,18 @@ use std::path::{Path, PathBuf};
 pub struct AgentLaunch {
     pub program: String,
     pub args: Vec<String>,
+    /// Extra environment variables the agent needs.
+    pub env: Vec<(String, String)>,
+}
+
+impl From<AcpLaunch> for AgentLaunch {
+    fn from(launch: AcpLaunch) -> Self {
+        Self {
+            program: launch.program,
+            args: launch.args,
+            env: launch.env,
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -32,7 +45,7 @@ fn is_executable(path: &Path) -> bool {
 }
 
 /// Resolve how to launch an agent headlessly: a native binary found in
-/// `search_dirs`, or an npm/pip runner from `{loom_dir}/config/agents.toml`.
+/// `search_dirs`, or a runner from `{loom_dir}/config/agents.toml`.
 /// Unlike the interactive dispatch path this never opens a GUI terminal,
 /// so the caller can pipe stdio to log files and wait for completion.
 pub fn resolve_agent_launch(
@@ -41,49 +54,23 @@ pub fn resolve_agent_launch(
     _task_id: &str,
     search_dirs: &[PathBuf],
 ) -> anyhow::Result<AgentLaunch> {
+    // A registered entry wins over a bare PATH binary: it carries the
+    // agent's protocol mode flag (`acp`, `--acp`), without which the
+    // agent starts in its normal interactive mode and never answers.
+    if let Some(launch) = from_agents_toml(loom_dir, agent_id) {
+        if launch.program != agent_id || !launch.args.is_empty() {
+            return Ok(launch.into());
+        }
+    }
+
     for dir in search_dirs {
         let candidate = dir.join(agent_id);
         if candidate.exists() && is_executable(&candidate) {
             return Ok(AgentLaunch {
                 program: candidate.to_string_lossy().to_string(),
                 args: Vec::new(),
+                env: Vec::new(),
             });
-        }
-    }
-
-    let agents_path = Path::new(loom_dir).join("config").join("agents.toml");
-    if agents_path.exists() {
-        let raw = std::fs::read_to_string(&agents_path)?;
-        let table: toml::Table = toml::from_str(&raw)?;
-        if let Some(entry) = table.get(agent_id) {
-            let runner = entry.get("runner").and_then(|v| v.as_str()).unwrap_or("");
-            let package = entry.get("package").and_then(|v| v.as_str()).unwrap_or("");
-            let args: Vec<String> = entry
-                .get("args")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str())
-                        .map(str::to_string)
-                        .collect()
-                })
-                .unwrap_or_default();
-            if runner == "npm" && !package.is_empty() {
-                let mut full_args = vec![package.to_string()];
-                full_args.extend(args);
-                return Ok(AgentLaunch {
-                    program: "npx".to_string(),
-                    args: full_args,
-                });
-            }
-            if runner == "pip" && !package.is_empty() {
-                let mut full_args = vec!["run".to_string(), package.to_string()];
-                full_args.extend(args);
-                return Ok(AgentLaunch {
-                    program: "pipx".to_string(),
-                    args: full_args,
-                });
-            }
         }
     }
 
@@ -109,6 +96,11 @@ pub fn resolve_agent_launch_with_adapter(
             return Ok(AgentLaunch {
                 program: launch_config.command,
                 args: launch_config.args,
+                env: launch_config
+                    .env
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
             });
         }
     }
@@ -190,16 +182,14 @@ pub fn dispatch_acp_protocol(
     // then fall back to binary lookup (PATH or config/agents.toml).
     let launch = resolve_agent_launch_with_adapter(loom_dir, agent_id, task_id)?;
 
-    // Build AcpClientConfig - inject --acp flag for cline
-    let mut args = launch.args;
-    if launch.program == "cline" || launch.program.ends_with("/cline") {
-        args.insert(0, "--acp".to_string());
-    }
+    // Build AcpClientConfig from the resolved launch (args already carry
+    // the agent's protocol mode flag).
     let config = AcpClientConfig {
         program: launch.program,
-        args,
+        args: launch.args,
         cwd: None,
         timeout_secs,
+        env: launch.env,
     };
 
     // Run ACP prompt

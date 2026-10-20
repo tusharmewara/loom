@@ -17,6 +17,7 @@ pub use migrate::migrate_if_needed;
 pub mod acp_client;
 pub mod acp_discovery;
 pub mod acp_handshake;
+pub mod acp_launch;
 pub mod acp_protocol;
 pub mod acp_server;
 pub use acp_client::AcpClient;
@@ -24,6 +25,10 @@ pub use acp_client::AgentMetadata;
 pub use acp_discovery::{AcpPeer, PeerDiscovery};
 pub use acp_handshake::{
     complete_initiator, initiate_handshake, perform_responder_handshake, AcpHandshake, AcpKeyPair,
+};
+pub use acp_launch::{
+    from_agents_toml, from_registry, launch_from_entry, pick_distribution, resolve, AcpLaunch,
+    Distribution, Runner, ACP_REGISTRY_URL,
 };
 pub use acp_server::{
     AcpDispatchServer, AcpServerConfig, DispatchFn, DispatchRequest, DispatchResponse,

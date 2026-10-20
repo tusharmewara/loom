@@ -250,6 +250,23 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 - `loom daemon install-service` — Install as user service
 - `loom daemon uninstall-service` — Uninstall user service
 
+### ACP
+- `loom acp status [--json]` — Show ACP dispatch server status
+- `loom acp start` / `loom acp stop` — Control the ACP dispatch server
+- `loom acp show [--json]` — Show ACP dispatch server details
+- `loom acp agents [--json]` — List launchable agents (daemon handlers + `config/agents.toml`)
+- `loom acp registry [--available] [--json]` — List agents in the public ACP registry (`*` = registered locally)
+- `loom acp run <agent> --prompt <text> [--cwd] [--timeout-secs] [--json] [-- args...]` — Run one ACP prompt turn, persisted as a Loom session
+- `loom acp run-status <run_id> [--json]` — Show a tracked ACP run's status
+- `loom add-acp-agent <agent_id>` — Register an agent from the ACP registry into `config/agents.toml`
+
+Agent launch resolution (`loom-sessions/src/acp_launch.rs`): explicit
+path → local `config/agents.toml` entry → public ACP registry → `PATH`
+binary. The registry pick is deterministic: `npx` > `uvx` > `binary`
+(package runners install on demand). A local entry with no `args` is
+completed from the registry, because most agents need a protocol mode
+flag (`acp`, `--acp`) before they speak ACP at all.
+
 ## Config Precedence (v0.3.10)
 
 `ConfigReader::load()` builds the effective `LoomConfig` by deep-merging 5

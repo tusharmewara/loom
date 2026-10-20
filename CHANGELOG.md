@@ -5,6 +5,20 @@ All notable changes to the Loom project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- feat(acp): `loom acp registry [--available] [--json]` lists all 42 agents in the public ACP registry, marking locally registered ones with `*`
+- feat(acp): ACP agents can now be launched with an `env` map (registry `env` blocks are honored, e.g. `FAST_AGENT_MODEL` for `fast-agent`)
+
+### Fixed
+
+- fix(acp): `loom acp run <agent>` now resolves the agent's real launch command — explicit path → local `config/agents.toml` entry → public ACP registry → `PATH` binary — instead of spawning a bare binary with no arguments. Agents were previously started outside ACP mode (e.g. `opencode` without its `acp` flag) and timed out on `initialize`
+- fix(acp): `loom add-acp-agent` now picks a usable distribution deterministically (`npx` > `uvx` > `binary`, resolved for the current platform) instead of an arbitrary first key of the registry distribution map, so agents like `kilo` and `sigit` keep their package runner and their `acp` mode flag
+- fix(acp): `uvx` agents are resolvable — the daemon's agent launcher previously understood only `npm` and `pip` runners
+- fix(acp): a JSON-RPC error returned by the agent during `session/prompt` is now reported as `ACP session/prompt failed: <error>` instead of being masked as `ACP session/prompt timed out`
+
 ## [0.9.5] - 2026-10-19
 
 ### Added

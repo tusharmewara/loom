@@ -1793,6 +1793,15 @@ pub enum AcpAction {
         #[arg(long)]
         json: bool,
     },
+    /// List agents available in the public ACP registry
+    Registry {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+        /// Only show agents not yet registered locally
+        #[arg(long)]
+        available: bool,
+    },
     /// Run one canonical ACP prompt turn against an agent program
     Run {
         /// Agent program (absolute path or PATH name)

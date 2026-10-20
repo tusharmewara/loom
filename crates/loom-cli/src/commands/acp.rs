@@ -11,6 +11,10 @@ pub async fn run(loom_dir: &Path, action: &AcpAction) -> anyhow::Result<()> {
         AcpAction::Stop => handle_stop(loom_dir).await,
         AcpAction::Show { json: json_output } => handle_show(loom_dir, *json_output).await,
         AcpAction::Agents { json: json_output } => handle_agents(loom_dir, *json_output).await,
+        AcpAction::Registry {
+            json: json_output,
+            available,
+        } => handle_registry(loom_dir, *json_output, *available).await,
         AcpAction::RunStatus {
             run_id,
             json: json_output,
@@ -293,6 +297,105 @@ async fn handle_agents(loom_dir: &Path, json_output: bool) -> anyhow::Result<()>
         }
     }
     Ok(())
+}
+
+/// List the agents published in the public ACP registry, marking the
+/// ones already registered locally (`loom add-acp-agent <id>`).
+async fn handle_registry(
+    loom_dir: &Path,
+    json_output: bool,
+    available_only: bool,
+) -> anyhow::Result<()> {
+    let client = loom_sessions::AcpClient::new(
+        loom_sessions::acp_launch::ACP_REGISTRY_URL,
+        std::time::Duration::from_secs(0),
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("Failed to create ACP client: {e}"))?;
+    let agents = client
+        .discover_agents()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to discover ACP agents: {e}"))?;
+
+    let registered = local_agent_ids(loom_dir);
+
+    let mut rows: Vec<(String, String, String, String, bool)> = Vec::new();
+    for agent in &agents {
+        let distribution = loom_sessions::acp_launch::pick_distribution(agent);
+        let kind = distribution
+            .as_ref()
+            .map(|d| d.runner.as_str().to_string())
+            .unwrap_or_else(|| "unavailable".to_string());
+        let install = distribution
+            .as_ref()
+            .map(|d| {
+                if d.package.is_empty() {
+                    d.cmd.clone()
+                } else {
+                    d.package.clone()
+                }
+            })
+            .unwrap_or_default();
+        let is_registered = registered.contains(&agent.id);
+        if available_only && is_registered {
+            continue;
+        }
+        rows.push((
+            agent.id.clone(),
+            agent.name.clone(),
+            kind,
+            install,
+            is_registered,
+        ));
+    }
+
+    if json_output {
+        let payload: Vec<_> = rows
+            .iter()
+            .map(|(id, name, kind, install, is_registered)| {
+                json!({
+                    "id": id,
+                    "name": name,
+                    "runner": kind,
+                    "install": install,
+                    "registered": is_registered,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({ "agents": payload }))?
+        );
+        return Ok(());
+    }
+
+    if rows.is_empty() {
+        println!("No ACP registry agents available.");
+        return Ok(());
+    }
+
+    println!("ACP registry agents ({}):", rows.len());
+    for (id, name, kind, install, is_registered) in &rows {
+        let marker = if *is_registered { "*" } else { " " };
+        println!("  {marker} {id:<18} {kind:<9} {install:<28} {name}");
+    }
+    println!();
+    println!("* = registered locally. Add one with: loom add-acp-agent <id>");
+    Ok(())
+}
+
+/// Agent ids registered in `{loom_dir}/config/agents.toml`.
+fn local_agent_ids(loom_dir: &Path) -> Vec<String> {
+    let path = loom_dir.join("config").join("agents.toml");
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(table) = toml::from_str::<toml::Table>(&raw) else {
+        return Vec::new();
+    };
+    let mut ids: Vec<String> = table.keys().cloned().collect();
+    ids.sort();
+    ids
 }
 
 /// Show a tracked ACP run's status (exit code and captured session,

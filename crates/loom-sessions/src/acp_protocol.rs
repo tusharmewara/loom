@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 pub const ACP_PROTOCOL_VERSION: u64 = 1;
 
 /// Configuration for one headless agent invocation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AcpClientConfig {
     /// Agent program (absolute path or PATH name).
     pub program: String,
@@ -30,6 +30,8 @@ pub struct AcpClientConfig {
     pub cwd: Option<String>,
     /// Per-request timeout in seconds.
     pub timeout_secs: u64,
+    /// Extra environment variables for the agent process.
+    pub env: Vec<(String, String)>,
 }
 
 /// Collected outcome of one prompt turn.
@@ -203,11 +205,16 @@ impl AcpProtocolClient {
     /// and return the collected transcript. The child is always reaped.
     pub fn run_prompt(config: &AcpClientConfig, prompt: &str) -> anyhow::Result<AcpTranscript> {
         let timeout = Duration::from_secs(config.timeout_secs.max(1));
-        let mut child = Command::new(&config.program)
+        let mut command = Command::new(&config.program);
+        command
             .args(&config.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+        for (key, value) in &config.env {
+            command.env(key, value);
+        }
+        let mut child = command
             .spawn()
             .map_err(|e| anyhow::anyhow!("failed to spawn ACP agent '{}': {e}", config.program))?;
 
@@ -400,17 +407,19 @@ impl AcpProtocolClient {
         )?;
         let prompt_result = match wait_response(2, "session/prompt", timeout) {
             Ok(result) => result,
-            Err(_) => {
+            Err(e) => {
                 let _ = send(
                     3,
                     "session/cancel",
                     serde_json::json!({ "sessionId": session_id }),
                 );
                 // session/cancel is a notification (no response); give the
-                // agent a short grace period, then report the timeout.
+                // agent a short grace period, then report the original
+                // failure — a protocol error must not be reported as a
+                // timeout.
                 match wait_response(2, "session/prompt", Duration::from_secs(2)) {
                     Ok(result) => result,
-                    Err(_) => anyhow::bail!("ACP session/prompt timed out"),
+                    Err(_) => return Err(e),
                 }
             }
         };
@@ -601,6 +610,7 @@ mod tests {
                 ],
                 cwd: None,
                 timeout_secs: 10,
+                env: Vec::new(),
             },
             server.to_string_lossy().to_string(),
         )
@@ -640,6 +650,21 @@ mod tests {
         cfg.timeout_secs = 2;
         let err = AcpProtocolClient::run_prompt(&cfg, "hi").unwrap_err();
         assert!(err.to_string().contains("timed out") || err.to_string().contains("timeout"));
+    }
+
+    #[test]
+    fn run_prompt_reports_the_agents_error_not_a_timeout() {
+        let (cfg, _) = config("error");
+        let err = AcpProtocolClient::run_prompt(&cfg, "hi").unwrap_err();
+        let message = err.to_string();
+        assert!(
+            message.contains("Authentication required"),
+            "expected the agent's error, got: {message}"
+        );
+        assert!(
+            !message.contains("timed out"),
+            "a protocol error must not be reported as a timeout: {message}"
+        );
     }
 
     fn transcript() -> AcpTranscript {
