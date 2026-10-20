@@ -24,6 +24,77 @@ pub fn loom_dir() -> String {
     loom_core::loom_dir()
 }
 
+/// A Kanban-board gesture.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum KanbanKey {
+    PrevCol,
+    NextCol,
+    PrevRow,
+    NextRow,
+    Open,
+    Advance,
+    Remove,
+}
+
+/// An Orchestrator-form gesture.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum OrchestratorKey {
+    ClearStatus,
+    Submit,
+    FocusPrev,
+    FocusNext,
+    AgentPrev,
+    AgentNext,
+    Backspace,
+    /// A printable character to append to the focused field.
+    Text(char),
+}
+
+/// Map a key press to an Orchestrator gesture.
+///
+/// `Tab`/`Shift-Tab` are deliberately unbound: they are the only way out
+/// of the form, which swallows the digit tab shortcuts as text input.
+/// Field focus moved to ↑/↓ and tool selection to ←/→.
+///
+/// `control` is the key's modifier mask; any modified key is ignored so a
+/// chord like Ctrl+C never lands in the text field.
+fn orchestrator_key(code: KeyCode, control: bool) -> Option<OrchestratorKey> {
+    if control {
+        return None;
+    }
+    match code {
+        KeyCode::Esc => Some(OrchestratorKey::ClearStatus),
+        KeyCode::Enter => Some(OrchestratorKey::Submit),
+        KeyCode::Up => Some(OrchestratorKey::FocusPrev),
+        KeyCode::Down => Some(OrchestratorKey::FocusNext),
+        KeyCode::Left => Some(OrchestratorKey::AgentPrev),
+        KeyCode::Right => Some(OrchestratorKey::AgentNext),
+        KeyCode::Backspace | KeyCode::Delete => Some(OrchestratorKey::Backspace),
+        KeyCode::Char(c) if !c.is_control() => Some(OrchestratorKey::Text(c)),
+        _ => None,
+    }
+}
+
+/// Map a key press to a Kanban gesture.
+///
+/// The arrow keys deliberately stay unbound on the Kanban tab: `←`/`→` are
+/// the global "previous/next tab" shortcut everywhere else (and are
+/// documented as such in the help overlay), so consuming them here would
+/// trap the user on the board with no way to leave it. Column movement is
+/// available on `h`/`l`, which are unambiguous.
+fn kanban_key(code: KeyCode) -> Option<KanbanKey> {
+    match code {
+        KeyCode::Char('h') => Some(KanbanKey::PrevCol),
+        KeyCode::Char('l') => Some(KanbanKey::NextCol),
+        KeyCode::Char('k') => Some(KanbanKey::PrevRow),
+        KeyCode::Char('j') => Some(KanbanKey::NextRow),
+        KeyCode::Enter | KeyCode::Char('a') => Some(KanbanKey::Open),
+        KeyCode::Char('>') | KeyCode::Char('p') => Some(KanbanKey::Advance),
+        KeyCode::Char('x') => Some(KanbanKey::Remove),
+        _ => None,
+    }
+}
+
 pub async fn run() -> Result<()> {
     let mut terminal = setup_terminal()?;
     let loom_dir = loom_dir();
@@ -316,29 +387,62 @@ async fn run_loop(
                     continue;
                 }
 
-                // Orchestrator tab: all keys are consumed as form input so
-                // typing titles like "query" can never trigger global
-                // shortcuts (notably `q` for quit).
+                // Orchestrator tab: printable keys are consumed as form
+                // input so typing titles like "query" can never trigger
+                // global shortcuts (notably `q` for quit).
+                //
+                // Tab / Shift-Tab are deliberately NOT consumed: they are
+                // the only way out of a form tab that swallows the digit
+                // shortcuts, so they must reach the global tab navigation.
+                // Field focus moved to ↑/↓ and tool selection to ←/→.
                 if app.is_orchestrator_tab() {
-                    match key.code {
-                        KeyCode::Esc => app.clear_orchestrator_status(),
-                        KeyCode::Enter => app.submit_orchestrator().await,
-                        KeyCode::Tab => app.orchestrator_focus_next(),
-                        KeyCode::BackTab => app.orchestrator_focus_previous(),
-                        KeyCode::Up | KeyCode::Left => app.orchestrator_agent_previous(),
-                        KeyCode::Down | KeyCode::Right => app.orchestrator_agent_next(),
-                        KeyCode::Backspace | KeyCode::Delete => app.orchestrator_backspace(),
-                        KeyCode::Char('c')
-                            if key
-                                .modifiers
-                                .contains(crossterm::event::KeyModifiers::CONTROL) =>
-                        {
-                            break
-                        }
-                        KeyCode::Char(c) if !c.is_control() => app.orchestrator_append(c),
-                        _ => {}
+                    // Ctrl+C quits the TUI from anywhere.
+                    if key.code == KeyCode::Char('c')
+                        && key
+                            .modifiers
+                            .contains(crossterm::event::KeyModifiers::CONTROL)
+                    {
+                        break;
                     }
-                    continue;
+                    match orchestrator_key(
+                        key.code,
+                        key.modifiers
+                            .contains(crossterm::event::KeyModifiers::CONTROL),
+                    ) {
+                        Some(OrchestratorKey::ClearStatus) => {
+                            app.clear_orchestrator_status();
+                            continue;
+                        }
+                        Some(OrchestratorKey::Submit) => {
+                            app.submit_orchestrator().await;
+                            continue;
+                        }
+                        Some(OrchestratorKey::FocusPrev) => {
+                            app.orchestrator_focus_previous();
+                            continue;
+                        }
+                        Some(OrchestratorKey::FocusNext) => {
+                            app.orchestrator_focus_next();
+                            continue;
+                        }
+                        Some(OrchestratorKey::AgentPrev) => {
+                            app.orchestrator_agent_previous();
+                            continue;
+                        }
+                        Some(OrchestratorKey::AgentNext) => {
+                            app.orchestrator_agent_next();
+                            continue;
+                        }
+                        Some(OrchestratorKey::Backspace) => {
+                            app.orchestrator_backspace();
+                            continue;
+                        }
+                        Some(OrchestratorKey::Text(c)) => {
+                            app.orchestrator_append(c);
+                            continue;
+                        }
+                        None => {}
+                    }
                 }
 
                 // Review tab: navigate tasks and dispatch. All other keys
@@ -373,28 +477,28 @@ async fn run_loop(
                     }
                 }
 
-                // Kanban tab: arrows/hjkl move the selection across
-                // columns and rows, Enter or a opens the dispatch menu
-                // for the selected task. Other keys fall through.
+                // Kanban tab: hjkl move the selection across columns and
+                // rows, Enter or a opens the dispatch menu for the selected
+                // task. Other keys fall through to the global shortcuts.
                 if app.is_kanban_tab() {
-                    match key.code {
-                        KeyCode::Left | KeyCode::Char('h') => {
+                    match kanban_key(key.code) {
+                        Some(KanbanKey::PrevCol) => {
                             app.kanban_select_prev_col();
                             continue;
                         }
-                        KeyCode::Right | KeyCode::Char('l') => {
+                        Some(KanbanKey::NextCol) => {
                             app.kanban_select_next_col();
                             continue;
                         }
-                        KeyCode::Up | KeyCode::Char('k') => {
+                        Some(KanbanKey::PrevRow) => {
                             app.kanban_select_prev_row();
                             continue;
                         }
-                        KeyCode::Down | KeyCode::Char('j') => {
+                        Some(KanbanKey::NextRow) => {
                             app.kanban_select_next_row();
                             continue;
                         }
-                        KeyCode::Enter | KeyCode::Char('a') => {
+                        Some(KanbanKey::Open) => {
                             if let Some(task_id) = app.kanban_selected_task_id() {
                                 if app.select_task_by_id(&task_id) {
                                     app.open_dispatch_menu();
@@ -402,15 +506,15 @@ async fn run_loop(
                             }
                             continue;
                         }
-                        KeyCode::Char('>') | KeyCode::Char('p') => {
+                        Some(KanbanKey::Advance) => {
                             app.advance_kanban_task().await;
                             continue;
                         }
-                        KeyCode::Char('x') => {
+                        Some(KanbanKey::Remove) => {
                             app.remove_kanban_task().await;
                             continue;
                         }
-                        _ => {}
+                        None => {}
                     }
                 }
 
@@ -529,4 +633,82 @@ async fn run_loop(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kanban_does_not_swallow_the_tab_navigation_keys() {
+        // `←`/`→` are the global previous/next tab shortcut. If the Kanban
+        // tab consumed them, the user could never leave the board.
+        assert_eq!(kanban_key(KeyCode::Left), None);
+        assert_eq!(kanban_key(KeyCode::Right), None);
+        // Tab / Shift-Tab must always reach the global handler.
+        assert_eq!(kanban_key(KeyCode::Tab), None);
+        assert_eq!(kanban_key(KeyCode::BackTab), None);
+    }
+
+    #[test]
+    fn kanban_binds_hjkl_and_the_action_keys() {
+        assert_eq!(kanban_key(KeyCode::Char('h')), Some(KanbanKey::PrevCol));
+        assert_eq!(kanban_key(KeyCode::Char('l')), Some(KanbanKey::NextCol));
+        assert_eq!(kanban_key(KeyCode::Char('k')), Some(KanbanKey::PrevRow));
+        assert_eq!(kanban_key(KeyCode::Char('j')), Some(KanbanKey::NextRow));
+        assert_eq!(kanban_key(KeyCode::Enter), Some(KanbanKey::Open));
+        assert_eq!(kanban_key(KeyCode::Char('a')), Some(KanbanKey::Open));
+        assert_eq!(kanban_key(KeyCode::Char('>')), Some(KanbanKey::Advance));
+        assert_eq!(kanban_key(KeyCode::Char('x')), Some(KanbanKey::Remove));
+    }
+
+    #[test]
+    fn orchestrator_does_not_swallow_the_tab_navigation_keys() {
+        // The form swallows digits as text, so Tab / Shift-Tab are the only
+        // way out. They must reach the global tab navigation.
+        assert_eq!(orchestrator_key(KeyCode::Tab, false), None);
+        assert_eq!(orchestrator_key(KeyCode::BackTab, false), None);
+    }
+
+    #[test]
+    fn orchestrator_binds_form_keys_and_arrows() {
+        assert_eq!(
+            orchestrator_key(KeyCode::Esc, false),
+            Some(OrchestratorKey::ClearStatus)
+        );
+        assert_eq!(
+            orchestrator_key(KeyCode::Enter, false),
+            Some(OrchestratorKey::Submit)
+        );
+        assert_eq!(
+            orchestrator_key(KeyCode::Up, false),
+            Some(OrchestratorKey::FocusPrev)
+        );
+        assert_eq!(
+            orchestrator_key(KeyCode::Down, false),
+            Some(OrchestratorKey::FocusNext)
+        );
+        assert_eq!(
+            orchestrator_key(KeyCode::Left, false),
+            Some(OrchestratorKey::AgentPrev)
+        );
+        assert_eq!(
+            orchestrator_key(KeyCode::Right, false),
+            Some(OrchestratorKey::AgentNext)
+        );
+        assert_eq!(
+            orchestrator_key(KeyCode::Backspace, false),
+            Some(OrchestratorKey::Backspace)
+        );
+        assert_eq!(
+            orchestrator_key(KeyCode::Char('x'), false),
+            Some(OrchestratorKey::Text('x'))
+        );
+    }
+
+    #[test]
+    fn orchestrator_never_types_a_control_chord_into_the_field() {
+        // Ctrl+C must quit, never insert a literal 'c'.
+        assert_eq!(orchestrator_key(KeyCode::Char('c'), true), None);
+    }
 }

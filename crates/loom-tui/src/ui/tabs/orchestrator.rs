@@ -240,13 +240,15 @@ pub fn draw_orchestrator(frame: &mut Frame, area: Rect, app: &App, theme: &Theme
         ]));
     }
     footer.push(Line::from(vec![
-        Span::styled("Tab move", theme.text_dim),
+        Span::styled("↑↓ field", theme.text_dim),
         Span::styled(" · ", theme.text_dim),
-        Span::styled("↑↓/←→ select tool", theme.text_dim),
+        Span::styled("←→ select tool", theme.text_dim),
         Span::styled(" · ", theme.text_dim),
         Span::styled("Enter send", theme.text_dim),
         Span::styled(" · ", theme.text_dim),
         Span::styled("Esc clear status", theme.text_dim),
+        Span::styled(" · ", theme.text_dim),
+        Span::styled("Tab next tab", theme.text_dim),
         Span::styled(" · ", theme.text_dim),
         Span::styled("Ctrl+C quit", theme.text_dim),
     ]));

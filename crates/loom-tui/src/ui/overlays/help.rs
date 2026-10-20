@@ -43,8 +43,15 @@ pub fn draw_help_overlay(frame: &mut Frame, area: Rect, theme: &Theme) {
         Span::styled("Scroll / select tasks", theme.text),
     ]));
     lines.push(Line::from(vec![
-        Span::styled("  ←→↑↓/hjkl ", Style::default().fg(theme.primary)),
-        Span::styled("Move Kanban selection (Kanban tab)", theme.text),
+        Span::styled("  h/l       ", Style::default().fg(theme.primary)),
+        Span::styled(
+            "Move Kanban selection across columns (Kanban tab)",
+            theme.text,
+        ),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  j/k       ", Style::default().fg(theme.primary)),
+        Span::styled("Move Kanban selection across rows (Kanban tab)", theme.text),
     ]));
     lines.push(Line::from(Span::styled("", Style::default())));
 
@@ -108,7 +115,15 @@ pub fn draw_help_overlay(frame: &mut Frame, area: Rect, theme: &Theme) {
     ]));
     lines.push(Line::from(vec![
         Span::styled("  Tab       ", Style::default().fg(theme.primary)),
-        Span::styled("Next Orchestrator field", theme.text),
+        Span::styled("Next tab (also leaves the Orchestrator form)", theme.text),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  ↑↓        ", Style::default().fg(theme.primary)),
+        Span::styled("Move Orchestrator field focus", theme.text),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  ←→        ", Style::default().fg(theme.primary)),
+        Span::styled("Select Orchestrator ACP tool", theme.text),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  Enter     ", Style::default().fg(theme.primary)),
