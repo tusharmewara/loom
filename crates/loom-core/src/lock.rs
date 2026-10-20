@@ -7,6 +7,7 @@
 //! harmless and needs no stale-lock recovery.
 
 use crate::constants::CACHE_DIR;
+use std::fmt;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -17,6 +18,44 @@ pub const LOCK_FILE_NAME: &str = "loomd.lock";
 /// Path of the daemon lock file for `loom_dir`.
 pub fn lock_path(loom_dir: &Path) -> PathBuf {
     loom_dir.join(CACHE_DIR).join(LOCK_FILE_NAME)
+}
+
+/// Why the daemon lock could not be taken.
+#[derive(Debug)]
+pub enum LockError {
+    /// Another process already holds the lock.
+    Held { path: PathBuf, pid: Option<u32> },
+    /// The lock file could not be opened or locked (permissions, read-only fs).
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+}
+
+impl fmt::Display for LockError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LockError::Held { path, pid } => write!(
+                f,
+                "Another loomd instance already holds the lock {} (pid {})",
+                path.display(),
+                pid.map(|p| p.to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            ),
+            LockError::Io { path, source } => {
+                write!(f, "Failed to lock {}: {source}", path.display())
+            }
+        }
+    }
+}
+
+impl std::error::Error for LockError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            LockError::Held { .. } => None,
+            LockError::Io { source, .. } => Some(source),
+        }
+    }
 }
 
 /// Guard holding the exclusive lock. Keep it alive for as long as the daemon
@@ -55,9 +94,8 @@ impl DaemonLock {
 
 /// Acquire the daemon lock for `loom_dir`.
 ///
-/// Returns an error when another loomd instance already holds it. The error
-/// names the lock path and the pid of the current holder (best effort).
-pub fn acquire(loom_dir: &Path) -> anyhow::Result<DaemonLock> {
+/// Returns [`LockError::Held`] when another loomd instance already holds it.
+pub fn acquire(loom_dir: &Path) -> Result<DaemonLock, LockError> {
     let mut lock = try_acquire(loom_dir)?;
     lock.write_pid();
     Ok(lock)
@@ -67,13 +105,16 @@ pub fn acquire(loom_dir: &Path) -> anyhow::Result<DaemonLock> {
 ///
 /// Used by the CLI to test "is a daemon running?" without overwriting the
 /// holder's pid. The returned guard releases the lock when dropped.
-pub fn probe(loom_dir: &Path) -> anyhow::Result<DaemonLock> {
+pub fn probe(loom_dir: &Path) -> Result<DaemonLock, LockError> {
     try_acquire(loom_dir)
 }
 
-fn try_acquire(loom_dir: &Path) -> anyhow::Result<DaemonLock> {
+fn try_acquire(loom_dir: &Path) -> Result<DaemonLock, LockError> {
     let cache_dir = loom_dir.join(CACHE_DIR);
-    std::fs::create_dir_all(&cache_dir)?;
+    std::fs::create_dir_all(&cache_dir).map_err(|source| LockError::Io {
+        path: cache_dir.clone(),
+        source,
+    })?;
     let path = cache_dir.join(LOCK_FILE_NAME);
 
     let file = OpenOptions::new()
@@ -83,21 +124,21 @@ fn try_acquire(loom_dir: &Path) -> anyhow::Result<DaemonLock> {
         // wipe the current holder's pid before we know whether we won.
         .truncate(false)
         .open(&path)
-        .map_err(|e| anyhow::anyhow!("Failed to open lock file {}: {e}", path.display()))?;
+        .map_err(|source| LockError::Io {
+            path: path.clone(),
+            source,
+        })?;
 
     match file.try_lock() {
         Ok(()) => {}
         Err(TryLockError::WouldBlock) => {
-            return Err(anyhow::anyhow!(
-                "Another loomd instance already holds the lock {} (pid {})",
-                path.display(),
-                holder_pid(loom_dir)
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|| "unknown".to_string())
-            ));
+            return Err(LockError::Held {
+                path: path.clone(),
+                pid: holder_pid(loom_dir),
+            });
         }
-        Err(TryLockError::Error(e)) => {
-            return Err(anyhow::anyhow!("Failed to lock {}: {e}", path.display()));
+        Err(TryLockError::Error(source)) => {
+            return Err(LockError::Io { path, source });
         }
     }
 

@@ -149,9 +149,13 @@ impl Loomd {
         // this process exits, so no stale-lock cleanup is needed.
         let _lock = match lock::acquire(Path::new(&self.loom_dir)) {
             Ok(lock) => lock,
+            // Another loomd holds the lock: refuse to start rather than steal
+            // its socket. The lock file is unusable (permissions, read-only
+            // fs): refuse too, because running unlocked would let a second
+            // daemon take over the socket.
             Err(e) => {
-                tracing::error!("Refusing to start a second loomd: {e}");
-                return Ok(());
+                tracing::error!("Refusing to start loomd: {e}");
+                return Err(e.into());
             }
         };
 

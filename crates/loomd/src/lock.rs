@@ -3,7 +3,9 @@
 //! The implementation lives in `loom-core` so the CLI can probe the same lock
 //! file before spawning a daemon; see [`loom_core::lock`].
 
-pub use loom_core::lock::{acquire, holder_pid, lock_path, probe, DaemonLock, LOCK_FILE_NAME};
+pub use loom_core::lock::{
+    acquire, holder_pid, lock_path, probe, DaemonLock, LockError, LOCK_FILE_NAME,
+};
 
 #[cfg(test)]
 mod tests {
@@ -22,7 +24,10 @@ mod tests {
             "second acquire must fail while the lock is held"
         );
         let err = second.unwrap_err().to_string();
-        assert!(err.contains("loomd.lock"), "error must name the lock: {err}");
+        assert!(
+            err.contains("loomd.lock"),
+            "error must name the lock: {err}"
+        );
         assert!(
             err.contains(&std::process::id().to_string()),
             "error must name the holder pid: {err}"
@@ -32,5 +37,17 @@ mod tests {
 
         let third = acquire(dir.path()).expect("acquire succeeds after drop");
         assert_eq!(third.path().file_name().unwrap(), "loomd.lock");
+    }
+
+    #[test]
+    fn a_busy_lock_is_reported_as_held_not_as_an_io_error() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _first = acquire(dir.path()).expect("first acquire succeeds");
+
+        let err = probe(dir.path()).expect_err("probe must fail while held");
+        assert!(
+            matches!(err, LockError::Held { .. }),
+            "busy lock must be LockError::Held, got {err:?}"
+        );
     }
 }

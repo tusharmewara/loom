@@ -17,14 +17,20 @@ pub fn start_daemon(loom_dir: &Path) -> anyhow::Result<()> {
     // The probe lock is dropped before spawning so the fresh daemon can take
     // it — the daemon itself holds the lock for its whole lifetime.
     match loom_core::lock::probe(loom_dir) {
-        Err(_) => {
-            let pid = loom_core::lock::holder_pid(loom_dir)
+        Ok(probe) => drop(probe),
+        Err(loom_core::lock::LockError::Held { pid, .. }) => {
+            let pid = pid
                 .map(|p| p.to_string())
                 .unwrap_or_else(|| "unknown".to_string());
             println!("loomd already running (pid {pid})");
             return Ok(());
         }
-        Ok(probe) => drop(probe),
+        Err(e) => {
+            // The lock file is unusable (permissions, read-only fs). The
+            // daemon cannot take the lock either, so it would refuse to run —
+            // fail here instead of reporting a daemon that never came up.
+            anyhow::bail!("Cannot use the loomd single-instance lock: {e}");
+        }
     }
 
     // No daemon holds the lock, so any socket lying around is stale.
@@ -55,32 +61,51 @@ fn stop_daemon(loom_dir: &Path) {
     let socket_path = loom_dir.join(DAEMON_SOCKET);
     let pid_path = loom_dir.join(".cache").join(PID_FILE);
 
-    if let Ok(pid_str) = std::fs::read_to_string(&pid_path) {
-        if let Ok(pid) = pid_str.trim().parse::<u32>() {
-            let killed = Command::new("kill")
-                .arg(pid.to_string())
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-            if killed {
-                // Wait for the process to actually exit: the daemon holds the
-                // single-instance lock until the kernel reclaims it, and
-                // `daemon restart` starts a new daemon right after this.
-                wait_for_exit(pid, 2_000);
-            }
-            let _ = std::fs::remove_file(&pid_path);
-            if killed {
-                let _ = std::fs::remove_file(&socket_path);
-                println!("Stopped loomd (pid {pid})");
-            } else {
-                // Still alive: leave its socket alone.
-                println!("Could not stop loomd (pid {pid}); it may already be gone");
-            }
-            return;
+    // The lock is the authoritative "is a daemon running" signal: the daemon
+    // holds it for its whole life and records its own pid, so a held lock
+    // means the pid is live and belongs to the daemon. The pid file is only a
+    // fallback (it is missing for a daemon started by launchd/systemd).
+    let holder = match loom_core::lock::probe(loom_dir) {
+        Ok(_free) => None,
+        Err(loom_core::lock::LockError::Held { pid, .. }) => pid,
+        Err(e) => {
+            eprintln!("Could not probe the loomd lock: {e}");
+            None
         }
+    };
+
+    let Some(pid) = holder.or_else(|| {
+        std::fs::read_to_string(&pid_path)
+            .ok()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+    }) else {
+        // Nothing holds the lock and there is no pid file: no daemon.
+        let _ = std::fs::remove_file(&pid_path);
+        let _ = std::fs::remove_file(&socket_path);
+        println!("loomd is not running; removed stale socket if present");
+        return;
+    };
+
+    let killed = Command::new("kill")
+        .arg(pid.to_string())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if killed {
+        // Wait for the process to actually exit: the daemon holds the
+        // single-instance lock until the kernel reclaims it, and
+        // `daemon restart` starts a new daemon right after this.
+        wait_for_exit(pid, 2_000);
     }
-    let _ = std::fs::remove_file(&socket_path);
-    println!("No pid file found; removed stale socket if present");
+    let _ = std::fs::remove_file(&pid_path);
+    if killed {
+        let _ = std::fs::remove_file(&socket_path);
+        println!("Stopped loomd (pid {pid})");
+    } else {
+        // Still alive: leave its socket alone.
+        println!("Could not stop loomd (pid {pid}); it may already be gone");
+    }
 }
 
 /// Wait until `pid` is gone, up to `timeout_ms` milliseconds.
@@ -90,6 +115,7 @@ fn wait_for_exit(pid: u32, timeout_ms: u64) {
         let alive = Command::new("kill")
             .arg("-0")
             .arg(pid.to_string())
+            .stderr(Stdio::null())
             .status()
             .map(|s| s.success())
             .unwrap_or(false);

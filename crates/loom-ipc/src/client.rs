@@ -54,7 +54,10 @@ async fn send_command_inner(socket_path: &str, req: IpcRequest) -> Result<IpcRes
         .await
         .with_context(|| format!("failed to read IPC response from {}", socket_path))?;
     if n == 0 {
-        anyhow::bail!("IPC daemon closed the connection on {} without responding", socket_path);
+        anyhow::bail!(
+            "IPC daemon closed the connection on {} without responding",
+            socket_path
+        );
     }
 
     let resp: IpcResponse = serde_json::from_str(line.trim())
