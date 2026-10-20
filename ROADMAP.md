@@ -6,9 +6,9 @@
 
 Loom is the **shared agentic ecosystem** — the interoperability fabric that makes AI coding tools (claude-code, opencode, goose, crush, jcode, …) composable instead of sileroed. Skills, MCP servers, sessions, auth, hooks, and workflows are written once and shared across every tool. Loom is **not** another agent or another orchestration UI; it is the programmable infrastructure layer those tools and UIs sit on.
 
-## Where We Are (v0.9.3)
+## Where We Are (v0.9.6)
 
-A 31-crate Rust workspace: daemon (`loomd`) + CLI + TUI, Unix-socket IPC, working ACP dispatch with tracked runs, encrypted vault with hash-chained audit, MCP registry with health checks, session export/branch/merge/search, git-worktree parallel execution, GitHub/Linear trackers, SSH remote capture, TOML generic adapters, honest CI (clippy `-D warnings`, 6-job matrix), Homebrew distribution with bottles.
+A 31-crate Rust workspace: daemon (`loomd`) + CLI + TUI, Unix-socket IPC, working ACP dispatch with tracked runs, encrypted vault with hash-chained audit, MCP registry with health checks, session export/branch/merge/search, git-worktree parallel execution, GitHub/Linear trackers, SSH remote capture, TOML generic adapters, honest CI (clippy `-D warnings`, 4-job matrix in `.github/workflows/ci.yml`: a 3-entry test matrix, integration, benchmarks, security), Homebrew distribution with bottles.
 
 ## Pillars
 
@@ -20,7 +20,7 @@ Fix what exists before building what's next. Evidence: v0.9.3 shipped a five-han
 
 - **Daemon lifecycle done right.** Single-instance lock (not socket-file-existence checks), stale-socket recovery in `daemon start`, and `loom daemon install/uninstall` that owns its launchd/systemd unit — no more competing agents keeping duplicate daemons alive. CLI↔daemon version handshake over IPC; warn hard on skew.
 - **IPC protocol hardening.** Versioned request envelope, request timeouts, panic isolation as a rule (the v0.9.3 scoped-thread pattern), connection-backoff guidance for CLI.
-- **Finish-or-delete sweep.** Every placeholder or unwired feature gets shipped or removed: `EmbeddedPane` dispatch, the `snapshot_builder.rs` orphan, anything still returning "not yet wired" (VISION.md gap list). Dead code is a lie the roadmap stops telling.
+- **Finish-or-delete sweep.** Every placeholder or unwired feature gets shipped or removed: end-to-end runtime verification of the embedded-pane dispatch path, anything still returning "not yet wired" (VISION.md gap list). Dead code is a lie the roadmap stops telling.
 - **Release automation.** One command: version bump → changelog → tag → CI → bottles dispatch. Today this is four manual steps, one of which (bottles) is easy to dispatch with the wrong `version` input.
 - **Docs coherence.** README/STATUS/VISION drift (subcommand counts, clone URLs, stale STATUS roadmap stub) reconciled into one truth; STATUS.md roadmap section points here.
 - **Test depth.** Daemon-lifecycle integration tests (restart races, socket contention, version skew). Continue burning the `docs/loom-improvements.md` backlog in priority order — that doc stays the feature inventory; this file stays the direction.

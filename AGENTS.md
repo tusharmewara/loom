@@ -25,12 +25,12 @@ cargo check --workspace
 # Lint (Rust conventions, no dedicated config)
 cargo clippy --workspace
 
-# Dependency hygiene (no CI — run periodically)
+# Dependency hygiene (cargo audit also runs in CI; cargo machete is local-only)
 cargo machete    # unused deps (loomd/prost is a documented false positive, ignore-listed)
 cargo audit      # RustSec advisories (currently 0 errors, unmaintained-class warnings only)
 ```
 
-No Makefile, no CI workflow files (`.github/workflows/`), no Dockerfile.
+No Makefile, no Dockerfile. CI workflows live in `.github/workflows/` (`ci.yml`, `test.yml`, `homebrew-bottles.yml`).
 
 ## Architecture
 
@@ -58,7 +58,7 @@ loom-ffi     — Foreign function interface
 
 - **loom-cli** (`crates/loom-cli/`): CLI binary with 20+ subcommands. Connects to daemon via Unix socket when available, or runs standalone (slower, runs Phase 2 discovery inline).
 - **loomd** (`crates/loomd/`): Background daemon. Aggregates all subsystem crates, provides IPC over Unix domain socket (`~/.loom/loomd.sock`). Auto-shutdown after 5 min idle.
-- **loom-tui** (`crates/loom-tui/`): Terminal UI with 7 tabs (Dashboard, Daemon, Discovery, MCP, Skills, Sessions, Logs). 1s auto-refresh. Keybindings: D (action palette), a (dispatch menu on task tabs), ? (help).
+- **loom-tui** (`crates/loom-tui/`): Terminal UI with 15 tabs (Dashboard, Daemon, Discovery, MCP, Skills, Sessions, Logs, Knowledge, PRs, Runtime, Kanban, Graph, Cost, Orchestrator, Review). 1s auto-refresh. Keybindings: D (action palette), a (dispatch menu on task tabs), ? (help).
 - **loom-ffi** (`crates/loom-ffi/`): C FFI exports for external tool integration.
 
 ### IPC Protocol
@@ -134,7 +134,7 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 - **Unit tests**: inline in each crate under `#[cfg(test)] mod tests { ... }`
 - **All tests use `tempfile::tempdir()`** — never write to real filesystem paths
 - **Integration tests**: `crates/loom-integration-tests/tests/` (run via `cargo test -p loom-integration-tests`)
-- **No dedicated test binary or test harness, no CI workflows**
+- **No dedicated test binary or test harness; CI runs `cargo test --workspace` (see `.github/workflows/ci.yml`)**
 
 ## CLI Commands
 
@@ -302,18 +302,18 @@ emits `{ config, extends_chain: [...] }` for tooling.
 
 ## Known Gotchas
 
-1. **Auth vault `export_credential()` returns plaintext** — comment notes "this is the plaintext; proper export would re-encrypt".
+1. **Auth vault `export_credential()` re-encrypts** — the credential is encrypted in memory with a fresh random nonce (`vault.encrypt_for_export`, ChaCha20Poly1305); plaintext is never written to disk.
 2. **`mcp_registry.db` is SQLite** — created automatically in `~/.loom/` by `McpRegistry`.
 3. **ConfigReader deep-merges (not replaces) overlay files** — if `config/routing.toml` exists, it is deep-merged under `[routing]` on top of `config.toml` (see "Config Precedence" above). Set `LOOM_NO_EXTEND=1` or use `loom config show --extends` to inspect which keys each layer contributed.
 4. **Session compression** (v0.3.9): When a session's message count exceeds `SESSION_COMPRESSION_THRESHOLD` (20), older messages are folded into a single `System`-role summary (id `loom-summary-v1`) at the head of the message list, and the last `SESSION_FULL_FIDELITY_COUNT` (10) messages are kept verbatim. Auto-runs on `append_message`/`replace_message` once a session crosses the threshold; can be triggered manually via `loom sessions summarize <id> [--force]`. The manifest's `summarized_at` / `summarized_message_count` fields record the pass.
 5. **Vault lockout**: max `VAULT_MAX_UNLOCK_ATTEMPTS` (5) within `VAULT_MAX_UNLOCK_WINDOW_MS` (60s).
 6. **Daemon auto-shutdown**: after `DAEMON_DEFAULT_IDLE_TIMEOUT_MS` (300s = 5min) of no IPC activity.
-7. **TUI keybindings**: `D` opens action palette (daemon controls), `a` opens dispatch menu only on task tabs (5=Skills, 6=Sessions), `?` for help. Tab indices: 0=Dashboard, 1=Daemon, 2=Discovery, 3=MCP, 4=Skills, 5=Sessions, 6=Logs, 7=Knowledge, 8=PRs, 9=Orchestrator, 10=Review. Digits `1-9` select tabs 0-8, `0` selects Orchestrator, Review is reachable via Tab cycling and the command palette (`tab 11`).
+7. **TUI keybindings**: `D` opens action palette (daemon controls), `a` opens dispatch menu only on task tabs (5=Skills, 6=Sessions), `?` for help. Tab indices: 0=Dashboard, 1=Daemon, 2=Discovery, 3=MCP, 4=Skills, 5=Sessions, 6=Logs, 7=Knowledge, 8=PRs, 9=Runtime, 10=Kanban, 11=Graph, 12=Cost, 13=Orchestrator, 14=Review. Digits `1-9` select tabs 0-8, `0` selects tab 9 (Runtime), `!`/`@`/`#` select tabs 10-12. The command palette offers `tab 1`..`tab 11`, which map to tab indices 0-10 — Orchestrator and Review are reachable only by Tab cycling.
 8. **Adapter binaries for TerminalLaunch**: checks PATH for `opencode`, `claude-code`, `jcode`, `crush` (in order).
 9. **ACP dispatch is wired and tracked** — `acp.dispatch` spawns headlessly with per-run logs, records completion plus a Loom session, and serves `run.status`. A canonical ACP-spec client also exists (`loom acp run`, `loom-sessions/src/acp_protocol.rs`).
 10. **EmbeddedPane dispatch** — opens the embedded pane and streams `workflow dispatch` output for the task.
 11. **`loom-ipc` uses Unix sockets only** — no TCP or Windows named pipe support.
-12. **Config `DocType` is v0.3.0 for all crates** (workspace version).
+12. **All crates share the workspace version** — 0.9.6 (`[workspace.package] version` in the root `Cargo.toml`); the separate `ECOSYSTEM_VERSION` constant is 2.0.0.
 13. **Knowledge extraction auto-runs on `loom sessions index` and `loom sessions export`** — entities and relationships are automatically extracted into `~/.loom/knowledge/graph.db` during session indexing.
 14. **Knowledge graph boosts routing decisions** — when evaluating a prompt with `loom routing evaluate`, if the prompt mentions known entities in the knowledge graph, the complexity score receives a boost (up to +0.25) based on entity degree and type. Entities found are listed in `knowledge_entities` in the signals.
 15. **Knowledge-enhanced session resume** — `loom sessions resume --inject-knowledge` queries the knowledge graph for entities matching the session topic and recent messages, then injects entity definitions and their relationships as a system message before resuming.
@@ -321,9 +321,9 @@ emits `{ config, extends_chain: [...] }` for tooling.
 ## TUI Architecture
 
 - `ratatui` + `crossterm` backend
-- 7 tabs, 1s auto-refresh
+- 15 tabs, 1s auto-refresh
 - Action palette for daemon operations (Start/Stop/Restart/InstallService/UninstallService)
-- Dispatch menu on task tabs: TerminalLaunch (opens new terminal window with agent), ACPDispatch (not wired), EmbeddedPane (not implemented)
+- Dispatch menu on task tabs: TerminalLaunch (opens new terminal window with agent), ACPDispatch (wired — dispatches over daemon IPC), EmbeddedPane (implemented — opens the embedded pane and streams dispatch output)
 - Keybinding cheat sheet accessible via `?`
 
 ## Directory Structure
@@ -349,10 +349,20 @@ crates/
 ├── loom-ast/         — AST structural editing with tree-sitter (P1/5.5)
 ├── loom-telemetry/   — Metrics, histograms, anomaly detection
 ├── loom-ffi/         — Foreign function interface
+├── loom-conflict/    — Conflict resolution protocol (detect/resolve merge conflicts)
+├── loom-debug/       — Debug Adapter Protocol (DAP) client integration
+├── loom-hindsight/   — Hindsight memory — cross-session typed fact storage
+├── loom-knowledge/   — Knowledge graph (SQLite entities/relationships, FTS5)
+├── loom-lsp/         — Language Server Protocol (LSP) client integration
+├── loom-mcp-server/  — MCP server exposing Loom's shared resources
+├── loom-parallel/    — Concurrent agent execution, git-worktree isolation
+├── loom-remote/      — SSH remote development
+├── loom-rules/       — Stream rules engine for LoomEvent processing (P1/5.6)
+├── loom-runtime/     — Pluggable runtime backends (process, Docker, Podman, Kubernetes)
+├── loom-trackers/    — Issue tracker integration (GitHub Issues, Linear, Jira)
 └── loom-integration-tests/ — Integration tests
 
 packages/
-├── sdk/              — SDK
 ├── jcode/            — jcode tool package
 ├── crush/            — Crush tool package
 ├── goose/            — Goose tool package
