@@ -5,7 +5,7 @@ All notable changes to the Loom project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.6] - 2026-10-20
 
 ### Added
 
@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(tui): the Kanban and Orchestrator tabs no longer trap tab navigation — both tab-specific key handlers ran before the global handler and swallowed `Tab`/`Shift-Tab`/`←`/`→`, so the Orchestrator tab could not be left at all and the Kanban tab could not be switched away from. Kanban now uses `h`/`l` for columns and `j`/`k` for rows; the Orchestrator uses `↑`/`↓` for field focus and `←`/`→` for tool selection
 - fix(acp): `loom acp run <agent>` now resolves the agent's real launch command — explicit path → local `config/agents.toml` entry → public ACP registry → `PATH` binary — instead of spawning a bare binary with no arguments. Agents were previously started outside ACP mode (e.g. `opencode` without its `acp` flag) and timed out on `initialize`
 - fix(acp): `loom add-acp-agent` now picks a usable distribution deterministically (`npx` > `uvx` > `binary`, resolved for the current platform) instead of an arbitrary first key of the registry distribution map, so agents like `kilo` and `sigit` keep their package runner and their `acp` mode flag
 - fix(acp): `uvx` agents are resolvable — the daemon's agent launcher previously understood only `npm` and `pip` runners
@@ -21,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- fix(homebrew): bottle releases are published under a `vX.Y.Z-bottles` tag in the tap repo. The tap's plain `vX.Y.Z` tag namespace is permanently reserved by GitHub once a tag has been used by an immutable release and can never be recreated, which broke the 0.9.5 publish
 - chore: `cargo fmt --all` across the workspace — 8 files that had drifted out of rustfmt compliance (loom-routing `outcomes.rs`/`scorer.rs`, loom-cli `commands/routing.rs`, loom-tui `app.rs`/`ui/tabs/kanban.rs`, loom-workflow `task_manager.rs`, two loom-integration-tests)
 
 ## [0.9.5] - 2026-10-19
