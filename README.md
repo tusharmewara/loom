@@ -183,6 +183,20 @@ Conventions live in [`AGENTS.md`](AGENTS.md) (GraphFlow surgical editing, symbol
 
 ---
 
+## 🚀 Releasing
+
+One command bumps the workspace version, updates the changelog and lock file, commits, tags, and prints the CI dispatch command:
+
+```bash
+scripts/release.sh 0.9.7            # local release, no network side effects
+scripts/release.sh 0.9.7 --dry-run  # show the plan, change nothing
+scripts/release.sh 0.9.7 --push     # also push + dispatch the bottles workflow
+```
+
+Release notes go in the `## Notes` section of [`RELEASE_NOTES.md`](RELEASE_NOTES.md); the script copies them into the new `CHANGELOG.md` section. The script refuses to run on a dirty tree, on a version that is not greater than the current one, or on a version that already has a tag. `--allow-dirty` overrides the dirty-tree check.
+
+---
+
 ## 📄 License
 
 MIT (declared in [`Cargo.toml`](Cargo.toml)).
