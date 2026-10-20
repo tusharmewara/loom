@@ -9,3 +9,4 @@ blueprint/
 data/
 dist/
 __pycache__/
+*.log
