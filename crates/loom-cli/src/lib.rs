@@ -1,6 +1,7 @@
 mod cli;
 mod commands;
 mod ipc_client;
+mod version_check;
 
 use clap::Parser;
 use std::path::Path;
