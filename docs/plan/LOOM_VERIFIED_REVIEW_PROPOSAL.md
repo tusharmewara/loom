@@ -2,6 +2,7 @@
 
 > Status: proposal, 2026-10-19. Sourced from the Conifer Parallax docs (conifer.build/docs/parallax/) compared against the Loom tree at v0.9.4.
 > Feeds: [ROADMAP.md](../../ROADMAP.md) Pillar 5; competitive context in [competitive-analysis.md](../competitive-analysis.md) §11.
+> Shared substrate: the outcome-gated lesson store below (§3.6) is the **one owner** of lessons in Loom. [LOOM_HARNESS2_ANALYSIS.md](../LOOM_HARNESS2_ANALYSIS.md) §6.4 references it rather than proposing a second store — the Harness² analysis proposes a *contract* (cue/lesson/evidence, evidence-gated) and a *writer* (a selection loop), not a new store. If that loop ever ships, it writes here.
 
 ## Executive summary
 
@@ -139,6 +140,8 @@ Seat candidates = registered adapters whose family ≠ the session's agent famil
 ### 3.6 Lessons (`loom-knowledge` + `loom-hindsight`)
 
 New `lesson` entity type: 1–2 imperative sentences, file/symbol refs, receipts. Sources, expiry, suppression, and account-widening per §1.5. Injection: existing `--inject-knowledge` on resume + session-start brief; a lesson naming a file is injected only when the session touches that file. Write-back: manual in MVP, automated from PR head/close events via `loom-trackers` in v1.
+
+**This is the only lesson store in Loom.** [LOOM_HARNESS2_ANALYSIS.md](../LOOM_HARNESS2_ANALYSIS.md) §6.4 proposes the same location and adds two upstream rules to this contract — every lesson carries a `cue` (when it applies) and non-empty `evidence` (what was observed) besides the `lesson` text, and a lesson with no evidence is not storable. It proposes no second store, no `~/.loom/experience/` directory, and no separate index; a second store would be a duplicate owner.
 
 ### 3.7 Fix PR (`loom-trackers` extension)
 

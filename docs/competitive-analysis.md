@@ -312,6 +312,7 @@ Later (P2 remains):   Suggestions, Automation DSL, WASM runtime
 | Built-in LLM hosting | Loom routes *to* models; doesn't serve them |
 | Visual mockup/design tools | Nimbalyst/Orca Design Mode territory; knowledge graph ≠ design canvas |
 | Mobile-native apps | Remote API first; native apps later if API proves valuable |
+| Harness² (google-research/harness2) as a Python dependency or port | Different category — it is a *method* for optimizing a tool's scaffolding, not a competitor product. Mechanisms analyzed in [LOOM_HARNESS2_ANALYSIS.md](LOOM_HARNESS2_ANALYSIS.md); any adoption is Rust-native, no Python runtime |
 
 ---
 

@@ -23,12 +23,24 @@ Verification (2026-10-10): stub-marker scan of `loom-lsp`/`loom-debug`/`loom-ast
 - IPC protocol: ~~versioned envelope~~, ~~request timeouts~~ — landed in v0.9.6. Panic isolation is already implemented (`crates/loom-ipc/src/server.rs`).
 - Finish-or-delete sweep: ~~`loomd/src/snapshot_builder.rs` orphan (never declared in lib.rs)~~ — deleted in v0.9.6. Still open: end-to-end runtime verification of the embedded-pane dispatch path.
 - Release automation: ~~one-command release (version → changelog → tag → CI → bottles dispatch with version input)~~ — landed in v0.9.6 as `scripts/release.sh <version>`; the bottles workflow now validates the dispatched version against `Cargo.toml`.
-- ~~Daemon-lifecycle integration tests: restart races, socket contention, version skew~~ — landed in v0.9.6 in two suites: `crates/loomd/tests/daemon_lifecycle.rs` (the real `loomd` binary: SIGTERM, stale socket, second-daemon refusal) and `crates/loom-integration-tests/tests/daemon_lifecycle.rs` (the daemon's own lock/IPC behaviour across processes: lock exclusivity, lock release on drop, SIGKILL crash recovery, version-skew detection).
+- Daemon-lifecycle integration tests: restart races, socket contention, version skew.
 - Docs coherence: ~~README/STATUS/VISION drift (subcommand counts, clone URLs, stale sections) reconciled into one truth~~ — done in v0.9.6.
 
 ### Pillar 3 — Ecosystem & Protocol
 
 - IDE extensions (community): VS Code / JetBrains consuming Loom via `loom-mcp-server` or the public protocol — carried over from the June P3 list.
+
+### Pillar 1 (candidate slice) — Skill inventory + validation + trigger generation (spec: [plan/LOOM_SKILL_VALIDATION_PROPOSAL.md](plan/LOOM_SKILL_VALIDATION_PROPOSAL.md))
+
+Cut from the Harness² analysis after review ([LOOM_HARNESS2_ANALYSIS.md](LOOM_HARNESS2_ANALYSIS.md) §7, §12). Two defects, one slice. *Inventory:* `loom skills list` returns `[]` and `loom lock --generate` writes zero entries while 11 skills are installed — the registry is never populated. *Validation:* a skill with no `description:` frontmatter is installed, synced into every native tool directory, and **silently ignored by the agent** while Loom reports success. The validator is a plain function (upstream's shape), not a schema and not a rules engine.
+
+- `crates/loom-skills/src/scan.rs` — one walk over `~/.loom/skills/` handling both layouts (`<name>/SKILL.md` and flat `<name>.md`); parses frontmatter; `validate_skill_tree(dir) -> Vec<SkillDefect>`; rules: missing `description:` (fatal), `name:` mismatch (fatal in dir layout, warn in flat layout), unparseable frontmatter (fatal), missing referenced script (fatal), duplicate flat/dir pair (warn).
+- `crates/loom-skills/src/trigger.rs` — one trigger line per skill, deterministic order, cap enforced by dropping **and reporting** the untriggered skills. The cue is the **parsed** YAML value, not upstream's regex.
+- Populate the existing registry from the walk (`crates/loom-skills/src/registry.rs`) — the `description` column and the `loom_core::SkillEntry` row type already exist; no schema change, no new struct.
+- Fix `loom skills install` / `remove` to handle the directory layout (`std::fs::copy` on a directory fails today; `remove_file` cannot remove one).
+- Delete the dead `crates/loom-skills/src/neutral_renderer.rs` (373 lines, zero callers, **does not compile** — not declared in `lib.rs`, no `serde_yaml` dep, and two syntax errors). Pillar 1 ship-or-remove.
+- Wire the validator into `loom skills install` and into both sync paths (`sync_skills_to_native`, `inject_shared_skills`); report in `loom doctor`. No new CLI group, no new crate.
+- Cost: 3–4 days, no LLM spend. The inventory half is corrective (`loom skills list` → `[]` today); the validation half is preventive: 1 fatal defect in 17 real skill files on this machine.
 
 ### Pillar 5 — Verified Review Engine (spec: [plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md](plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md))
 
@@ -44,6 +56,7 @@ Verification (2026-10-10): stub-marker scan of `loom-lsp`/`loom-debug`/`loom-ast
 - web_search across multiple providers (OMP "future" item; likely an MCP-server answer, not a core feature).
 - Telemetry/anomaly-detection maturation — deepen only when pillar 4 usage metering needs it.
 - More preset adapters / tracker backends — demand-driven; `GenericAdapter` TOML + `IssueTracker` trait are the escape hatches.
+- **Self-evolving shared harness** — Loom editing the *scaffolding* (skills, tool guidance, trigger sets) rather than only the code, using the Harness² propose→probe→compose loop. Analysis in [LOOM_HARNESS2_ANALYSIS.md](LOOM_HARNESS2_ANALYSIS.md) §11. Not a new pillar: it is pillar 5 with the edit target widened from code to the always-on surface, and pillar 5 supplies the outcome signal it needs (so the probe loop is *downstream* of pillar 5, not parallel). Two decisions are open before it can enter a pillar: **(a) shared layer vs one tool's prompt** — shared is the answer Loom's north star gives, and it is the one upstream cannot give; **(b) the security obligation** — who may write a surface, what is signed (Ed25519, as the plugin registry does), and what the audit log records, because a self-modifying surface is a pillar-2 item by nature. Needs an owner and a use case first; the cheap entry point is the contrast experiment in [LOOM_HARNESS2_ANALYSIS.md](LOOM_HARNESS2_ANALYSIS.md) §7 Phase B.
 
 ### Code debt — routing (2026-10 review; details in [routing-debt.md](routing-debt.md))
 
