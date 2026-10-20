@@ -19,9 +19,9 @@ Verification (2026-10-10): stub-marker scan of `loom-lsp`/`loom-debug`/`loom-ast
 
 ### Pillar 1 — Harden the Core
 
-- Daemon lifecycle: single-instance lock (not socket-file existence), stale-socket recovery, `loom daemon install/uninstall` owning its launchd/systemd unit, CLI↔daemon version handshake.
-- IPC protocol: versioned envelope, request timeouts, panic isolation as a rule (v0.9.3 pattern).
-- Finish-or-delete sweep: `loomd/src/snapshot_builder.rs` orphan (never declared in lib.rs); end-to-end runtime verification of the embedded-pane dispatch path.
+- Daemon lifecycle: ~~single-instance lock (not socket-file existence)~~, ~~stale-socket recovery~~, ~~CLI↔daemon version handshake~~ — all landed in v0.9.6. Still open: `loom daemon install/uninstall` owning its launchd/systemd unit, and SIGTERM handling in loomd (only SIGINT is handled, so a service stop leaves a stale socket).
+- IPC protocol: ~~versioned envelope~~, ~~request timeouts~~ — landed in v0.9.6. Panic isolation is already implemented (`crates/loom-ipc/src/server.rs`).
+- Finish-or-delete sweep: ~~`loomd/src/snapshot_builder.rs` orphan (never declared in lib.rs)~~ — deleted in v0.9.6. Still open: end-to-end runtime verification of the embedded-pane dispatch path.
 - Release automation: one-command release (version → changelog → tag → CI → bottles dispatch with version input).
 - Daemon-lifecycle integration tests: restart races, socket contention, version skew.
 - Docs coherence: README/STATUS/VISION drift (subcommand counts, clone URLs, stale sections) reconciled into one truth.
