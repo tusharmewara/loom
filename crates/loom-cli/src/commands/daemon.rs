@@ -11,14 +11,26 @@ pub fn start_daemon(loom_dir: &Path) -> anyhow::Result<()> {
     let socket_path = loom_dir.join(DAEMON_SOCKET);
     let pid_path = loom_dir.join(".cache").join(PID_FILE);
 
-    if socket_path.exists() {
-        println!(
-            "loomd already appears to be running ({})",
-            socket_path.display()
-        );
-        return Ok(());
-    }
     std::fs::create_dir_all(loom_dir.join(".cache"))?;
+
+    // Probe the single-instance lock: if another loomd holds it, we are done.
+    // The probe lock is dropped before spawning so the fresh daemon can take
+    // it — the daemon itself holds the lock for its whole lifetime.
+    match loom_core::lock::probe(loom_dir) {
+        Err(_) => {
+            let pid = loom_core::lock::holder_pid(loom_dir)
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            println!("loomd already running (pid {pid})");
+            return Ok(());
+        }
+        Ok(probe) => drop(probe),
+    }
+
+    // No daemon holds the lock, so any socket lying around is stale.
+    if socket_path.exists() {
+        let _ = std::fs::remove_file(&socket_path);
+    }
 
     let child = Command::new("loomd")
         .env("LOOM_AGENTS_DIR", loom_dir)
@@ -45,15 +57,47 @@ fn stop_daemon(loom_dir: &Path) {
 
     if let Ok(pid_str) = std::fs::read_to_string(&pid_path) {
         if let Ok(pid) = pid_str.trim().parse::<u32>() {
-            let _ = Command::new("kill").arg(pid.to_string()).status();
+            let killed = Command::new("kill")
+                .arg(pid.to_string())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if killed {
+                // Wait for the process to actually exit: the daemon holds the
+                // single-instance lock until the kernel reclaims it, and
+                // `daemon restart` starts a new daemon right after this.
+                wait_for_exit(pid, 2_000);
+            }
             let _ = std::fs::remove_file(&pid_path);
-            let _ = std::fs::remove_file(&socket_path);
-            println!("Stopped loomd (pid {pid})");
+            if killed {
+                let _ = std::fs::remove_file(&socket_path);
+                println!("Stopped loomd (pid {pid})");
+            } else {
+                // Still alive: leave its socket alone.
+                println!("Could not stop loomd (pid {pid}); it may already be gone");
+            }
             return;
         }
     }
     let _ = std::fs::remove_file(&socket_path);
     println!("No pid file found; removed stale socket if present");
+}
+
+/// Wait until `pid` is gone, up to `timeout_ms` milliseconds.
+fn wait_for_exit(pid: u32, timeout_ms: u64) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+    while std::time::Instant::now() < deadline {
+        let alive = Command::new("kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !alive {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 }
 
 #[cfg(target_os = "macos")]

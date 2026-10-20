@@ -2,6 +2,7 @@ mod activity;
 mod capture;
 mod grpc_server;
 mod ipc_handler;
+pub mod lock;
 mod run_manager;
 use activity::{now_ms, ActivityHandler};
 use loom_core::{constants::DAEMON_DEFAULT_IDLE_TIMEOUT_MS, HealthCheck, LoomEvent};
@@ -141,6 +142,18 @@ impl Loomd {
         use std::path::Path;
 
         tracing::info!("Loom daemon starting...");
+
+        // ── Single-instance guard ───────────────────────────────────────
+        // Taken before anything is spawned so a second loomd can never steal
+        // the live socket of the first one. The kernel releases the lock when
+        // this process exits, so no stale-lock cleanup is needed.
+        let _lock = match lock::acquire(Path::new(&self.loom_dir)) {
+            Ok(lock) => lock,
+            Err(e) => {
+                tracing::error!("Refusing to start a second loomd: {e}");
+                return Ok(());
+            }
+        };
 
         // Health check all subsystems
         for (name, health) in &[
