@@ -1,34 +1,34 @@
 class Loom < Formula
-  desc "The Shared Agentic Ecosystem — orchestrate tools, MCP servers, skills, and sessions"
+  desc "Unified agentic ecosystem for sharing skills, sessions, and MCP servers"
   homepage "https://github.com/tusharmewara/loom"
-  url "https://github.com/tusharmewara/loom/archive/refs/tags/v0.9.1.tar.gz"
-  sha256 "0019dfc4b32d63c1392aa264aed2253c1e0c2fb09216f8e2cc269bbfb8bb49b5"
+  version "0.9.6"
   license "MIT"
-  head "https://github.com/tusharmewara/loom.git", branch: "main"
+
+  url "https://github.com/tusharmewara/loom/archive/refs/tags/v0.9.6.tar.gz"
+  sha256 "a60b0d4a748aeff6c19dc289e8c5da246be619e9ec32cf153a90dcd33c8a0f70"
+
+  bottle do
+    root_url "https://github.com/tusharmewara/homebrew-loom/releases/download/v0.9.6-bottles"
+    sha256 cellar: :any, arm64_sonoma: "3af66e1df8a24ac97451f0f549e60bd503d6f596daa22af2665231d3bd34271b"
+    sha256 cellar: :any, sonoma: "14deaacb4fd32e6d7f931db192524e6e1ec8547c5bdf85cf28055ef727c1723c"
+    sha256 cellar: :any_skip_relocation, x86_64_linux: "7ba2993beafa43cad4bb8e571536cb6ff07b3684b5c7611941a656013011b5fd"
+
+  end
 
   depends_on "rust" => :build
 
-  bottle do
-    root_url "https://github.com/tusharmewara/loom/releases/download/v0.9.1"
-    sha256 arm64_sonoma: "358c43bebf087789c357356c297e21339dbe91d61939fee2e90f71b575c7541f"
+  def install
+    bin.install "bin/loom"
+    bin.install "bin/loomd"
   end
 
-  def install
-    system "cargo", "install", "--root", prefix, "--path", "crates/loom-cli"
-    bin.install "target/release/loom"
-
-    # Install daemon binary
-    system "cargo", "install", "--root", prefix, "--path", "crates/loomd"
-    bin.install "target/release/loomd"
-
-    # Shell completions
-    bash_completion.install "completions/loom.bash" if File.exist?("completions/loom.bash")
-    zsh_completion.install "completions/_loom" if File.exist?("completions/_loom")
-    fish_completion.install "completions/loom.fish" if File.exist?("completions/loom.fish")
+  service do
+    run [opt_bin/"loomd"]
+    working_dir Dir.home
+    keep_alive true
   end
 
   test do
-    output = shell_output("#{bin}/loom version 2>&1")
-    assert_match "0.9.1", output
+    assert_match "Loom", shell_output("#{bin}/loom --help")
   end
 end
