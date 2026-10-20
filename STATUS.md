@@ -118,6 +118,14 @@ loom --help
 
 Main config: `~/.loom/config.toml`
 
+`LOOM_AGENTS_DIR` moves the whole ecosystem directory (config, cache, sockets,
+sessions) for both the CLI and the daemon — the two always agree on which
+directory they are talking to:
+
+```bash
+LOOM_AGENTS_DIR=/tmp/loom-sandbox loom init
+```
+
 ## Known Issues
 
 - Hook scripts execute properly (implementation complete)
