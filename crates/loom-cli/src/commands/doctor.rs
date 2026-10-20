@@ -196,11 +196,31 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool, verbose: bool) -> Result
     if socket_path.exists() {
         let socket = socket_path.display().to_string();
         match send_command(&socket, IpcRequest::new("health.check")).await {
-            Ok(resp) if resp.status == "ok" => rows.push(CheckRow::new(
-                "Daemon health",
-                CheckStatus::Pass,
-                format!("Daemon reachable at {socket}"),
-            )),
+            Ok(resp) if resp.status == "ok" => {
+                rows.push(CheckRow::new(
+                    "Daemon health",
+                    CheckStatus::Pass,
+                    format!("Daemon reachable at {socket}"),
+                ));
+                // The daemon reports its version in the health.check payload; a
+                // mismatch means the CLI may talk to a daemon with a different
+                // protocol shape.
+                let daemon_version = resp
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.get("version"))
+                    .and_then(|v| v.as_str());
+                if let Some(skew) =
+                    crate::version_check::version_skew(daemon_version, env!("CARGO_PKG_VERSION"))
+                {
+                    let status = if daemon_version.is_some() {
+                        CheckStatus::Fail
+                    } else {
+                        CheckStatus::Warn
+                    };
+                    rows.push(CheckRow::new("Daemon version", status, skew));
+                }
+            }
             Ok(resp) => rows.push(CheckRow::new(
                 "Daemon health",
                 CheckStatus::Fail,

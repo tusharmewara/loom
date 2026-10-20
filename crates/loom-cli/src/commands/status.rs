@@ -60,6 +60,17 @@ pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
                 println!("  Uptime: {uptime}s");
             }
         }
+        // A daemon built from a different revision may not answer every
+        // command the way this CLI expects — surface the skew loudly.
+        let daemon_version = daemon_data
+            .as_ref()
+            .and_then(|d| d.get("version"))
+            .and_then(|v| v.as_str());
+        if let Some(skew) =
+            crate::version_check::version_skew(daemon_version, env!("CARGO_PKG_VERSION"))
+        {
+            println!("  ⚠ {skew}");
+        }
     } else {
         println!("✗ Daemon is not reachable");
         println!("  Socket: {socket_path}");
