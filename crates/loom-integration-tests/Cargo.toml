@@ -15,6 +15,8 @@ loom-auth = { path = "../loom-auth" }
 loom-workflow = { path = "../loom-workflow" }
 loom-adapters = { path = "../loom-adapters" }
 loom-knowledge = { path = "../loom-knowledge" }
+loom-ipc = { path = "../loom-ipc" }
+loomd = { path = "../loomd" }
 anyhow.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
