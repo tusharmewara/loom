@@ -5,7 +5,10 @@ mod ipc_handler;
 pub mod lock;
 mod run_manager;
 use activity::{now_ms, ActivityHandler};
-use loom_core::{constants::DAEMON_DEFAULT_IDLE_TIMEOUT_MS, HealthCheck, LoomEvent};
+use loom_core::{
+    constants::{DAEMON_DEFAULT_IDLE_TIMEOUT_MS, DAEMON_IDLE_TIMEOUT_ENV},
+    HealthCheck, LoomEvent,
+};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -329,21 +332,31 @@ impl Loomd {
         let idle_shutdown = self.shutdown_tx.clone();
         let idle_activity = last_activity.clone();
 
-        tokio::spawn(async move {
-            let interval = Duration::from_secs(30);
-            loop {
-                tokio::time::sleep(interval).await;
-                let idle_ms = now_ms().saturating_sub(idle_activity.load(Ordering::Relaxed));
-                if idle_ms >= DAEMON_DEFAULT_IDLE_TIMEOUT_MS {
-                    tracing::info!(
-                        idle_secs = idle_ms / 1000,
-                        "Idle timeout reached; shutting down loomd"
-                    );
-                    let _ = idle_shutdown.send(());
-                    break;
+        // The idle timeout is the daemon's own lifecycle policy; under a
+        // service supervisor (launchd/systemd) the supervisor owns the
+        // lifecycle, so the unit sets LOOM_IDLE_TIMEOUT_MS=0 to disable it.
+        // Without that, the daemon exits after 5 min idle and the unit
+        // restarts it immediately -> an infinite respawn loop.
+        let idle_timeout = idle_timeout_ms();
+        if let Some(timeout_ms) = idle_timeout {
+            tokio::spawn(async move {
+                let interval = Duration::from_secs(30);
+                loop {
+                    tokio::time::sleep(interval).await;
+                    let idle_ms = now_ms().saturating_sub(idle_activity.load(Ordering::Relaxed));
+                    if idle_ms >= timeout_ms {
+                        tracing::info!(
+                            idle_secs = idle_ms / 1000,
+                            "Idle timeout reached; shutting down loomd"
+                        );
+                        let _ = idle_shutdown.send(());
+                        break;
+                    }
                 }
-            }
-        }); // end idle shutdown spawn
+            }); // end idle shutdown spawn
+        } else {
+            tracing::info!("Idle shutdown disabled ({DAEMON_IDLE_TIMEOUT_ENV}=0)");
+        }
 
         // ── Auto-sync background task ───────────────────────────────────
         // Subscribe to SkillsAdded / McpServerAdded events and push
@@ -389,9 +402,12 @@ impl Loomd {
         });
 
         tracing::info!(
-            "Starting IPC server on {} (idle timeout {}s)",
+            "Starting IPC server on {} (idle timeout {})",
             socket_path.display(),
-            DAEMON_DEFAULT_IDLE_TIMEOUT_MS / 1000
+            match idle_timeout {
+                Some(ms) => format!("{}s", ms / 1000),
+                None => "disabled".to_string(),
+            }
         );
         let s = socket_path_str.clone();
         let serve_fut = async move { serve(&s, ipc_handler, shutdown).await.unwrap() };
@@ -425,6 +441,7 @@ impl Loomd {
             } => {
                 tracing::info!("Shutdown signal received");
             }
+            _ = wait_for_terminate() => {}
         }
 
         tracing::info!("Loom daemon shutting down.");
@@ -436,6 +453,57 @@ impl Loomd {
     }
 }
 
+/// Resolve the idle-shutdown timeout from `LOOM_IDLE_TIMEOUT_MS`.
+///
+/// `None` means "never shut down on idle" (the env value is `0`). The value
+/// is intentionally read as a plain millisecond count so the installed
+/// service unit can switch the daemon's self-managed idle shutdown off and
+/// let the supervisor own the lifecycle instead.
+fn idle_timeout_ms() -> Option<u64> {
+    resolve_idle_timeout(std::env::var(DAEMON_IDLE_TIMEOUT_ENV).ok().as_deref())
+}
+
+/// Pure mapping of the raw env value to the idle timeout.
+/// `None` (raw `0`) disables idle shutdown; unset/blank/invalid falls back
+/// to `DAEMON_DEFAULT_IDLE_TIMEOUT_MS`.
+fn resolve_idle_timeout(raw: Option<&str>) -> Option<u64> {
+    match raw.map(str::trim).filter(|v| !v.is_empty()) {
+        None => Some(DAEMON_DEFAULT_IDLE_TIMEOUT_MS),
+        Some(v) => match v.parse::<u64>() {
+            Ok(0) => None,
+            Ok(ms) => Some(ms),
+            Err(_) => {
+                tracing::warn!(
+                    "Invalid {}={v}; using default {DAEMON_DEFAULT_IDLE_TIMEOUT_MS}ms",
+                    DAEMON_IDLE_TIMEOUT_ENV
+                );
+                Some(DAEMON_DEFAULT_IDLE_TIMEOUT_MS)
+            }
+        },
+    }
+}
+
+/// Wait for a signal that means "stop now": SIGTERM (what `launchctl
+/// bootout` and `systemctl stop` send) and SIGHUP on unix. Both take the
+/// same clean shutdown path as Ctrl+C, so the Unix socket is removed and the
+/// serve/gRPC handles are aborted.
+#[cfg(unix)]
+async fn wait_for_terminate() {
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut term = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+    let mut hup = signal(SignalKind::hangup()).expect("install SIGHUP handler");
+    tokio::select! {
+        _ = term.recv() => tracing::info!("SIGTERM received"),
+        _ = hup.recv() => tracing::info!("SIGHUP received"),
+    }
+}
+
+#[cfg(not(unix))]
+async fn wait_for_terminate() {
+    // No unix signals: the daemon only stops via Ctrl+C or the idle timeout.
+    std::future::pending::<()>().await
+}
+
 impl HealthCheck for Loomd {
     fn health(&self) -> anyhow::Result<loom_core::HealthStatus> {
         Ok(loom_core::HealthStatus {
@@ -445,5 +513,42 @@ impl HealthCheck for Loomd {
             last_error: None,
             performance_counters: std::collections::HashMap::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn idle_timeout_unset_uses_default() {
+        assert_eq!(
+            resolve_idle_timeout(None),
+            Some(DAEMON_DEFAULT_IDLE_TIMEOUT_MS)
+        );
+    }
+
+    #[test]
+    fn idle_timeout_zero_disables_shutdown() {
+        // The service unit sets LOOM_IDLE_TIMEOUT_MS=0: the supervisor owns
+        // the lifecycle, so the daemon must never self-exit on idle.
+        assert_eq!(resolve_idle_timeout(Some("0")), None);
+    }
+
+    #[test]
+    fn idle_timeout_explicit_value_is_used() {
+        assert_eq!(resolve_idle_timeout(Some("1000")), Some(1000));
+    }
+
+    #[test]
+    fn idle_timeout_invalid_falls_back_to_default() {
+        assert_eq!(
+            resolve_idle_timeout(Some("not-a-number")),
+            Some(DAEMON_DEFAULT_IDLE_TIMEOUT_MS)
+        );
+        assert_eq!(
+            resolve_idle_timeout(Some("  ")),
+            Some(DAEMON_DEFAULT_IDLE_TIMEOUT_MS)
+        );
     }
 }
