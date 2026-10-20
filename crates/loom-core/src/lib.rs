@@ -17,8 +17,22 @@ pub fn home_dir() -> String {
 }
 
 /// The `~/.loom` ecosystem directory (AGENTS_DIR under the user's home).
+///
+/// `LOOM_AGENTS_DIR` overrides it, so the CLI and the daemon always agree on
+/// which directory they are talking to. The env var is the single source of
+/// truth: `loom init-shell` exports it, every spawned child inherits it, and
+/// the launchd/systemd unit sets it explicitly.
 pub fn loom_dir() -> String {
-    format!("{}/{}", home_dir(), AGENTS_DIR)
+    resolve_loom_dir(std::env::var("LOOM_AGENTS_DIR").ok().as_deref())
+}
+
+/// The resolution behind [`loom_dir`], split out so it can be tested without
+/// mutating the process environment.
+fn resolve_loom_dir(env_value: Option<&str>) -> String {
+    match env_value {
+        Some(dir) if !dir.is_empty() => dir.to_string(),
+        _ => format!("{}/{}", home_dir(), AGENTS_DIR),
+    }
 }
 
 /// Locate an executable on `PATH` (or return `name` itself if it is an
@@ -97,6 +111,22 @@ mod db_tests {
             .query_row("PRAGMA journal_mode", [], |r| r.get(0))
             .unwrap();
         assert_eq!(mode, "wal");
+    }
+}
+
+#[cfg(test)]
+mod loom_dir_tests {
+    use super::resolve_loom_dir;
+
+    #[test]
+    fn env_var_overrides_the_default() {
+        assert_eq!(resolve_loom_dir(Some("/tmp/custom")), "/tmp/custom");
+    }
+
+    #[test]
+    fn an_empty_env_var_falls_back_to_the_default() {
+        assert!(resolve_loom_dir(Some("")).ends_with("/.loom"));
+        assert!(resolve_loom_dir(None).ends_with("/.loom"));
     }
 }
 

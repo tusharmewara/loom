@@ -80,7 +80,11 @@ Commands: `health.check`, `discovery.scan`, `skills.list`, `skills.show`, `mcp.l
 
 ### Filesystem Layout
 
-Everything lives in `~/.loom/` (AGENTS_DIR constant in `loom-core`):
+Everything lives in `~/.loom/` (AGENTS_DIR constant in `loom-core`). `LOOM_AGENTS_DIR` overrides that path for both the CLI and the daemon — it is the single source of truth, so the two always agree on which directory they are talking to:
+
+```bash
+LOOM_AGENTS_DIR=/tmp/loom-sandbox loom init   # whole ecosystem elsewhere
+```
 
 ```
 ~/.loom/
@@ -317,6 +321,7 @@ emits `{ config, extends_chain: [...] }` for tooling.
 13. **Knowledge extraction auto-runs on `loom sessions index` and `loom sessions export`** — entities and relationships are automatically extracted into `~/.loom/knowledge/graph.db` during session indexing.
 14. **Knowledge graph boosts routing decisions** — when evaluating a prompt with `loom routing evaluate`, if the prompt mentions known entities in the knowledge graph, the complexity score receives a boost (up to +0.25) based on entity degree and type. Entities found are listed in `knowledge_entities` in the signals.
 15. **Knowledge-enhanced session resume** — `loom sessions resume --inject-knowledge` queries the knowledge graph for entities matching the session topic and recent messages, then injects entity definitions and their relationships as a system message before resuming.
+16. **`LOOM_AGENTS_DIR` is the ecosystem directory** — the CLI and the daemon both resolve it through `loom_core::loom_dir()` (env var wins, else `~/.loom`). Never hardcode `~/.loom` in a command: pass the resolved dir down. The TUI's CLI adapter exports it to every child process.
 
 ## TUI Architecture
 

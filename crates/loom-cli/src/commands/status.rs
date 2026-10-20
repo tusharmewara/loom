@@ -13,7 +13,7 @@ const DAEMON_SOCKET: &str = "loomd.sock";
 pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
     let agents_path = std::path::Path::new(loom_dir);
     if !agents_path.exists() {
-        anyhow::bail!("Ecosystem not initialized at ~/.loom/. Run 'loom init' first.");
+        anyhow::bail!("Ecosystem not initialized at {loom_dir}/. Run 'loom init' first.");
     }
 
     // ── Check daemon health ─────────────────────────────────────

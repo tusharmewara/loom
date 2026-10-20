@@ -102,7 +102,7 @@ pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
     // Check that the ecosystem is initialized
     let agents_path = std::path::Path::new(loom_dir);
     if !agents_path.exists() {
-        anyhow::bail!("Ecosystem not initialized at ~/.loom/. Run 'loom init' first.");
+        anyhow::bail!("Ecosystem not initialized at {loom_dir}/. Run 'loom init' first.");
     }
 
     let engine = DiscoveryEngine::new(loom_dir);

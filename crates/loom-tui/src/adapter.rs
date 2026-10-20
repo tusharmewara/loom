@@ -334,6 +334,7 @@ impl LoomCliAdapter {
         let output = Command::new(&self.bin)
             .args(args)
             .arg("--json")
+            .env("LOOM_AGENTS_DIR", &self.loom_dir)
             .output()
             .await
             .with_context(|| format!("failed to execute `{}`", self.bin))?;
@@ -364,6 +365,7 @@ impl LoomCliAdapter {
     async fn run_text(&self, args: Vec<String>) -> Result<String> {
         let output = Command::new(&self.bin)
             .args(&args)
+            .env("LOOM_AGENTS_DIR", &self.loom_dir)
             .output()
             .await
             .with_context(|| format!("failed to execute `{}`", self.bin))?;
@@ -395,6 +397,7 @@ impl LoomCliAdapter {
     ) -> Result<(Child, mpsc::Receiver<String>, Option<ChildStdin>)> {
         let mut child = Command::new(&self.bin)
             .args(args)
+            .env("LOOM_AGENTS_DIR", &self.loom_dir)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .stdin(std::process::Stdio::piped())

@@ -26,7 +26,7 @@ pub async fn run(
     builder
         .create_agents_tree()
         .context("Failed to create ~/.loom/ directory tree")?;
-    println!("✓ Initialized ecosystem at ~/.loom/");
+    println!("✓ Initialized ecosystem at {loom_dir}/");
 
     // 2. Initialize the SQLite snapshot schema (idempotent)
     let db = SnapshotDb::new(loom_dir);
