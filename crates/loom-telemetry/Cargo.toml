@@ -8,6 +8,8 @@ loom-core = { path = "../loom-core" }
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

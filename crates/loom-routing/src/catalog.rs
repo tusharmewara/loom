@@ -208,6 +208,12 @@ impl CatalogManager {
         })
     }
 
+    /// (input_cost_per_1k, output_cost_per_1k) for a model id, if the
+    /// catalog knows it. Used to price a measured token count.
+    pub fn prices_for(&self, model_id: &str) -> Option<(f64, f64)> {
+        self.catalog.prices_for(model_id)
+    }
+
     /// Refresh the catalog by querying each registered provider's models
     /// endpoint, then merging discovered models with the built-in defaults.
     /// Skips providers with no `models_endpoint` configured.

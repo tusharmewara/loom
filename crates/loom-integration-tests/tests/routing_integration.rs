@@ -284,12 +284,12 @@ fn test_manual_override_persists() -> Result<()> {
         reason: "Manual override".to_string(),
         overrides_role_default: true,
         decided_at: "2026-05-17T00:00:00Z".to_string(),
-        cost_estimate: loom_core::types::CostEstimate {
-            input_tokens_estimated: 1000,
-            output_tokens_estimated: 500,
-            estimated_cost_usd: (1.0 * model.input_cost_per_1k + 0.5 * model.output_cost_per_1k),
-            confidence: "manual".into(),
-        },
+        cost_estimate: loom_core::types::CostEstimate::estimated(
+            4000,
+            model.input_cost_per_1k,
+            model.output_cost_per_1k,
+            "manual",
+        ),
     };
 
     // Load, modify, and save task

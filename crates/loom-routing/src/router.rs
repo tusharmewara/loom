@@ -72,10 +72,18 @@ impl ModelRouter {
                     })
             });
 
-        let input_tokens = 1000u32;
-        let output_tokens = 500u32;
-        let cost = (input_tokens as f64 / 1000.0) * model.input_cost_per_1k
-            + (output_tokens as f64 / 1000.0) * model.output_cost_per_1k;
+        // The cost estimate is a FORECAST made before the run exists, so it
+        // is derived from the prompt size actually scored
+        // (`description_length` is the prompt's character count) rather than
+        // a fixed token count. `CostEstimate::estimated` labels it
+        // `Estimated` with its method, so a reader can never mistake it for
+        // a measured cost.
+        let cost_estimate = CostEstimate::estimated(
+            score.signals.description_length,
+            model.input_cost_per_1k,
+            model.output_cost_per_1k,
+            "medium",
+        );
 
         RoutingDecision {
             recommended_tier: tier,
@@ -92,12 +100,7 @@ impl ModelRouter {
             ),
             overrides_role_default: false,
             decided_at: loom_core::rfc3339_now(),
-            cost_estimate: CostEstimate {
-                input_tokens_estimated: input_tokens,
-                output_tokens_estimated: output_tokens,
-                estimated_cost_usd: cost,
-                confidence: "medium".into(),
-            },
+            cost_estimate,
         }
     }
 

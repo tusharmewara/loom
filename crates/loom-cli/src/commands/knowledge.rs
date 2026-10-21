@@ -43,7 +43,17 @@ pub async fn run(loom_dir: &str, action: &KnowledgeAction) -> anyhow::Result<()>
 
                             match call_llm_for_extraction(&prompt).await {
                                 Ok(response) => {
-                                    match kg.extract_from_llm_response(&response, &session_id) {
+                                    if let Some((model, usage)) = response.usage {
+                                        record_extraction_usage(
+                                            loom_dir,
+                                            &session_id,
+                                            &model,
+                                            usage,
+                                            prompt.chars().count(),
+                                        );
+                                    }
+                                    match kg.extract_from_llm_response(&response.text, &session_id)
+                                    {
                                         Ok((e, r)) => {
                                             total_entities += e;
                                             total_rels += r;
@@ -60,7 +70,7 @@ pub async fn run(loom_dir: &str, action: &KnowledgeAction) -> anyhow::Result<()>
                                                 "[{}] Parse warning: {}. Raw: {}",
                                                 &session_id[..session_id.len().min(12)],
                                                 parse_err,
-                                                &response[..response.len().min(200)]
+                                                &response.text[..response.text.len().min(200)]
                                             );
                                         }
                                     }
@@ -421,10 +431,17 @@ Conversation content:
     )
 }
 
+/// One LLM extraction call: the raw response text plus whatever usage the
+/// provider reported (and the model that served it).
+struct ExtractionResponse {
+    text: String,
+    usage: Option<(String, loom_core::UsageCounts)>,
+}
+
 /// Call an LLM provider for extraction.
 /// Uses OPENAI_API_KEY (default) or ANTHROPIC_API_KEY.
 /// Returns the raw response text.
-async fn call_llm_for_extraction(prompt: &str) -> anyhow::Result<String> {
+async fn call_llm_for_extraction(prompt: &str) -> anyhow::Result<ExtractionResponse> {
     // Try Anthropic first, fallback to OpenAI
     if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
         return call_anthropic_extraction(&api_key, prompt).await;
@@ -435,7 +452,35 @@ async fn call_llm_for_extraction(prompt: &str) -> anyhow::Result<String> {
     call_openai_extraction(&api_key, prompt).await
 }
 
-async fn call_openai_extraction(api_key: &str, prompt: &str) -> anyhow::Result<String> {
+/// Record one extraction call in the usage ledger. A provider that reports no
+/// usage is recorded as unavailable — never as a guessed count.
+fn record_extraction_usage(
+    loom_dir: &str,
+    session_id: &str,
+    model: &str,
+    usage: loom_core::UsageCounts,
+    prompt_chars: usize,
+) {
+    let Ok(meter) = loom_telemetry::UsageMeter::new(loom_dir) else {
+        return;
+    };
+    let prices = loom_routing::CatalogManager::load(loom_dir)
+        .ok()
+        .and_then(|catalog| catalog.prices_for(model));
+    if let Err(e) = meter.record_run(
+        &format!("{session_id}-extract"),
+        "knowledge-extract",
+        model,
+        usage,
+        "provider",
+        prompt_chars,
+        prices,
+    ) {
+        tracing::warn!("Extraction usage not recorded: {}", e);
+    }
+}
+
+async fn call_openai_extraction(api_key: &str, prompt: &str) -> anyhow::Result<ExtractionResponse> {
     let client = reqwest::Client::new();
     let body = serde_json::json!({
         "model": "gpt-4o-mini",
@@ -460,10 +505,31 @@ async fn call_openai_extraction(api_key: &str, prompt: &str) -> anyhow::Result<S
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("No content in OpenAI response"))?
         .to_string();
-    Ok(text)
+    // A provider that omits `usage` reported nothing — `None`, not 0.
+    let usage = resp.get("usage").and_then(|u| {
+        let input = u["prompt_tokens"].as_u64();
+        let output = u["completion_tokens"].as_u64();
+        if input.is_none() && output.is_none() {
+            None
+        } else {
+            Some(loom_core::UsageCounts {
+                input_tokens: input,
+                output_tokens: output,
+                context_tokens: None,
+                cost_usd: None,
+            })
+        }
+    });
+    Ok(ExtractionResponse {
+        text,
+        usage: usage.map(|u| ("gpt-4o-mini".to_string(), u)),
+    })
 }
 
-async fn call_anthropic_extraction(api_key: &str, prompt: &str) -> anyhow::Result<String> {
+async fn call_anthropic_extraction(
+    api_key: &str,
+    prompt: &str,
+) -> anyhow::Result<ExtractionResponse> {
     let client = reqwest::Client::new();
     let body = serde_json::json!({
         "model": "claude-sonnet-4-20250514",
@@ -488,5 +554,22 @@ async fn call_anthropic_extraction(api_key: &str, prompt: &str) -> anyhow::Resul
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("No content in Anthropic response"))?
         .to_string();
-    Ok(text)
+    let usage = resp.get("usage").and_then(|u| {
+        let input = u["input_tokens"].as_u64();
+        let output = u["output_tokens"].as_u64();
+        if input.is_none() && output.is_none() {
+            None
+        } else {
+            Some(loom_core::UsageCounts {
+                input_tokens: input,
+                output_tokens: output,
+                context_tokens: None,
+                cost_usd: None,
+            })
+        }
+    });
+    Ok(ExtractionResponse {
+        text,
+        usage: usage.map(|u| ("claude-sonnet-4-20250514".to_string(), u)),
+    })
 }

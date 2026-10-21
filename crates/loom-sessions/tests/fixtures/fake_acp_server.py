@@ -3,6 +3,8 @@
 
 Speaks newline-delimited JSON-RPC 2.0 on stdio. Modes (--mode=...):
   happy       normal flow with chunks + a tool call, stopReason end_turn
+  usage       happy path plus a stable usage_update notification and an
+              unstable per-turn usage object in the prompt response
   permission  asks session/request_permission, expects an allow* choice
   bad-version answers initialize with protocolVersion 999
   hang        answers initialize/session-new, then sleeps on prompt
@@ -122,6 +124,25 @@ def main():
               "toolCallId": "call-1",
               "status": "completed",
           }}})
+
+    if mode == "usage":
+        # Stable ACP usage notification: context usage + cumulative cost.
+        send({"jsonrpc": "2.0", "method": "session/update",
+              "params": {"sessionId": "sess-test-1", "update": {
+                  "sessionUpdate": "usage_update",
+                  "used": 4321,
+                  "size": 200000,
+                  "cost": {"amount": 0.0123, "currency": "USD"},
+              }}})
+        # Unstable per-turn usage in the prompt response.
+        send({"jsonrpc": "2.0", "id": prompt_id,
+              "result": {"stopReason": "end_turn", "usage": {
+                  "totalTokens": 1500,
+                  "inputTokens": 1200,
+                  "outputTokens": 300,
+              }}})
+        return 0
+
     send({"jsonrpc": "2.0", "id": prompt_id,
           "result": {"stopReason": "end_turn"}})
     return 0

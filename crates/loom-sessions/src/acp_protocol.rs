@@ -45,6 +45,30 @@ pub struct AcpTranscript {
     pub agent_text: String,
     /// Tool summaries as `title [status]`.
     pub tool_calls: Vec<String>,
+    /// Token usage the agent reported, if any.
+    ///
+    /// ACP v1 carries usage in two places with different meanings:
+    /// the STABLE `usage_update` session notification reports *context*
+    /// usage (`used` tokens currently in context, `size` context-window
+    /// size) plus an optional cumulative *session* cost; the UNSTABLE
+    /// `session/prompt` response may carry per-turn `usage` with
+    /// `inputTokens`/`outputTokens` (cumulative across the session's turns).
+    ///
+    /// Neither is a per-request cost, and a context-window size is not a
+    /// turn count — so `context_tokens` and the token counts stay
+    /// separate fields, and a run with no counts at all stays empty.
+    pub usage: loom_core::UsageCounts,
+    /// Which ACP usage source the counts came from, for the ledger.
+    ///
+    /// "acp:session-usage" — the unstable `usage` object on a
+    /// `session/prompt` response. Upstream defines its `inputTokens` /
+    /// `outputTokens` as CUMULATIVE across the whole session, so the
+    /// label names the session, not a turn.
+    /// "acp:session-context-cost" — the stable `usage_update`
+    /// notification: a context-window size and the session's cumulative
+    /// cost.
+    /// Empty — the agent reported no usage.
+    pub usage_method: String,
 }
 
 /// One newline-delimited JSON-RPC message from the agent.
@@ -114,6 +138,8 @@ fn id_key(id: &Value) -> String {
 struct TranscriptAcc {
     text: String,
     tools: Vec<(String, String, String)>,
+    usage: loom_core::UsageCounts,
+    usage_method: String,
 }
 
 type PendingResponse = (Option<Value>, Option<Value>);
@@ -167,8 +193,55 @@ fn accumulate(transcript: &mut TranscriptAcc, params: &Value) {
                 }
             }
         }
+        // Stable ACP usage notification: `used` tokens currently in context,
+        // `size` context-window size, optional cumulative session `cost`.
+        // A context size is NOT a turn count, so `used` lands in
+        // `context_tokens` only and is never promoted to input/output.
+        // `size` is the window limit, not a usage number, so it is not
+        // recorded at all.
+        "usage_update" => {
+            let used = update.get("used").and_then(Value::as_u64);
+            let cost = update
+                .get("cost")
+                .and_then(|c| c.get("amount"))
+                .and_then(Value::as_f64);
+            if used.is_some() {
+                transcript.usage.context_tokens = used;
+            }
+            if cost.is_some() {
+                transcript.usage.cost_usd = cost;
+            }
+            if (used.is_some() || cost.is_some()) && transcript.usage_method.is_empty() {
+                transcript.usage_method = "acp:session-context-cost".to_string();
+            }
+        }
         _ => {}
     }
+}
+
+/// Read the UNSTABLE `usage` object from a `session/prompt` response:
+/// `{ totalTokens, inputTokens, outputTokens, ... }`.
+///
+/// Upstream ACP defines these as CUMULATIVE across the session ("Total
+/// input tokens across all turns"), so the counts describe the session,
+/// not the turn — hence the `acp:session-usage` label. One Loom run is
+/// one turn today, which makes the two coincide by accident.
+///
+/// Absent or malformed means "no count" — the caller records the run as
+/// unavailable rather than guessing.
+fn prompt_turn_usage(prompt_result: &Value) -> Option<loom_core::UsageCounts> {
+    let usage = prompt_result.get("usage")?;
+    let input = usage.get("inputTokens").and_then(Value::as_u64);
+    let output = usage.get("outputTokens").and_then(Value::as_u64);
+    if input.is_none() && output.is_none() {
+        return None;
+    }
+    Some(loom_core::UsageCounts {
+        input_tokens: input,
+        output_tokens: output,
+        context_tokens: None,
+        cost_usd: None,
+    })
 }
 
 /// Headless policy for `session/request_permission`: pick the first
@@ -430,6 +503,16 @@ impl AcpProtocolClient {
             .to_string();
 
         let acc = loom_core::lock_ok!(shared.transcript);
+        // The unstable per-turn `usage` wins on the input/output legs: it
+        // is the only ACP shape that reports turn token counts. The stable
+        // notification still contributes the context size and cost.
+        let mut usage = acc.usage;
+        let mut usage_method = acc.usage_method.clone();
+        if let Some(counts) = prompt_turn_usage(&prompt_result) {
+            usage.input_tokens = counts.input_tokens;
+            usage.output_tokens = counts.output_tokens;
+            usage_method = "acp:session-usage".to_string();
+        }
         Ok(AcpTranscript {
             session_id,
             stop_reason,
@@ -439,6 +522,8 @@ impl AcpProtocolClient {
                 .iter()
                 .map(|(_, title, status)| format!("{title} [{status}]"))
                 .collect(),
+            usage,
+            usage_method,
         })
     }
 }
@@ -630,6 +715,31 @@ mod tests {
     }
 
     #[test]
+    fn run_prompt_reports_no_usage_when_the_agent_reports_none() {
+        let (cfg, _) = config("happy");
+        let transcript = AcpProtocolClient::run_prompt(&cfg, "hello agent").unwrap();
+        // No usage in the response and no usage_update notification: the
+        // counts stay empty rather than defaulting to zero.
+        assert_eq!(transcript.usage.input_tokens, None);
+        assert_eq!(transcript.usage.output_tokens, None);
+        assert_eq!(transcript.usage.context_tokens, None);
+        assert!(transcript.usage_method.is_empty());
+    }
+
+    #[test]
+    fn run_prompt_reads_the_unstable_session_usage_and_the_stable_context_usage() {
+        let (cfg, _) = config("usage");
+        let transcript = AcpProtocolClient::run_prompt(&cfg, "hello agent").unwrap();
+        assert_eq!(transcript.usage.input_tokens, Some(1200));
+        assert_eq!(transcript.usage.output_tokens, Some(300));
+        // `used` (tokens currently in context) is context usage, not a turn
+        // count; `size` (the window limit) is a model property, not usage.
+        assert_eq!(transcript.usage.context_tokens, Some(4321));
+        assert_eq!(transcript.usage.cost_usd, Some(0.0123));
+        assert_eq!(transcript.usage_method, "acp:session-usage");
+    }
+
+    #[test]
     fn run_prompt_auto_allows_permission_requests() {
         let (cfg, _) = config("permission");
         let transcript = AcpProtocolClient::run_prompt(&cfg, "do the thing").unwrap();
@@ -673,6 +783,8 @@ mod tests {
             stop_reason: "end_turn".to_string(),
             agent_text: "Hello back".to_string(),
             tool_calls: vec!["Reading file [completed]".to_string()],
+            usage: loom_core::UsageCounts::default(),
+            usage_method: String::new(),
         }
     }
 

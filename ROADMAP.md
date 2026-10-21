@@ -55,6 +55,7 @@ Market proof exists: Conductor at $50–60/mo/user sells orchestration with clou
 - **Deployment tiers.** Documented headless daemon for servers/containers; `loom-remote` as the managed-remote story; a hosted control plane (registry sync, relay, fleet status) — **not** hosted scale-out: the scaling investigation's verdict is local-first by design.
 - **Team tier.** Shared skill/MCP/template registries with org sync, RBAC on the vault, org-wide audit rollup, usage reporting.
 - **Usage metering.** Per-run, per-tool, per-token accounting from the routing/telemetry crates — the honesty layer for both cost-conscious users and future billing. The verified review engine (pillar 5) is its flagship consumer: every review is a metered multi-seat workload.
+  ↳ Metering landed (partial): `loom telemetry usage` reads a per-run, per-tool ledger from `{loom_dir}/telemetry/usage.db`. Measurable now: `resume` (provider usage), `acp` (protocol usage), `knowledge-extract` (provider usage); `workflow` is recorded as **unavailable** rather than estimated. Not yet metered: `loom exec`, the TUI dispatch path, the TUI Cost tab, and multi-turn session cost. Pillar 4 remains post-1.0 and gated on pillars 1–3.
 
 ### 5. Verified Review Engine *(post-1.0, gated on 2; the pillar-4 demand driver)*
 

@@ -17,12 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - docs(protocol): versioned **Loom Public Protocol** spec v1.0.0 — the adapter contract (tool TOML shape, `LoomToolAdapter` trait) and the ACP dispatch protocol, every normative statement anchored to a source line: [`docs/protocol/adapter-and-acp-protocol.md`](docs/protocol/adapter-and-acp-protocol.md)
 - docs(protocol): the spec now also covers the **ACP dispatch server** (the TCP/Ed25519/JSON-line agent-to-agent dispatch surface in `loom-sessions` + `loomd`, §2.9), the `apply_routing_decision` environment-variable convention and its read-back rule (§1.1), the `adapter_for` name aliases, and the `acp_registry` gitlink caveat
 - test(loom-generic-adapter): the tool TOML example published in the protocol spec is parsed by a test, so the document and the schema cannot drift apart
+- feat(telemetry): `loom telemetry usage` — a metered usage ledger (per-run, per-tool, per-token) at `{loom_dir}/telemetry/usage.db`, readable with `loom telemetry usage [--json] [--limit N]`. Every row carries its provenance: a measured count, a documented `chars/4` forecast, or `unavailable` when the source reported nothing. An unreported count stays unreported — the ledger never presents a missing number as a zero. Covered paths today: `resume` (provider usage), `acp` (protocol usage), `knowledge-extract` (provider usage); `workflow` is recorded as unavailable rather than estimated. Not yet metered: `loom exec`, the TUI dispatch path, the TUI Cost tab, and multi-turn session cost
 
 ### Fixed
+
 - fix(runtime): the TUI dispatch path now calls `Runtime::cleanup`, so a container run dispatched from the TUI no longer leaks the container. The engine's own auto-remove stays **off** — the runtime reads the container's logs after the process exits, and a daemon-side auto-remove would delete them
 - fix(runtime): a `restricted` run now logs the posture it actually got (`container network posture downgraded: restricted (posture=none, allowed_hosts not enforced yet: …)`) instead of silently discarding the allowlist
 - fix(runtime): the Kubernetes `NetworkPolicy` is now created **before** the Job — a policy selects Pods by label, not by the Pod existing
 - fix(auth): the grant registry is written `0600` (it was written with the default umask), and the unused `GrantRecord::is_usable` helper is gone
+- fix(telemetry): the usage ledger no longer reports "Measured tokens: 0 in / 0 out" for a run that reported no token count. A run that reported only a context-window size and a cost (the stable ACP v1 `usage_update` shape) was counted as measured, and the aggregate turned the absent count into a zero that read like a measurement; the token sums are now nullable end to end and the ledger says "unavailable (no run reported a token count)"
+- fix(acp): the ACP usage method label now names what upstream actually defines — `acp:session-usage` and `acp:session-context-cost` instead of `acp:turn-usage`. ACP defines those counts as cumulative across the session, not per turn
+- fix(daemon): `acp.dispatch` now returns the metered `usage` object in its reply, matching the CLI path — the TUI no longer has to read the ledger to see what a dispatch cost
+- fix(cli): `loom telemetry reset` now says it resets the daemon's in-memory counters only; the usage ledger is untouched
+- fix(cli): `loom sessions resume` hands the adapter a real cost estimate instead of a default one, so the adapter sees what the user is shown
 
 ## [0.9.6] - 2026-10-20
 

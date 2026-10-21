@@ -229,11 +229,46 @@ pub async fn resume_session(
         let response = send_to_provider(&provider, &model, &api_key, &all_messages).await?;
 
         println!("\n{}", response.text);
-        if response.input_tokens > 0 || response.output_tokens > 0 {
-            println!(
-                "\n[Tokens: {} in / {} out]",
-                response.input_tokens, response.output_tokens
+        match (response.input_tokens, response.output_tokens) {
+            (Some(input), Some(output)) => {
+                println!("\n[Tokens: {input} in / {output} out]");
+            }
+            _ => {
+                // The provider reported no usage. Say so — do not print zeros
+                // that read like a real measurement.
+                println!("\n[Tokens: not reported by provider]");
+            }
+        }
+
+        // Meter the turn. The provider's own report is the only source of
+        // truth; a provider that reports nothing is recorded as
+        // unavailable, not as a guessed count.
+        let usage = loom_core::UsageCounts {
+            input_tokens: response.input_tokens,
+            output_tokens: response.output_tokens,
+            context_tokens: None,
+            cost_usd: None,
+        };
+        let prompt_chars = all_messages
+            .iter()
+            .map(|m| m["content"].as_str().unwrap_or("").chars().count())
+            .sum();
+        let prices = loom_routing::CatalogManager::load(loom_dir_str)
+            .ok()
+            .and_then(|catalog| catalog.prices_for(&model));
+        if let Ok(meter) = loom_telemetry::UsageMeter::new(loom_dir_str) {
+            let recorded = meter.record_run(
+                &format!("{session_id}-turn-{}", all_messages.len()),
+                "resume",
+                &model,
+                usage,
+                "provider",
+                prompt_chars,
+                prices,
             );
+            if let Err(e) = &recorded {
+                eprintln!("  Warning: usage not recorded: {e}");
+            }
         }
 
         all_messages.push(serde_json::json!({
@@ -334,6 +369,24 @@ async fn launch_agent_with_session_context(
         }
 
         // Apply routing decision through the adapter
+        // The cost estimate the adapter sees must be the same one the user
+        // is shown — a `CostEstimate::default()` claims "unavailable" for a
+        // number this command can actually compute.
+        let resume_chars = messages.iter().map(|m| m.content.chars().count()).sum();
+        let resume_prices = loom_routing::CatalogManager::load(loom_dir)
+            .ok()
+            .and_then(|catalog| catalog.prices_for(model));
+        let cost_estimate = match resume_prices {
+            Some((input_cost_per_1k, output_cost_per_1k)) => loom_core::CostEstimate::estimated(
+                resume_chars,
+                input_cost_per_1k,
+                output_cost_per_1k,
+                "low",
+            ),
+            // The catalog does not price this model: there is no estimate to
+            // make, and "unavailable" is the honest answer.
+            None => loom_core::CostEstimate::default(),
+        };
         let decision = loom_core::RoutingDecision {
             recommended_tier: loom_core::ModelTier::Mid,
             recommended_provider: provider.to_string(),
@@ -341,7 +394,7 @@ async fn launch_agent_with_session_context(
             reason: "Session resume".to_string(),
             overrides_role_default: true,
             decided_at: chrono::Utc::now().to_rfc3339(),
-            cost_estimate: loom_core::CostEstimate::default(),
+            cost_estimate,
         };
         adapter.apply_routing_decision(&decision)?;
 
@@ -444,8 +497,11 @@ fn resolve_model(
 
 struct ProviderResponse {
     text: String,
-    input_tokens: u64,
-    output_tokens: u64,
+    /// Input tokens the provider reported. `None` = the provider reported
+    /// no usage — which is not the same as a real zero.
+    input_tokens: Option<u64>,
+    /// Output tokens the provider reported. `None` = not reported.
+    output_tokens: Option<u64>,
 }
 
 fn default_model(provider: &str) -> &'static str {
@@ -549,8 +605,9 @@ async fn send_openai_compatible(
         .to_string();
 
     let usage = &resp["usage"];
-    let input_tokens = usage["prompt_tokens"].as_u64().unwrap_or(0);
-    let output_tokens = usage["completion_tokens"].as_u64().unwrap_or(0);
+    // A provider that omits `usage` reported nothing — `None`, not 0.
+    let input_tokens = usage["prompt_tokens"].as_u64();
+    let output_tokens = usage["completion_tokens"].as_u64();
 
     Ok(ProviderResponse {
         text,
@@ -611,8 +668,8 @@ async fn send_anthropic(
         .to_string();
 
     let usage = &resp["usage"];
-    let input_tokens = usage["input_tokens"].as_u64().unwrap_or(0);
-    let output_tokens = usage["output_tokens"].as_u64().unwrap_or(0);
+    let input_tokens = usage["input_tokens"].as_u64();
+    let output_tokens = usage["output_tokens"].as_u64();
 
     Ok(ProviderResponse {
         text,

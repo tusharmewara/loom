@@ -7,6 +7,9 @@
 pub mod histograms;
 pub mod logging;
 pub mod metrics;
+pub mod usage;
+
+pub use usage::{ToolUsage, UsageMeter, UsageTotals};
 
 use loom_core::HealthCheck;
 

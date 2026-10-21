@@ -2232,6 +2232,7 @@ dependencies = [
  "loom-runtime",
  "loom-sessions",
  "loom-skills",
+ "loom-telemetry",
  "loom-trackers",
  "loom-tui",
  "loom-workflow",
@@ -2632,6 +2633,8 @@ version = "0.9.6"
 dependencies = [
  "anyhow",
  "loom-core",
+ "rusqlite",
+ "serde",
  "tempfile",
  "tracing",
  "tracing-subscriber",
