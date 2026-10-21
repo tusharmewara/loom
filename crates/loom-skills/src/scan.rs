@@ -128,13 +128,34 @@ pub fn scan_skill_tree(skills_dir: &Path) -> SkillScan {
         }
     }
 
-    for (name, path, info) in &found {
+    // One entry per effective name: the directory layout wins over a flat
+    // duplicate of the same skill, so a consumer iterating `scan.skills`
+    // never double-counts a name. The collision is reported as a defect.
+    let mut chosen: BTreeMap<&str, &(String, PathBuf, Option<Frontmatter>)> = BTreeMap::new();
+    for entry in &found {
+        match chosen.get(entry.0.as_str()) {
+            Some(existing) if layout_rank(&existing.1) >= layout_rank(&entry.1) => {}
+            _ => {
+                chosen.insert(entry.0.as_str(), entry);
+            }
+        }
+    }
+    for (name, path, info) in chosen.into_values() {
         if let Some(info) = info {
             scan.skills.push(skill_entry(name, path, info));
         }
     }
 
     scan
+}
+
+/// `1` for the dir layout (`<name>/SKILL.md`), `0` for a flat `<name>.md`.
+fn layout_rank(path: &Path) -> u8 {
+    if path.file_name().map(|n| n == "SKILL.md").unwrap_or(false) {
+        1
+    } else {
+        0
+    }
 }
 
 /// Validate every skill in `skills_dir` (both layouts).
@@ -156,6 +177,26 @@ pub fn validate_skill_file(path: &Path, dir_name: Option<&str>) -> Vec<SkillDefe
             .to_string(),
     };
     inspect(path, &expected, layout).0
+}
+
+/// The `name:` in a skill file's frontmatter, if it has one.
+///
+/// The one YAML parser in the tree does the reading; a caller that needs the
+/// effective name of a file it is about to install asks here rather than
+/// parsing the file a second way.
+pub fn frontmatter_name(path: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let (yaml, _) = split_frontmatter(&content).ok()?;
+    let yaml = yaml?;
+    if yaml.trim().is_empty() {
+        return None;
+    }
+    let fields: BTreeMap<String, Value> = serde_yaml::from_str(yaml).ok()?;
+    fields
+        .get("name")
+        .and_then(value_as_str)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 // ─── internals ───────────────────────────────────────────────────────
@@ -285,20 +326,24 @@ fn inspect(
         ));
     }
 
-    // Referenced scripts must exist next to the skill.
-    let root = path.parent().unwrap_or(Path::new("."));
-    for rel in referenced_scripts(body) {
-        if !root.join(&rel).exists() {
-            defects.push(defect(
-                path,
-                Severity::Fatal,
-                "missing_script",
-                format!(
-                    "{} references `{rel}`, which does not exist in {}",
-                    path.display(),
-                    root.display()
-                ),
-            ));
+    // Referenced scripts must exist next to the skill. Only the directory
+    // layout has a directory to check: a flat file has none, so a
+    // `scripts/…` reference in it is not a missing script.
+    if layout == Layout::Dir {
+        let root = path.parent().unwrap_or(Path::new("."));
+        for rel in referenced_scripts(body) {
+            if !root.join(&rel).exists() {
+                defects.push(defect(
+                    path,
+                    Severity::Warn,
+                    "missing_script",
+                    format!(
+                        "{} references `{rel}`, which does not exist in {}",
+                        path.display(),
+                        root.display()
+                    ),
+                ));
+            }
         }
     }
 
@@ -614,7 +659,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_script_is_fatal() {
+    fn missing_script_is_reported() {
         let dir = tempdir().unwrap();
         write(
             &dir.path().join("opendesign/SKILL.md"),
@@ -622,8 +667,21 @@ mod tests {
         );
         let defects = validate_skill_tree(dir.path());
         let d = defects.iter().find(|d| d.code == "missing_script").unwrap();
-        assert_eq!(d.severity, Severity::Fatal);
+        // A missing script is reported, not fatal: it must not block an
+        // install of an otherwise working skill.
+        assert_eq!(d.severity, Severity::Warn);
         assert!(d.message.contains("scripts/list-design-templates.mjs"));
+    }
+
+    #[test]
+    fn a_flat_skill_has_no_script_directory_to_check() {
+        let dir = tempdir().unwrap();
+        write(
+            &dir.path().join("flat.md"),
+            "---\nname: flat\ndescription: d\n---\n\nRun `scripts/thing.sh`.\n",
+        );
+        let defects = validate_skill_tree(dir.path());
+        assert!(!codes(&defects).contains(&"missing_script"));
     }
 
     #[test]
