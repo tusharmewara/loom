@@ -397,7 +397,9 @@ No code is written by this document. This is the plan a follow-up spec would for
 
 What follows is therefore ordered by *value per day*, and gated by cheap experiments that can kill the expensive part.
 
-### Phase A — Skill inventory + validation + trigger generation (**recommended now**, 3–4 days, owner `loom-skills`)
+### Phase A — Skill inventory + validation + trigger generation (**recommended now**, 3–4 days, owner `loom-skills`) — **SHIPPED 2026-10-21**
+
+> **Status: landed.** Phase A shipped on `main` in merge `37baf41` (branch `phase-a/integrate`): the one walk in `crates/loom-skills/src/scan.rs` with one validator and one real YAML parser, the trigger generator in `crates/loom-skills/src/trigger.rs`, the registry populated from that walk, install/remove fixed for both layouts, `neutral_renderer.rs` deleted, the validator wired into both sync paths through one shared predicate, and the `loom doctor` row. All 23 acceptance criteria of the spec re-verified against the merged tree on a copy of the live corpus. The bullets below are kept as the plan of record — the shipped shape matches them, with two deliberate differences the brief corrected: `missing_script` is a **warning**, not fatal; and a defecting skill is still **listed** with its defect attached, never dropped from the inventory. Phase B is unaffected and remains the gate for everything after it. Spec: [plan/LOOM_SKILL_VALIDATION_PROPOSAL.md](plan/LOOM_SKILL_VALIDATION_PROPOSAL.md) §4; review: [plan/LOOM_PHASE_A_REVIEW.md](plan/LOOM_PHASE_A_REVIEW.md).
 
 Fixes three live defects. *A0 (inventory):* `loom skills list` returns `[]`, `loom skills show` finds nothing, and `loom lock --generate` writes zero entries — while 11 skills are installed on this machine, because the registry is never populated. *A1 (validation):* a skill with no `description:` frontmatter is installed, synced into every native tool directory, and then **silently ignored by the agent** — while Loom reports success everywhere.
 

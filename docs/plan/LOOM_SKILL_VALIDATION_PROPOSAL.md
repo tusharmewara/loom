@@ -1,6 +1,6 @@
 # Loom Skill Validation + Trigger Generation — build proposal
 
-> Status: proposal, 2026-10-20 (revised 2026-10-20 after a first-principles review of the two documents — see the parent analysis §12). No code is written by this document.
+> Status: **SHIPPED 2026-10-21** (proposal 2026-10-20, revised 2026-10-20 after a first-principles review of the two documents — see the parent analysis §12). This document is kept as the spec of record; the code it describes was written on branch `phase-a/integrate` and landed on `main` by merge `37baf41`. §4 carries the per-criterion shipped state.
 > Owner crate: `loom-skills`. Cost: **3–4 days**, no LLM spend, no new crate, no new CLI group, no new command.
 > Parent analysis: [LOOM_HARNESS2_ANALYSIS.md](../LOOM_HARNESS2_ANALYSIS.md) §6.2.1, §7 Phase A, and §12 (the review that reshaped this proposal). This is the *only* slice that analysis recommends building.
 > Upstream reference: `google-research/harness2` v0.1.0 `harness2/core/tree.py:265-300` (`_check_skills`), `:192-213` (`autotrigger`), Apache-2.0. **The rules are copied; the extraction is not** — upstream's trigger-text regex is broken for folded YAML (§2).
@@ -332,40 +332,42 @@ Design rules, each traceable to upstream or to a real failure mode:
 
 ## 4. Acceptance criteria
 
+**Status (2026-10-21): all 23 shipped.** Implemented on branch `phase-a/integrate`, landed on `main` by merge `37baf41`. The per-criterion commit below is the commit that shipped it; the card commits are the A1–A5 merges, the rest are the PA-FIX commits that closed the review's findings. Every criterion was re-run against the merged tree in a `LOOM_AGENTS_DIR` sandbox holding a **copy** of the live corpus (11 distinct skills, 6 flat/dir duplicate pairs, 1 skill with no frontmatter). The review record is `docs/plan/LOOM_PHASE_A_REVIEW.md`.
+
 **A0 — the inventory becomes real**
 
-1. `loom skills list` on a tree with 11 skills returns **11**, not `[]` — the registry is populated from the filesystem.
-2. `loom skills show <name>` finds a skill that exists on disk, in either layout.
-3. `loom lock --generate` writes a lock file with one entry per installed skill.
-4. `loom skills install <dir>` installs a `<name>/SKILL.md` directory; `loom skills install <file.md>` installs a flat file. Both succeed. *(The directory case fails today — §1.1.1.)*
-5. `loom skills remove <name>` removes both a flat file and a directory skill, leaving nothing behind. *(The directory case fails today — §1.1.2.)*
-6. The three inventories agree: `skills.db` rows == the number of distinct skills on disk == the lock file entries.
+1. `loom skills list` on a tree with 11 skills returns **11**, not `[]` — the registry is populated from the filesystem. — shipped `88cc32b`, defect-drop fixed in `5c2059c`
+2. `loom skills show <name>` finds a skill that exists on disk, in either layout. — shipped `88cc32b`
+3. `loom lock --generate` writes a lock file with one entry per installed skill. — shipped `88cc32b`, lock follows install/remove in `05d7852`
+4. `loom skills install <dir>` installs a `<name>/SKILL.md` directory; `loom skills install <file.md>` installs a flat file. Both succeed. *(The directory case fails today — §1.1.1.)* — shipped `54bde99`
+5. `loom skills remove <name>` removes both a flat file and a directory skill, leaving nothing behind. *(The directory case fails today — §1.1.2.)* — shipped `54bde99`, lock entry dropped in `05d7852`
+6. The three inventories agree: `skills.db` rows == the number of distinct skills on disk == the lock file entries. — shipped `88cc32b` + `05d7852`
 
 **A1 — validation**
 
-7. A skill with no `description:` is **refused at install**, with the file path and the missing field named in the error.
-8. A skill with a `name:` that disagrees with its directory (layout A) is refused, with both values shown.
-9. A flat `.md` skill with a disagreeing `name:` is **warned about, not refused** (§3.1).
-10. `validate_skill_tree` returns **every** defect in the tree, not just the first — one call, one list.
-11. All three YAML description styles in use today (`>`, `|`, double-quoted) parse to the same effective description. A regression test uses the real `ponytail/SKILL.md` shape (`description: >` with a folded multi-line value) and the real `ui-ux-pro-max` shape (a quoted value).
-12. A quoted `name:` (`name: "graphflow"`) does **not** report a false `name_mismatch`.
-13. Unknown frontmatter keys (`triggers`, `argument-hint`, `license`) are preserved and do not make a skill invalid.
-14. A skill with an unterminated `---` fence is reported as `invalid_frontmatter`, not silently treated as "no frontmatter".
-15. A skill that references a `scripts/…` file that does not exist in its directory is reported as `missing_script` — the live `open-design` skill is the fixture.
-16. The two flat/dir copies of one skill are reported as `duplicate_name`, not silently double-counted.
-17. `sync_skills_to_native` does not symlink a Fatal-defective skill into a native tool directory, and the skip is named in the `SyncReport` notes.
-18. `inject_shared_skills` (the layout-B path) applies the same rule as `sync_skills_to_native` (the layout-A path). The two paths cannot disagree.
+7. A skill with no `description:` is **refused at install**, with the file path and the missing field named in the error. — shipped `54bde99`, exact message asserted in `ccdf6d9`
+8. A skill with a `name:` that disagrees with its directory (layout A) is refused, with both values shown. — shipped `3db533b` (rules) + `54bde99` (refusal at install)
+9. A flat `.md` skill with a disagreeing `name:` is **warned about, not refused** (§3.1). — shipped `3db533b` (rules) + `54bde99` (warn at install)
+10. `validate_skill_tree` returns **every** defect in the tree, not just the first — one call, one list. — shipped `3db533b`
+11. All three YAML description styles in use today (`>`, `|`, double-quoted) parse to the same effective description. A regression test uses the real `ponytail/SKILL.md` shape (`description: >` with a folded multi-line value) and the real `ui-ux-pro-max` shape (a quoted value). — shipped `3db533b`, same-value test in `ccdf6d9`
+12. A quoted `name:` (`name: "graphflow"`) does **not** report a false `name_mismatch`. — shipped `3db533b`
+13. Unknown frontmatter keys (`triggers`, `argument-hint`, `license`) are preserved and do not make a skill invalid. — **partly shipped** `3db533b`: the second half (not invalidating) holds and is tested (`unknown_frontmatter_keys_do_not_invalidate`); the first half does **not** — unknown keys are *ignored*, not preserved (`Frontmatter` keeps six known fields). Left open deliberately; see the review's MINOR 4.
+14. A skill with an unterminated `---` fence is reported as `invalid_frontmatter`, not silently treated as "no frontmatter". — shipped `3db533b`
+15. A skill that references a `scripts/…` file that does not exist in its directory is reported as `missing_script` — the live `open-design` skill is the fixture. — shipped `3db533b`; severity corrected Fatal→**Warn** in `6a8d66a` (the brief's severity table) and the install no longer refuses on it in `e09bb9e`
+16. The two flat/dir copies of one skill are reported as `duplicate_name`, not silently double-counted. — shipped `3db533b`, exact defect set asserted in `f053771`
+17. `sync_skills_to_native` does not symlink a Fatal-defective skill into a native tool directory, and the skip is named in the `SyncReport` notes. — shipped `fa2e20e`
+18. `inject_shared_skills` (the layout-B path) applies the same rule as `sync_skills_to_native` (the layout-A path). The two paths cannot disagree. — shipped `fa2e20e` (one shared predicate, `skill_link_decision`)
 
 **Trigger generation**
 
-19. Trigger lines are generated for every valid skill, in a deterministic order.
-20. A skill whose trigger line would exceed `TRIGGER_MAX_CHARS` is named in `not_triggered` — never silently dropped.
-21. A folded description (`description: >`) yields a cue that is the **parsed text**, not the literal `>`.
+19. Trigger lines are generated for every valid skill, in a deterministic order. — shipped `9291f6a`; only a *valid* skill gets a line since `736c152`
+20. A skill whose trigger line would exceed `TRIGGER_MAX_CHARS` is named in `not_triggered` — never silently dropped. — shipped `9291f6a`
+21. A folded description (`description: >`) yields a cue that is the **parsed text**, not the literal `>`. — shipped `9291f6a`
 
 **Surface**
 
-22. `loom doctor` reports the skill validation state as a row.
-23. `cargo test -p loom-skills` covers: missing `description:`, mismatched `name:` (layout A and B), quoted `name:`, multi-line `description: >`, unterminated fence, empty tree, the cap boundary, a missing referenced script, a duplicate flat/dir pair, and a directory install + remove round-trip.
+22. `loom doctor` reports the skill validation state as a row. — shipped `fa2e20e`, counts corrected in `8409b9e`
+23. `cargo test -p loom-skills` covers: missing `description:`, mismatched `name:` (layout A and B), quoted `name:`, multi-line `description: >`, unterminated fence, empty tree, the cap boundary, a missing referenced script, a duplicate flat/dir pair, and a directory install + remove round-trip. — shipped `ccdf6d9` (cases renamed after the brief) + `f053771`; the round-trip case lives in package `loom`, per the brief's correction C13
 
 ---
 

@@ -30,17 +30,19 @@ Verification (2026-10-10): stub-marker scan of `loom-lsp`/`loom-debug`/`loom-ast
 
 - IDE extensions (community): VS Code / JetBrains consuming Loom via `loom-mcp-server` or the public protocol — carried over from the June P3 list.
 
-### Pillar 1 (candidate slice) — Skill inventory + validation + trigger generation (spec: [plan/LOOM_SKILL_VALIDATION_PROPOSAL.md](plan/LOOM_SKILL_VALIDATION_PROPOSAL.md))
+### Pillar 1 (candidate slice) — Skill inventory + validation + trigger generation — **LANDED 2026-10-21** (spec: [plan/LOOM_SKILL_VALIDATION_PROPOSAL.md](plan/LOOM_SKILL_VALIDATION_PROPOSAL.md))
 
-Cut from the Harness² analysis after review ([LOOM_HARNESS2_ANALYSIS.md](LOOM_HARNESS2_ANALYSIS.md) §7, §12). Two defects, one slice. *Inventory:* `loom skills list` returns `[]` and `loom lock --generate` writes zero entries while 11 skills are installed — the registry is never populated. *Validation:* a skill with no `description:` frontmatter is installed, synced into every native tool directory, and **silently ignored by the agent** while Loom reports success. The validator is a plain function (upstream's shape), not a schema and not a rules engine.
+Cut from the Harness² analysis after review ([LOOM_HARNESS2_ANALYSIS.md](LOOM_HARNESS2_ANALYSIS.md) §7, §12). Two defects, one slice. ~~*Inventory:* `loom skills list` returns `[]` and `loom lock --generate` writes zero entries while 11 skills are installed — the registry is never populated. *Validation:* a skill with no `description:` frontmatter is installed, synced into every native tool directory, and **silently ignored by the agent** while Loom reports success.~~ Both are fixed.
 
-- `crates/loom-skills/src/scan.rs` — one walk over `~/.loom/skills/` handling both layouts (`<name>/SKILL.md` and flat `<name>.md`); parses frontmatter; `validate_skill_tree(dir) -> Vec<SkillDefect>`; rules: missing `description:` (fatal), `name:` mismatch (fatal in dir layout, warn in flat layout), unparseable frontmatter (fatal), missing referenced script (fatal), duplicate flat/dir pair (warn).
-- `crates/loom-skills/src/trigger.rs` — one trigger line per skill, deterministic order, cap enforced by dropping **and reporting** the untriggered skills. The cue is the **parsed** YAML value, not upstream's regex.
-- Populate the existing registry from the walk (`crates/loom-skills/src/registry.rs`) — the `description` column and the `loom_core::SkillEntry` row type already exist; no schema change, no new struct.
-- Fix `loom skills install` / `remove` to handle the directory layout (`std::fs::copy` on a directory fails today; `remove_file` cannot remove one).
-- Delete the dead `crates/loom-skills/src/neutral_renderer.rs` (373 lines, zero callers, **does not compile** — not declared in `lib.rs`, no `serde_yaml` dep, and two syntax errors). Pillar 1 ship-or-remove.
-- Wire the validator into `loom skills install` and into both sync paths (`sync_skills_to_native`, `inject_shared_skills`); report in `loom doctor`. No new CLI group, no new crate.
-- Cost: 3–4 days, no LLM spend. The inventory half is corrective (`loom skills list` → `[]` today); the validation half is preventive: 1 fatal defect in 17 real skill files on this machine.
+**Shipped** in merge `37baf41` (branch `phase-a/integrate`; five cards A1–A5 plus ten PA-FIX commits closing 5 BLOCKERs, 5 MAJORs and 7 MINORs from the review):
+
+- `crates/loom-skills/src/scan.rs` — one walk over `~/.loom/skills/` handling both layouts (`<name>/SKILL.md` and flat `<name>.md`); one validator, one real YAML parser (`serde_yaml`); `validate_skill_tree(dir) -> Vec<SkillDefect>`; rules: missing `description:` (fatal), `name:` mismatch (fatal in dir layout, warn in flat layout), unparseable frontmatter (fatal), missing referenced script (**warn** — the proposal said fatal; the brief corrected it), duplicate flat/dir pair (warn). Validation **annotates** a skill, it never removes it from the inventory.
+- `crates/loom-skills/src/trigger.rs` — one trigger line per valid skill, deterministic order, cap enforced by dropping **and reporting** the untriggered skills in `not_triggered`. The cue is the **parsed** YAML value, not upstream's regex. Printed by `loom skills list`.
+- The existing registry is populated from the walk (`crates/loom-skills/src/registry.rs`) — the `description` column and the `loom_core::SkillEntry` row type already exist; no schema change, no new struct. The daemon re-syncs from disk before answering `skills.list` / `skills.show`, so the inventory is no longer permanently stale.
+- `loom skills install` / `remove` handle both layouts; install refuses a Fatal defect (path **and** field named), warns on a Warn, and the lock file follows install and remove in both directions.
+- `crates/loom-skills/src/neutral_renderer.rs` deleted (373 lines, zero callers, did not compile).
+- The validator is wired into `loom skills install` and into both sync paths (`sync_skills_to_native`, `inject_shared_skills`) through one shared predicate, so the two paths cannot disagree; `loom doctor` gained a **Skill validation** row. No new CLI group, no new crate.
+- Cost as estimated: 3–4 days, no LLM spend, one new dependency (`serde_yaml`). Verified against the live corpus (11 distinct skills, 6 flat/dir duplicate pairs, 1 skill with no frontmatter) in a `LOOM_AGENTS_DIR` sandbox.
 
 ### Pillar 5 — Verified Review Engine (spec: [plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md](plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md))
 

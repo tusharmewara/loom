@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use comfy_table::Table;
 use loom_discovery::registry::SnapshotDb;
 use loom_ipc::{client::send_command, IpcRequest};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -169,6 +170,9 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool, verbose: bool) -> Result
         }
     }
 
+    // Skill validation: what the sync path refuses to link.
+    rows.push(skill_validation_row(&agents_path.join("skills")));
+
     // Snapshot health
     let snapshot_db = SnapshotDb::new(loom_dir);
     match snapshot_db
@@ -269,6 +273,82 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool, verbose: bool) -> Result
         anyhow::bail!("doctor found {failures} failing checks");
     }
     Ok(())
+}
+
+/// The defects of one severity, grouped by the file they belong to and
+/// de-duplicated by defect code: a skill with three identical defects is one
+/// line, not three.
+fn group_by_skill<'a>(
+    defects: impl Iterator<Item = &'a loom_skills::SkillDefect>,
+) -> Vec<(PathBuf, Vec<&'static str>)> {
+    let mut grouped: BTreeMap<PathBuf, BTreeSet<&'static str>> = BTreeMap::new();
+    for d in defects {
+        grouped.entry(d.path.clone()).or_default().insert(d.code);
+    }
+    grouped
+        .into_iter()
+        .map(|(path, codes)| (path, codes.into_iter().collect()))
+        .collect()
+}
+
+/// The offenders of one severity, one line per skill, with the number of
+/// skills left out when the list is cut.
+fn offenders(groups: &[(PathBuf, Vec<&'static str>)]) -> String {
+    const SHOWN: usize = 3;
+    let shown: Vec<String> = groups
+        .iter()
+        .take(SHOWN)
+        .map(|(path, codes)| format!("{} ({})", path.display(), codes.join(", ")))
+        .collect();
+    if groups.len() > SHOWN {
+        format!("{}, +{} more", shown.join(", "), groups.len() - SHOWN)
+    } else {
+        shown.join(", ")
+    }
+}
+
+/// The skill validation row: how many skills, how many of them are refused,
+/// and which skills the sync path refuses to link.
+fn skill_validation_row(skills_dir: &Path) -> CheckRow {
+    let scan = loom_skills::scan_skill_tree(skills_dir);
+    let fatal = group_by_skill(
+        scan.defects
+            .iter()
+            .filter(|d| d.severity == loom_skills::Severity::Fatal),
+    );
+    let warn = group_by_skill(
+        scan.defects
+            .iter()
+            .filter(|d| d.severity == loom_skills::Severity::Warn),
+    );
+
+    let mut detail = format!(
+        "{} skill(s), {} fatal, {} warning",
+        scan.skills.len(),
+        fatal.len(),
+        warn.len()
+    );
+    if !fatal.is_empty() {
+        detail.push_str(&format!("; refused: {}", offenders(&fatal)));
+    }
+    if !warn.is_empty() {
+        detail.push_str(&format!("; warned: {}", offenders(&warn)));
+    }
+
+    CheckRow::new(
+        "Skill validation",
+        if !fatal.is_empty() {
+            CheckStatus::Fail
+        } else if !warn.is_empty() {
+            CheckStatus::Warn
+        } else {
+            CheckStatus::Pass
+        },
+        detail,
+    )
+    .with_explanation(
+        "A skill with a fatal defect (no description:, invalid frontmatter, a name that disagrees with its directory) is never synced into a native tool directory — the agent would ignore it silently. A warning (a missing referenced script, a duplicate name, a name that disagrees with a flat file) is reported but the skill is still linked.",
+    )
 }
 
 fn print_report(rows: &[CheckRow], verbose: bool) {
@@ -558,5 +638,49 @@ mod tests {
         assert!(dir.path().join("config.toml").exists());
         assert!(dir.path().join("skills").is_dir());
         assert!(dir.path().join("mcp").is_dir());
+    }
+
+    #[test]
+    fn skill_validation_row_reports_counts_and_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills = dir.path().join("skills");
+
+        std::fs::create_dir_all(skills.join("gdrive")).unwrap();
+        std::fs::write(
+            skills.join("gdrive").join("SKILL.md"),
+            "# Google Drive\n\nNo frontmatter at all.\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(skills.join("alpha")).unwrap();
+        std::fs::write(
+            skills.join("alpha").join("SKILL.md"),
+            "---\nname: alpha\ndescription: Does alpha things.\n---\n\n# Alpha\n\nBody.\n",
+        )
+        .unwrap();
+
+        let row = skill_validation_row(&skills);
+        assert!(matches!(row.status, CheckStatus::Fail));
+        assert!(row.detail.contains("1 fatal"), "detail: {}", row.detail);
+        assert!(
+            row.detail.contains("gdrive") && row.detail.contains("missing_description"),
+            "detail: {}",
+            row.detail
+        );
+    }
+
+    #[test]
+    fn skill_validation_row_passes_on_a_clean_tree() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills = dir.path().join("skills");
+        std::fs::create_dir_all(skills.join("alpha")).unwrap();
+        std::fs::write(
+            skills.join("alpha").join("SKILL.md"),
+            "---\nname: alpha\ndescription: Does alpha things.\n---\n\n# Alpha\n\nBody.\n",
+        )
+        .unwrap();
+
+        let row = skill_validation_row(&skills);
+        assert!(matches!(row.status, CheckStatus::Pass));
+        assert!(row.detail.contains("1 skill(s)"), "detail: {}", row.detail);
     }
 }

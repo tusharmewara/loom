@@ -1,8 +1,9 @@
+use crate::scan::{scan_skill_tree, SkillScan};
 use loom_core::SkillEntry;
 use rusqlite::{params, Connection, Result};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use tracing::debug;
 
@@ -13,6 +14,10 @@ pub struct SkillRegistry {
     db: Arc<Mutex<Connection>>,
     /// Cache for faster lookups
     cache: RwLock<HashMap<String, SkillEntry>>,
+    /// The skills directory this registry mirrors.
+    skills_dir: PathBuf,
+    /// The result of the last scan of the skills directory.
+    last_scan: RwLock<SkillScan>,
 }
 
 impl SkillRegistry {
@@ -62,12 +67,90 @@ impl SkillRegistry {
         let registry = SkillRegistry {
             db: Arc::new(Mutex::new(conn)),
             cache: RwLock::new(HashMap::new()),
+            skills_dir,
+            last_scan: RwLock::new(SkillScan::default()),
         };
 
         // Load existing skills into cache
         registry.refresh_cache()?;
 
+        // The filesystem is the source of truth: one walk populates the rows.
+        registry.sync_from_disk()?;
+
         Ok(registry)
+    }
+
+    /// Walk the skills directory and make the registry match what is on disk.
+    ///
+    /// The scan result IS the registry content. Validation annotates a skill,
+    /// it never removes it: a skill with no `description:` still gets a row
+    /// (with an empty description) and its defect is reported separately.
+    /// Rows whose skill is gone from disk are removed, so the registry never
+    /// reports a skill that is not installed. When a flat file and a directory
+    /// share a name, the first one wins and the collision is reported as a
+    /// defect — never resolved silently.
+    ///
+    /// Only changed rows are written, so a repeated sync does not churn
+    /// `updated_at` on every read.
+    pub fn sync_from_disk(&self) -> anyhow::Result<SkillScan> {
+        let scan = scan_skill_tree(&self.skills_dir);
+
+        let mut kept: Vec<SkillEntry> = Vec::new();
+        for skill in &scan.skills {
+            // First file with this name wins; the other is the duplicate the
+            // scan already reported. The name column is UNIQUE, so one row is
+            // the only thing the schema can hold.
+            if kept.iter().any(|k| k.name == skill.name) {
+                continue;
+            }
+            if self.needs_write(skill) {
+                self.upsert(skill.clone())?;
+            }
+            kept.push(skill.clone());
+        }
+
+        // Drop rows whose skill is no longer on disk.
+        for stale in self.stale_names(&kept) {
+            self.remove(&stale)?;
+        }
+
+        *self.last_scan.write().unwrap() = scan.clone();
+        debug!(
+            skills = kept.len(),
+            defects = scan.defects.len(),
+            "Synced skill registry from disk"
+        );
+        Ok(scan)
+    }
+
+    /// Whether the stored row differs from the scanned skill.
+    fn needs_write(&self, skill: &SkillEntry) -> bool {
+        let cache = self.cache.read().unwrap();
+        match cache.get(&skill.name) {
+            None => true,
+            Some(old) => {
+                old.content_hash != skill.content_hash
+                    || old.description != skill.description
+                    || old.path != skill.path
+                    || old.version != skill.version
+                    || old.tags != skill.tags
+            }
+        }
+    }
+
+    /// The result of the last scan of the skills directory.
+    pub fn last_scan(&self) -> SkillScan {
+        self.last_scan.read().unwrap().clone()
+    }
+
+    /// Registered names that no longer exist on disk.
+    fn stale_names(&self, kept: &[SkillEntry]) -> Vec<String> {
+        let cache = self.cache.read().unwrap();
+        cache
+            .values()
+            .filter(|s| !kept.iter().any(|k| k.name == s.name))
+            .map(|s| s.name.clone())
+            .collect()
     }
 
     /// Refresh the in-memory cache from database
@@ -300,7 +383,19 @@ impl Drop for SkillRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scan::Severity;
     use tempfile::tempdir;
+
+    fn write(path: &Path, content: &str) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, content).unwrap();
+    }
+
+    fn skill_md(name: &str, description: &str) -> String {
+        format!("---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n\nBody.\n")
+    }
 
     #[test]
     fn test_registry_creation() -> anyhow::Result<()> {
@@ -404,6 +499,146 @@ mod tests {
         assert_eq!(registry.count(), 0);
         assert!(registry.get("removable-skill").is_none());
 
+        Ok(())
+    }
+
+    #[test]
+    fn walk_populates_registry_rows() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let skills = dir.path().join("skills");
+        write(
+            &skills.join("dir-skill/SKILL.md"),
+            &skill_md("dir-skill", "\"A skill in a directory\""),
+        );
+        write(
+            &skills.join("flat-skill.md"),
+            &skill_md("flat-skill", "\"A skill in a flat file\""),
+        );
+
+        let registry = SkillRegistry::new(dir.path().to_str().unwrap())?;
+
+        assert_eq!(registry.count(), 2, "both layouts must be registered");
+        let names: Vec<String> = registry.list().into_iter().map(|s| s.name).collect();
+        assert!(names.contains(&"dir-skill".to_string()));
+        assert!(names.contains(&"flat-skill".to_string()));
+        Ok(())
+    }
+
+    #[test]
+    fn sync_registers_the_description() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        write(
+            &dir.path().join("skills/one/SKILL.md"),
+            &skill_md("one", "\"Use when the user asks for it\""),
+        );
+
+        let registry = SkillRegistry::new(dir.path().to_str().unwrap())?;
+        let skill = registry.get("one").expect("skill must be registered");
+        assert_eq!(skill.description, "Use when the user asks for it");
+        Ok(())
+    }
+
+    #[test]
+    fn fatal_skill_still_gets_a_row() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        // No frontmatter at all: the live `gdrive` shape.
+        write(
+            &dir.path().join("skills/gdrive/SKILL.md"),
+            "# Google Drive\n\nUpload and download files.\n",
+        );
+        write(
+            &dir.path().join("skills/healthy/SKILL.md"),
+            &skill_md("healthy", "\"Fine\""),
+        );
+
+        let registry = SkillRegistry::new(dir.path().to_str().unwrap())?;
+
+        // Validation annotates, it never removes: the skill is in the
+        // inventory, with an empty description.
+        let gdrive = registry
+            .get("gdrive")
+            .expect("a description-less skill is still registered");
+        assert_eq!(gdrive.description, "");
+        assert!(registry.get("healthy").is_some());
+        assert_eq!(registry.count(), 2);
+
+        // The defect is reported, not swallowed.
+        let scan = registry.last_scan();
+        let defect = scan
+            .defects
+            .iter()
+            .find(|d| d.code == "missing_description")
+            .expect("missing_description must be reported");
+        assert_eq!(defect.severity, Severity::Fatal);
+        Ok(())
+    }
+
+    #[test]
+    fn sync_reports_a_duplicate_pair() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let skills = dir.path().join("skills");
+        write(&skills.join("dup/SKILL.md"), &skill_md("dup", "\"One copy\""));
+        write(&skills.join("dup.md"), &skill_md("dup", "\"Another copy\""));
+
+        let registry = SkillRegistry::new(dir.path().to_str().unwrap())?;
+
+        // One row: the name column is UNIQUE.
+        assert_eq!(registry.count(), 1);
+        assert!(registry.get("dup").is_some());
+
+        // The collision is reported, not silently resolved.
+        let scan = registry.last_scan();
+        let defect = scan
+            .defects
+            .iter()
+            .find(|d| d.code == "duplicate_name")
+            .expect("duplicate_name must be reported");
+        assert_eq!(defect.severity, Severity::Warn);
+        Ok(())
+    }
+
+    #[test]
+    fn version_is_synthesized_when_frontmatter_has_none() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        write(
+            &dir.path().join("skills/one/SKILL.md"),
+            &skill_md("one", "\"Use when the user asks for it\""),
+        );
+
+        let registry = SkillRegistry::new(dir.path().to_str().unwrap())?;
+        let skill = registry.get("one").expect("the skill must be registered");
+        assert!(!skill.version.is_empty(), "the version is synthesized");
+        Ok(())
+    }
+
+    #[test]
+    fn registry_hash_matches_the_skill_file() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let path = dir.path().join("skills/one/SKILL.md");
+        let body = skill_md("one", "\"Use when the user asks for it\"");
+        write(&path, &body);
+
+        let registry = SkillRegistry::new(dir.path().to_str().unwrap())?;
+        let skill = registry.get("one").expect("the skill must be registered");
+        assert_eq!(skill.path, path.to_string_lossy(), "the path is the file");
+        assert_eq!(skill.content_hash.len(), 64, "SHA-256 of the file bytes");
+        Ok(())
+    }
+
+    #[test]
+    fn refresh_removes_rows_for_vanished_skills() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let path = dir.path().join("skills/gone/SKILL.md");
+        write(&path, &skill_md("gone", "\"Here now\""));
+
+        let registry = SkillRegistry::new(dir.path().to_str().unwrap())?;
+        assert_eq!(registry.count(), 1);
+
+        std::fs::remove_dir_all(dir.path().join("skills/gone"))?;
+        registry.sync_from_disk()?;
+
+        assert_eq!(registry.count(), 0, "a removed skill must not stay registered");
+        assert!(registry.get("gone").is_none());
         Ok(())
     }
 }

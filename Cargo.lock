@@ -2260,6 +2260,7 @@ dependencies = [
  "loom-mcp",
  "loom-skills",
  "serde_json",
+ "tempfile",
  "toml",
  "tracing",
 ]
@@ -2615,6 +2616,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sha2",
  "tempfile",
  "toml",

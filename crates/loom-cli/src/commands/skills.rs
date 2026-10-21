@@ -1,107 +1,322 @@
 use crate::cli::SkillsAction;
-use loom_ipc::IpcRequest;
+use loom_core::SkillEntry;
 use loom_skills::lockfile::{self, SkillsLock};
+use loom_skills::scan::{self, Severity, SkillDefect};
+use loom_skills::trigger::TriggerSet;
+use loom_skills::trigger_lines;
 use std::path::Path;
 
-fn update_lock(loom_dir: &Path) -> anyhow::Result<()> {
-    let engine = loom_skills::SkillsEngine::new(loom_dir.to_str().unwrap())?;
-    let registry_skills = engine.registry().list();
+/// Rewrite the lock file so it matches the registry exactly: every installed
+/// skill is locked, and a skill that is no longer installed is unlocked.
+fn update_lock(loom_dir: &Path, skills: &[SkillEntry]) -> anyhow::Result<()> {
     let lock_path = lockfile::default_lock_path(loom_dir.to_str().unwrap());
     let mut lock = SkillsLock::load(&lock_path)?.unwrap_or_default();
-    for skill in &registry_skills {
+    for skill in skills {
         lock.lock_skill(skill);
+    }
+    let names: Vec<&str> = skills.iter().map(|s| s.name.as_str()).collect();
+    let stale: Vec<String> = lock
+        .skills
+        .keys()
+        .filter(|name| !names.contains(&name.as_str()))
+        .cloned()
+        .collect();
+    for name in stale {
+        lock.unlock_skill(&name);
     }
     lock.save(&lock_path)?;
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Install / remove.
+//
+// Validation is `loom_skills::scan` — the one validator and the one YAML
+// parser in the tree. A Fatal defect refuses the install and leaves the
+// skills directory untouched.
+// ---------------------------------------------------------------------------
+
+/// A skill name must be a single path segment.
+fn is_safe_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains('\0')
+}
+
+/// Copy a directory tree, creating the destination as needed.
+fn copy_dir(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&from, &to)?;
+        } else {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
+/// Install a skill from a directory (`<name>/SKILL.md`) or a flat `.md` file.
+///
+/// Returns the installed skill's name. A Fatal defect refuses the install and
+/// leaves the skills directory untouched.
+fn install_skill(loom_dir: &Path, src: &Path) -> anyhow::Result<String> {
+    let skills_dir = loom_dir.join("skills");
+    std::fs::create_dir_all(&skills_dir)?;
+
+    let (skill_file, dir_name, fallback, is_dir_layout) = if src.is_dir() {
+        let skill_md = src.join("SKILL.md");
+        if !skill_md.is_file() {
+            anyhow::bail!(
+                "'{}' is a directory without a SKILL.md — not a skill directory",
+                src.display()
+            );
+        }
+        let dir_name = src
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_string();
+        (skill_md, Some(dir_name.clone()), dir_name, true)
+    } else {
+        if src.extension().and_then(|e| e.to_str()) != Some("md") {
+            anyhow::bail!("'{}' is not a .md file — not a skill", src.display());
+        }
+        let stem = src
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_string();
+        (src.to_path_buf(), None, stem, false)
+    };
+
+    let defects = scan::validate_skill_file(&skill_file, dir_name.as_deref());
+    let name = effective_name(&skill_file, dir_name.as_deref(), &fallback);
+
+    let fatals: Vec<&SkillDefect> = defects
+        .iter()
+        .filter(|d| d.severity == Severity::Fatal)
+        .collect();
+    if !fatals.is_empty() {
+        let detail = fatals
+            .iter()
+            .map(|d| format!("{} [{}]", d.message, d.code))
+            .collect::<Vec<_>>()
+            .join("; ");
+        anyhow::bail!("Refusing to install skill '{name}': {detail}");
+    }
+    for warn in defects.iter().filter(|d| d.severity == Severity::Warn) {
+        eprintln!("warning: {} [{}]", warn.message, warn.code);
+    }
+
+    if !is_safe_name(&name) {
+        anyhow::bail!("Refusing to install skill with invalid name '{name}'");
+    }
+
+    // A skill is addressed by name and tracked in the lock file, so replacing
+    // one silently would swap the user's skill out from under the agent.
+    let dst_dir = skills_dir.join(&name);
+    let dst_file = skills_dir.join(format!("{name}.md"));
+    let existing = if dst_dir.exists() {
+        Some(dst_dir.clone())
+    } else if dst_file.exists() {
+        Some(dst_file.clone())
+    } else {
+        None
+    };
+    if let Some(existing) = existing {
+        anyhow::bail!(
+            "Skill '{name}' already exists at {} — refusing to overwrite it",
+            existing.display()
+        );
+    }
+
+    if is_dir_layout {
+        copy_dir(src, &dst_dir)?;
+    } else {
+        std::fs::copy(src, &dst_file)?;
+    }
+    Ok(name)
+}
+
+/// The name a skill is addressed by: the frontmatter `name:` if present,
+/// otherwise the directory name (layout A) or the file stem (layout B).
+fn effective_name(path: &Path, dir_name: Option<&str>, fallback: &str) -> String {
+    if let Some(name) = scan::frontmatter_name(path) {
+        return name;
+    }
+    match dir_name {
+        Some(dir) => dir.to_string(),
+        None => path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(fallback)
+            .to_string(),
+    }
+}
+
+/// Remove an installed skill: the flat `<name>.md` file or the whole `<name>/`
+/// directory tree. Nothing is left behind.
+fn remove_skill(loom_dir: &Path, name: &str) -> anyhow::Result<()> {
+    if !is_safe_name(name) {
+        anyhow::bail!("Invalid skill name '{name}'");
+    }
+    let skills_dir = loom_dir.join("skills");
+    let dir = skills_dir.join(name);
+    let file = skills_dir.join(format!("{name}.md"));
+    if dir.is_dir() {
+        std::fs::remove_dir_all(&dir)?;
+    } else if dir.exists() {
+        std::fs::remove_file(&dir)?;
+    } else if file.exists() {
+        std::fs::remove_file(&file)?;
+    } else {
+        anyhow::bail!("Skill '{name}' not found in {}", skills_dir.display());
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Inventory.
+//
+// The registry is the source of truth. The daemon and the MCP server read
+// the same registry, so reading it here keeps one read path instead of a
+// second, divergent one.
+// ---------------------------------------------------------------------------
+
+/// The registered skills and the defects the scan found.
+fn inventory(loom_dir: &Path) -> anyhow::Result<(Vec<SkillEntry>, Vec<SkillDefect>)> {
+    let engine = loom_skills::SkillsEngine::new(loom_dir.to_str().unwrap())?;
+    let skills = engine.registry().list();
+    let defects = engine.registry().last_scan().defects;
+    Ok((skills, defects))
+}
+
+/// The human-readable listing: every registered skill, then every defect the
+/// scan found. A duplicate is a warning — the collision is reported, never
+/// silently resolved.
+fn list_lines(skills: &[SkillEntry], defects: &[SkillDefect]) -> String {
+    let mut out = String::new();
+    if skills.is_empty() {
+        out.push_str("No skills found.\n");
+    } else {
+        for skill in skills {
+            out.push_str(&format!("{}  {}\n", skill.name, skill.description));
+        }
+    }
+    for defect in defects {
+        let tag = match defect.severity {
+            Severity::Fatal => "✗",
+            Severity::Warn => "⚠",
+        };
+        out.push_str(&format!("  {tag} [{}] {}\n", defect.code, defect.message));
+    }
+    out
+}
+
+/// The trigger set for the listed skills: one line per valid skill, and the
+/// skills that got no line.
+fn trigger_set(skills: &[SkillEntry], defects: &[SkillDefect]) -> TriggerSet {
+    trigger_lines(skills, defects, |e| e.description.as_str())
+}
+
+/// The trigger set as text. A skill is never dropped silently: the ones
+/// without a line are named.
+fn trigger_lines_text(set: &TriggerSet) -> String {
+    let mut out = String::new();
+    if set.lines.is_empty() {
+        out.push_str("No trigger lines.\n");
+    } else {
+        out.push_str("Triggers:\n");
+        for line in set.lines.values() {
+            out.push_str(&format!("  {line}\n"));
+        }
+    }
+    if !set.not_triggered.is_empty() {
+        out.push_str("Not triggered:\n");
+        for name in &set.not_triggered {
+            out.push_str(&format!("  {name}\n"));
+        }
+    }
+    out
+}
+
+/// The JSON listing. `count` and `skills` keep their shape: the TUI reads
+/// them.
+fn list_json(skills: &[SkillEntry], defects: &[SkillDefect], triggers: &TriggerSet) -> serde_json::Value {
+    let defects: Vec<serde_json::Value> = defects
+        .iter()
+        .map(|d| {
+            serde_json::json!({
+                "path": d.path.to_string_lossy(),
+                "severity": match d.severity {
+                    Severity::Fatal => "fatal",
+                    Severity::Warn => "warn",
+                },
+                "code": d.code,
+                "message": d.message,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "schema_version": 1,
+        "command": "skills.list",
+        "count": skills.len(),
+        "skills": skills,
+        "defects": defects,
+        "triggers": triggers.lines,
+        "not_triggered": triggers.not_triggered,
+    })
+}
+
 pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
     match action {
         SkillsAction::List { json, locked } => {
-            let req = IpcRequest::new("skills.list");
-            match crate::ipc_client::send_daemon_command(loom_dir, req).await {
-                Ok(resp) if resp.status == "ok" => {
-                    if let Some(data) = resp.data {
-                        if let Some(skills) = data.get("skills") {
-                            if *json {
-                                println!(
-                                    "{}",
-                                    serde_json::to_string_pretty(&serde_json::json!({
-                                        "schema_version": 1,
-                                        "command": "skills.list",
-                                        "count": skills.as_array().map(|a| a.len()).unwrap_or(0),
-                                        "skills": skills
-                                    }))?
-                                );
-                            } else {
-                                println!("{}", serde_json::to_string_pretty(skills)?);
-                            }
-                            return Ok(());
-                        }
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => eprintln!("Daemon unavailable ({e}); listing local skills dir"),
-            }
+            let (registry_skills, defects) = inventory(loom_dir)?;
+            let triggers = trigger_set(&registry_skills, &defects);
 
-            let skills_dir = loom_dir.join("skills");
-            let mut skill_names = Vec::new();
-            if skills_dir.exists() {
-                for entry in std::fs::read_dir(&skills_dir)? {
-                    let name = entry?.file_name().to_string_lossy().to_string();
-                    skill_names.push(name.clone());
-                }
-            }
             if *json {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&serde_json::json!({
-                        "schema_version": 1,
-                        "command": "skills.list",
-                        "count": skill_names.len(),
-                        "skills": skill_names
-                    }))?
+                    serde_json::to_string_pretty(&list_json(&registry_skills, &defects, &triggers))?
                 );
             } else {
-                if skill_names.is_empty() {
-                    println!("No skills found.");
-                } else {
-                    for name in &skill_names {
-                        println!("{}", name);
-                    }
-                }
+                print!("{}", list_lines(&registry_skills, &defects));
+                print!("{}", trigger_lines_text(&triggers));
             }
             if *locked {
                 let lock_path = lockfile::default_lock_path(loom_dir.to_str().unwrap());
                 match SkillsLock::load(&lock_path) {
                     Ok(Some(lock)) => {
-                        let loom_str = loom_dir.to_str().unwrap();
-                        if let Ok(engine) = loom_skills::SkillsEngine::new(loom_str) {
-                            let skills = engine.registry().list();
-                            if lock.is_clean(&skills) {
-                                println!("  ✓ Lock file clean");
-                            } else {
-                                let violations = lock.verify_against(&skills);
-                                for v in &violations {
-                                    match v.kind {
-                                        lockfile::LockViolationKind::Missing => {
-                                            println!(
-                                                "  ✗ {}: in lock but removed from registry",
-                                                v.name
-                                            );
-                                        }
-                                        lockfile::LockViolationKind::VersionMismatch => {
-                                            println!(
-                                                "  ✗ {}: version mismatch (expected {}, actual {})",
-                                                v.name, v.expected, v.actual
-                                            );
-                                        }
-                                        lockfile::LockViolationKind::ContentChanged => {
-                                            println!("  ✗ {}: content hash changed", v.name);
-                                        }
-                                        lockfile::LockViolationKind::Unlocked => {
-                                            println!("  ✗ {}: not in lock file", v.name);
-                                        }
+                        if lock.is_clean(&registry_skills) {
+                            println!("  ✓ Lock file clean");
+                        } else {
+                            let violations = lock.verify_against(&registry_skills);
+                            for v in &violations {
+                                match v.kind {
+                                    lockfile::LockViolationKind::Missing => {
+                                        println!(
+                                            "  ✗ {}: in lock but removed from registry",
+                                            v.name
+                                        );
+                                    }
+                                    lockfile::LockViolationKind::VersionMismatch => {
+                                        println!(
+                                            "  ✗ {}: version mismatch (expected {}, actual {})",
+                                            v.name, v.expected, v.actual
+                                        );
+                                    }
+                                    lockfile::LockViolationKind::ContentChanged => {
+                                        println!("  ✗ {}: content hash changed", v.name);
+                                    }
+                                    lockfile::LockViolationKind::Unlocked => {
+                                        println!("  ✗ {}: not in lock file", v.name);
                                     }
                                 }
                             }
@@ -113,34 +328,9 @@ pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
             }
         }
         SkillsAction::Show { name, json } => {
-            let req =
-                IpcRequest::new("skills.show").with_params(serde_json::json!({ "name": name }));
-            match crate::ipc_client::send_daemon_command(loom_dir, req).await {
-                Ok(resp) if resp.status == "ok" => {
-                    if let Some(data) = resp.data {
-                        if *json {
-                            println!(
-                                "{}",
-                                serde_json::to_string_pretty(&serde_json::json!({
-                                    "schema_version": 1,
-                                    "command": "skills.show",
-                                    "name": name,
-                                    "skill": data
-                                }))?
-                            );
-                        } else {
-                            println!("{}", serde_json::to_string_pretty(&data)?);
-                        }
-                        return Ok(());
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => eprintln!("Daemon unavailable ({e})"),
-            }
+            let (registry_skills, defects) = inventory(loom_dir)?;
 
-            let path = loom_dir.join("skills").join(name);
-            if path.exists() {
-                let content = std::fs::read_to_string(&path)?;
+            if let Some(skill) = registry_skills.into_iter().find(|s| &s.name == name) {
                 if *json {
                     println!(
                         "{}",
@@ -148,42 +338,420 @@ pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
                             "schema_version": 1,
                             "command": "skills.show",
                             "name": name,
-                            "content": content
+                            "skill": skill
                         }))?
                     );
                 } else {
-                    println!("{}", content);
+                    println!("{}", serde_json::to_string_pretty(&skill)?);
                 }
-            } else {
-                anyhow::bail!("Skill '{name}' not found");
+                return Ok(());
             }
+
+            // Not registered: it may be on disk but refused for a defect.
+            // Name the defect instead of claiming the skill does not exist.
+            if let Some(defect) = defects
+                .iter()
+                .find(|d| d.path.to_string_lossy().contains(name.as_str()))
+            {
+                anyhow::bail!("Skill '{name}' is not registered: {}", defect.message);
+            }
+            anyhow::bail!("Skill '{name}' not found");
         }
         SkillsAction::Install { path } => {
             let src = Path::new(path);
             if !src.exists() {
                 anyhow::bail!("Path does not exist: {path}");
             }
-            let name = src
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-            let dst = loom_dir.join("skills").join(src.file_name().unwrap());
-            std::fs::create_dir_all(loom_dir.join("skills"))?;
-            std::fs::copy(src, &dst)?;
+            let name = install_skill(loom_dir, src)?;
+            // Register it: the registry is the source of truth for what is
+            // installed, and the lock file mirrors the registry.
+            let entry = scan::scan_skill_tree(&loom_dir.join("skills"))
+                .skills
+                .into_iter()
+                .find(|s| s.name == name)
+                .ok_or_else(|| anyhow::anyhow!("installed skill '{name}' is not on disk"))?;
+            let engine = loom_skills::SkillsEngine::new(loom_dir.to_str().unwrap())?;
+            engine.registry().upsert(entry)?;
+            let skills = engine.registry().list();
+            update_lock(loom_dir, &skills)?;
             println!("Installed skill '{name}'");
-            update_lock(loom_dir)?;
         }
         SkillsAction::Remove { name } => {
-            let path = loom_dir.join("skills").join(name);
-            if path.exists() {
-                std::fs::remove_file(&path)?;
-                println!("Removed skill '{name}'");
-                update_lock(loom_dir)?;
-            } else {
-                anyhow::bail!("Skill '{name}' not found");
-            }
+            remove_skill(loom_dir, name)?;
+            // The registry is re-read from disk, so the removed skill is gone
+            // from it, and the lock file follows the registry.
+            let engine = loom_skills::SkillsEngine::new(loom_dir.to_str().unwrap())?;
+            let skills = engine.registry().list();
+            update_lock(loom_dir, &skills)?;
+            println!("Removed skill '{name}'");
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    /// A skill directory holding a SKILL.md with the given frontmatter.
+    fn make_dir_skill(root: &Path, dir_name: &str, frontmatter: &str) -> PathBuf {
+        let dir = root.join(dir_name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("SKILL.md"),
+            format!("{frontmatter}\n# {dir_name}\n\nBody.\n"),
+        )
+        .unwrap();
+        dir
+    }
+
+    const GOOD_FM: &str = "---\nname: myskill\ndescription: Use when testing skills.\n---";
+
+    #[test]
+    fn install_dir_layout_copies_the_tree() {
+        let tmp = tempdir().unwrap();
+        let loom_dir = tmp.path().join("loom");
+        let src = make_dir_skill(tmp.path(), "myskill", GOOD_FM);
+        std::fs::create_dir_all(src.join("scripts")).unwrap();
+        std::fs::write(src.join("scripts").join("run.sh"), "#!/bin/sh\n").unwrap();
+
+        let name = install_skill(&loom_dir, &src).unwrap();
+        assert_eq!(name, "myskill");
+        assert!(loom_dir.join("skills/myskill/SKILL.md").is_file());
+        assert!(loom_dir.join("skills/myskill/scripts/run.sh").is_file());
+    }
+
+    #[test]
+    fn install_flat_file_lands_as_md() {
+        let tmp = tempdir().unwrap();
+        let loom_dir = tmp.path().join("loom");
+        let src = tmp.path().join("flat.md");
+        std::fs::write(
+            &src,
+            "---\nname: flat\ndescription: Use when testing.\n---\n\nBody.\n",
+        )
+        .unwrap();
+
+        let name = install_skill(&loom_dir, &src).unwrap();
+        assert_eq!(name, "flat");
+        assert!(loom_dir.join("skills/flat.md").is_file());
+    }
+
+    #[test]
+    fn install_refuses_missing_description_naming_path_and_field() {
+        let tmp = tempdir().unwrap();
+        let loom_dir = tmp.path().join("loom");
+        let src = make_dir_skill(tmp.path(), "nodesc", "---\nname: nodesc\n---");
+
+        let err = install_skill(&loom_dir, &src).unwrap_err().to_string();
+        assert!(err.contains("missing_description"), "err: {err}");
+        assert!(err.contains("description"), "err: {err}");
+        assert!(err.contains("nodesc/SKILL.md"), "err: {err}");
+        assert!(!loom_dir.join("skills/nodesc").exists());
+    }
+
+    #[test]
+    fn install_refuses_layout_a_name_mismatch_showing_both_values() {
+        let tmp = tempdir().unwrap();
+        let loom_dir = tmp.path().join("loom");
+        let src = make_dir_skill(
+            tmp.path(),
+            "dirname",
+            "---\nname: othername\ndescription: Use when testing.\n---",
+        );
+
+        let err = install_skill(&loom_dir, &src).unwrap_err().to_string();
+        assert!(err.contains("name_mismatch"), "err: {err}");
+        assert!(err.contains("othername"), "err: {err}");
+        assert!(err.contains("dirname"), "err: {err}");
+        assert!(!loom_dir.join("skills/othername").exists());
+        assert!(!loom_dir.join("skills/dirname").exists());
+    }
+
+    #[test]
+    fn install_directory_skill_round_trip() {
+        let tmp = tempdir().unwrap();
+        let loom_dir = tmp.path().join("loom");
+        let src = make_dir_skill(tmp.path(), "myskill", GOOD_FM);
+
+        install_skill(&loom_dir, &src).unwrap();
+        assert!(loom_dir.join("skills/myskill").is_dir());
+
+        remove_skill(&loom_dir, "myskill").unwrap();
+        assert!(!loom_dir.join("skills/myskill").exists());
+        assert!(!loom_dir.join("skills/myskill.md").exists());
+    }
+
+    #[test]
+    fn install_flat_file_round_trip() {
+        let tmp = tempdir().unwrap();
+        let loom_dir = tmp.path().join("loom");
+        let src = tmp.path().join("flat.md");
+        std::fs::write(
+            &src,
+            "---\nname: flat\ndescription: Use when testing.\n---\n\nBody.\n",
+        )
+        .unwrap();
+
+        install_skill(&loom_dir, &src).unwrap();
+        remove_skill(&loom_dir, "flat").unwrap();
+        assert!(!loom_dir.join("skills/flat.md").exists());
+    }
+
+    #[test]
+    fn remove_missing_skill_reports_cleanly() {
+        let tmp = tempdir().unwrap();
+        let loom_dir = tmp.path().join("loom");
+        std::fs::create_dir_all(loom_dir.join("skills")).unwrap();
+
+        let err = remove_skill(&loom_dir, "nope").unwrap_err().to_string();
+        assert!(err.contains("nope"), "err: {err}");
+    }
+
+    #[test]
+    fn install_refuses_to_overwrite_existing_skill() {
+        let tmp = tempdir().unwrap();
+        let loom_dir = tmp.path().join("loom");
+        let src = make_dir_skill(tmp.path(), "myskill", GOOD_FM);
+
+        install_skill(&loom_dir, &src).unwrap();
+        let err = install_skill(&loom_dir, &src).unwrap_err().to_string();
+        assert!(err.contains("already exists"), "err: {err}");
+    }
+
+    #[test]
+    fn install_flat_name_mismatch_warns_not_refuses() {
+        let tmp = tempdir().unwrap();
+        let loom_dir = tmp.path().join("loom");
+        let src = tmp.path().join("flat.md");
+        std::fs::write(
+            &src,
+            "---\nname: othername\ndescription: Use when testing.\n---\n\nBody.\n",
+        )
+        .unwrap();
+
+        let name = install_skill(&loom_dir, &src).unwrap();
+        assert_eq!(name, "othername");
+        assert!(loom_dir.join("skills/othername.md").is_file());
+    }
+
+    #[test]
+    fn install_missing_script_warns_not_refuses() {
+        let tmp = tempdir().unwrap();
+        let loom_dir = tmp.path().join("loom");
+        let src = make_dir_skill(
+            tmp.path(),
+            "scripted",
+            "---\nname: scripted\ndescription: Use when testing.\n---",
+        );
+        // The body references a script the directory does not have.
+        std::fs::write(
+            src.join("SKILL.md"),
+            "---\nname: scripted\ndescription: Use when testing.\n---\n\nRun $SKILL_DIR/scripts/run.sh\n",
+        )
+        .unwrap();
+
+        // Day one: a missing script is a warning, it must not block an install.
+        let name = install_skill(&loom_dir, &src).unwrap();
+        assert_eq!(name, "scripted");
+        assert!(loom_dir.join("skills/scripted/SKILL.md").is_file());
+    }
+
+    #[test]
+    fn missing_name_falls_back_to_directory_or_stem() {
+        let tmp = tempdir().unwrap();
+        let loom_dir = tmp.path().join("loom");
+        let src = make_dir_skill(
+            tmp.path(),
+            "noname",
+            "---\ndescription: Use when testing.\n---",
+        );
+
+        let name = install_skill(&loom_dir, &src).unwrap();
+        assert_eq!(name, "noname");
+        assert!(loom_dir.join("skills/noname/SKILL.md").is_file());
+    }
+
+    #[test]
+    fn invalid_yaml_is_refused() {
+        let tmp = tempdir().unwrap();
+        let loom_dir = tmp.path().join("loom");
+        let src = tmp.path().join("badyaml.md");
+        std::fs::write(
+            &src,
+            "---\nname: badyaml\ndescription: [unclosed\n---\n\nBody.\n",
+        )
+        .unwrap();
+
+        let err = install_skill(&loom_dir, &src).unwrap_err().to_string();
+        assert!(err.contains("invalid_frontmatter"), "err: {err}");
+        assert!(!loom_dir.join("skills/badyaml.md").exists());
+    }
+
+    #[test]
+    fn unterminated_fence_is_invalid_frontmatter() {
+        let tmp = tempdir().unwrap();
+        let src = tmp.path().join("fence.md");
+        std::fs::write(&src, "---\nname: x\ndescription: y\n").unwrap();
+
+        let defects = scan::validate_skill_file(&src, None);
+        assert!(defects
+            .iter()
+            .any(|d| d.code == "invalid_frontmatter" && d.severity == Severity::Fatal));
+    }
+
+    fn skill_md(name: &str, description: &str) -> String {
+        format!("---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n\nBody.\n")
+    }
+
+    fn write(path: &Path, content: &str) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, content).unwrap();
+    }
+
+    /// A mixed-layout tree: one directory skill, one flat skill, one skill
+    /// with no description, and one name that exists in both layouts.
+    fn mixed_tree(loom_dir: &Path) {
+        let skills = loom_dir.join("skills");
+        write(
+            &skills.join("dir-skill/SKILL.md"),
+            &skill_md("dir-skill", "\"A skill in a directory\""),
+        );
+        write(
+            &skills.join("flat-skill.md"),
+            &skill_md("flat-skill", "\"A skill in a flat file\""),
+        );
+        write(
+            &skills.join("both/SKILL.md"),
+            &skill_md("both", "\"The directory copy\""),
+        );
+        write(&skills.join("both.md"), &skill_md("both", "\"The flat copy\""));
+        // No frontmatter at all: the live `gdrive` shape.
+        write(
+            &skills.join("no-desc/SKILL.md"),
+            "# No Description\n\nBody.\n",
+        );
+    }
+
+    #[test]
+    fn list_shows_every_skill() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        mixed_tree(dir.path());
+
+        let (skills, defects) = inventory(dir.path())?;
+        let out = list_lines(&skills, &defects);
+
+        // Both layouts are listed.
+        assert!(out.contains("dir-skill"), "dir skill missing from: {out}");
+        assert!(out.contains("flat-skill"), "flat skill missing from: {out}");
+        // The description is shown, not just the name.
+        assert!(out.contains("A skill in a directory"));
+        assert!(out.contains("A skill in a flat file"));
+        Ok(())
+    }
+
+    #[test]
+    fn list_reports_a_description_less_skill() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        mixed_tree(dir.path());
+
+        let (skills, defects) = inventory(dir.path())?;
+        let out = list_lines(&skills, &defects);
+
+        assert!(
+            out.contains("missing_description"),
+            "description-less skill not reported: {out}"
+        );
+        // Validation annotates, it does not remove: the skill is still listed.
+        assert!(
+            skills.iter().any(|s| s.name == "no-desc"),
+            "description-less skill dropped from the inventory"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn list_reports_a_duplicate_pair() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        mixed_tree(dir.path());
+
+        let (skills, defects) = inventory(dir.path())?;
+        let out = list_lines(&skills, &defects);
+
+        assert!(
+            out.contains("duplicate_name"),
+            "duplicate pair not reported: {out}"
+        );
+        // The name column is UNIQUE: one row for the colliding name.
+        assert_eq!(skills.iter().filter(|s| s.name == "both").count(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn list_json_keeps_the_count_and_skills_keys() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        mixed_tree(dir.path());
+
+        let (skills, defects) = inventory(dir.path())?;
+        let triggers = trigger_set(&skills, &defects);
+        let v = list_json(&skills, &defects, &triggers);
+
+        // The TUI reads /count and /skills.
+        assert_eq!(v["count"].as_u64().unwrap(), skills.len() as u64);
+        assert!(v["skills"].is_array());
+        assert!(v["defects"].is_array());
+        assert!(v["triggers"].is_object());
+        Ok(())
+    }
+
+    #[test]
+    fn a_fatal_skill_is_named_but_not_triggered() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        // A layout-A name mismatch is Fatal: the skill cannot work.
+        write(
+            &dir.path().join("skills/dirname/SKILL.md"),
+            &skill_md("othername", "\"Mismatched\""),
+        );
+        write(
+            &dir.path().join("skills/ok.md"),
+            &skill_md("ok", "\"A working skill\""),
+        );
+
+        let (skills, defects) = inventory(dir.path())?;
+        let triggers = trigger_set(&skills, &defects);
+
+        assert!(!triggers.lines.contains_key("othername"));
+        assert!(triggers.not_triggered.contains(&"othername".to_string()));
+        assert!(triggers.lines.contains_key("ok"));
+        Ok(())
+    }
+
+    #[test]
+    fn the_lock_file_follows_install_and_remove() -> anyhow::Result<()> {
+        let tmp = tempdir()?;
+        let loom_dir = tmp.path().join("loom");
+        let src = make_dir_skill(tmp.path(), "myskill", GOOD_FM);
+
+        install_skill(&loom_dir, &src)?;
+        let engine = loom_skills::SkillsEngine::new(loom_dir.to_str().unwrap())?;
+        let skills = engine.registry().list();
+        update_lock(&loom_dir, &skills)?;
+
+        let lock_path = lockfile::default_lock_path(loom_dir.to_str().unwrap());
+        let lock = SkillsLock::load(&lock_path)?.expect("lock file written");
+        assert!(lock.skills.contains_key("myskill"), "lock: {:?}", lock.skills);
+
+        remove_skill(&loom_dir, "myskill")?;
+        let engine = loom_skills::SkillsEngine::new(loom_dir.to_str().unwrap())?;
+        let skills = engine.registry().list();
+        update_lock(&loom_dir, &skills)?;
+
+        let lock = SkillsLock::load(&lock_path)?.expect("lock file written");
+        assert!(lock.skills.is_empty(), "lock: {:?}", lock.skills);
+        Ok(())
+    }
 }
