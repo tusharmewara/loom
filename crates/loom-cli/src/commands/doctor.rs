@@ -278,39 +278,45 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool, verbose: bool) -> Result
 /// skills the sync path refuses to link.
 fn skill_validation_row(skills_dir: &Path) -> CheckRow {
     let scan = loom_skills::scan_skill_tree(skills_dir);
-    let fatal_count = scan
+    let fatal: Vec<_> = scan
         .defects
         .iter()
         .filter(|d| d.severity == loom_skills::Severity::Fatal)
-        .count();
-    let warn_count = scan
+        .collect();
+    let warn: Vec<_> = scan
         .defects
         .iter()
         .filter(|d| d.severity == loom_skills::Severity::Warn)
-        .count();
-    let offenders: Vec<String> = scan
-        .defects
-        .iter()
-        .filter(|d| d.severity == loom_skills::Severity::Fatal)
-        .take(3)
-        .map(|d| format!("{} ({})", d.path.display(), d.code))
         .collect();
 
     let mut detail = format!(
         "{} skill(s), {} fatal, {} warning",
         scan.skills.len(),
-        fatal_count,
-        warn_count
+        fatal.len(),
+        warn.len()
     );
-    if !offenders.is_empty() {
+    if !fatal.is_empty() {
+        let offenders: Vec<String> = fatal
+            .iter()
+            .take(3)
+            .map(|d| format!("{} ({})", d.path.display(), d.code))
+            .collect();
         detail.push_str(&format!("; refused: {}", offenders.join(", ")));
+    }
+    if !warn.is_empty() {
+        let offenders: Vec<String> = warn
+            .iter()
+            .take(3)
+            .map(|d| format!("{} ({})", d.path.display(), d.code))
+            .collect();
+        detail.push_str(&format!("; warned: {}", offenders.join(", ")));
     }
 
     CheckRow::new(
         "Skill validation",
-        if fatal_count > 0 {
+        if !fatal.is_empty() {
             CheckStatus::Fail
-        } else if warn_count > 0 {
+        } else if !warn.is_empty() {
             CheckStatus::Warn
         } else {
             CheckStatus::Pass

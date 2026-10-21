@@ -539,21 +539,24 @@ fn inject_shared_skills(loom_dir: &str, native_skills_dir: &str) -> Result<()> {
             None => continue,
         };
         let target = native_dir.join(&name);
-        if target.exists() {
-            continue;
-        }
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        // Same rule as the layout-A path: a Fatal defect refuses the skill.
         let (linkable, notes) = loom_adapters::skill_link_decision(
             &defects,
             &path,
-            &path
-                .file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_default(),
+            &stem,
+            Some((&target, &path)),
         );
         for note in notes {
             println!("⚠ {note}");
         }
         if !linkable {
+            continue;
+        }
+        if target.exists() {
             continue;
         }
         #[cfg(unix)]
@@ -922,5 +925,34 @@ mod tests {
         inject_shared_skills(loom.to_str().unwrap(), native.to_str().unwrap()).unwrap();
 
         assert!(native.join("beta.md").exists());
+    }
+
+    #[test]
+    fn both_sync_paths_agree_on_the_same_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom = dir.path().join("loom");
+        let native_a = dir.path().join("native-a");
+        let native_b = dir.path().join("native-b");
+        // The same defective content, once in layout A and once in layout B.
+        let broken = "# Google Drive\n\nNo frontmatter at all.\n";
+        write_skill(&loom.join("skills").join("gdrive").join("SKILL.md"), broken);
+        write_skill(&loom.join("skills").join("gdrive.md"), broken);
+
+        // Layout A: the adapter path.
+        let report = loom_adapters::sync_skills_to_native(
+            loom.to_str().unwrap(),
+            native_a.to_str().unwrap(),
+        )
+        .unwrap();
+        // Layout B: the exec path.
+        inject_shared_skills(loom.to_str().unwrap(), native_b.to_str().unwrap()).unwrap();
+
+        assert!(!native_a.join("gdrive").exists(), "layout A linked it");
+        assert!(!native_b.join("gdrive.md").exists(), "layout B linked it");
+        assert!(
+            report.notes.iter().any(|n| n.contains("missing_description")),
+            "notes: {:?}",
+            report.notes
+        );
     }
 }

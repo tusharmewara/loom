@@ -30,7 +30,7 @@ use anyhow::Result;
 use loom_core::{DebugAdapterInfo, LspServerInfo, RoutingDecision};
 use loom_generic_adapter::config::{DebugSection, LspSection, ToolToml};
 use loom_skills::edit::make_replace_edit;
-use loom_skills::{scan_skill_tree, Severity, SkillDefect};
+use loom_skills::{validate_skill_tree, Severity, SkillDefect};
 use std::path::Path;
 #[cfg(test)]
 use std::path::PathBuf;
@@ -244,7 +244,7 @@ pub fn sync_skills_to_native(loom_dir: &str, native_skills_dir: &str) -> Result<
     let native_dir = Path::new(native_skills_dir);
     std::fs::create_dir_all(native_dir)?;
 
-    let defects = skill_defects_by_file(&loom_skills);
+    let defects = validate_skill_tree(&loom_skills);
 
     let mut count = 0;
     for entry in std::fs::read_dir(&loom_skills)? {
@@ -263,15 +263,21 @@ pub fn sync_skills_to_native(loom_dir: &str, native_skills_dir: &str) -> Result<
 
         let native_skill_path = native_dir.join(&name);
 
-        // If the tool already has this skill, skip (native takes precedence)
-        if native_skill_path.exists() {
+        // Validate before linking: a Fatal defect refuses the skill, and a
+        // stale link made before the gate existed is pulled.
+        let (linkable, notes) = skill_link_decision(
+            &defects,
+            &skill_file,
+            &name.to_string_lossy(),
+            Some((&native_skill_path, &loom_skill_path)),
+        );
+        report.notes.extend(notes);
+        if !linkable {
             continue;
         }
 
-        // A Fatal defect refuses the skill: do not link it.
-        let (linkable, notes) = skill_link_decision(&defects, &skill_file, &name.to_string_lossy());
-        report.notes.extend(notes);
-        if !linkable {
+        // If the tool already has this skill, skip (native takes precedence)
+        if native_skill_path.exists() {
             continue;
         }
 
@@ -299,19 +305,24 @@ pub fn sync_skills_to_native(loom_dir: &str, native_skills_dir: &str) -> Result<
 /// One walk, one rule: both the layout-A path (`sync_skills_to_native`) and the
 /// layout-B path (`inject_shared_skills`) ask this question.
 pub fn skill_defects_by_file(skills_dir: &Path) -> Vec<SkillDefect> {
-    scan_skill_tree(skills_dir).defects
+    validate_skill_tree(skills_dir)
 }
 
 /// Decide whether one skill file may be linked into a native tool directory.
 ///
 /// Returns `(linkable, notes)`. A Fatal defect (missing `description:`, invalid
-/// frontmatter, a name that disagrees with its directory, a missing referenced
-/// script) refuses the skill and names the reason; a Warn never blocks the sync
-/// but is still reported.
+/// frontmatter, a name that disagrees with its directory) refuses the skill and
+/// names the reason; a Warn never blocks the sync but is still reported.
+///
+/// `stale_link` is the `(native_path, loom_source_path)` pair of the link this
+/// sync would have made. When the skill is refused, a link Loom itself made
+/// earlier is removed — otherwise the defecting skill keeps reaching the tool
+/// through the old link.
 pub fn skill_link_decision(
     defects: &[SkillDefect],
     file: &Path,
     name: &str,
+    stale_link: Option<(&Path, &Path)>,
 ) -> (bool, Vec<String>) {
     let mut notes = Vec::new();
     let mut linkable = true;
@@ -329,7 +340,47 @@ pub fn skill_link_decision(
         }
     }
 
+    if !linkable {
+        if let Some((native_path, source)) = stale_link {
+            remove_stale_link(native_path, source, name, &mut notes);
+        }
+    }
+
     (linkable, notes)
+}
+
+/// Remove a link Loom itself made to a skill that is now refused.
+///
+/// Only a symlink pointing at the loom source is removed; a skill the user
+/// placed in the native directory is never touched.
+fn remove_stale_link(native_path: &Path, source: &Path, name: &str, notes: &mut Vec<String>) {
+    #[cfg(unix)]
+    {
+        let is_link = std::fs::symlink_metadata(native_path)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false);
+        if !is_link {
+            return;
+        }
+        let points_at_source = std::fs::read_link(native_path)
+            .map(|t| t == source)
+            .unwrap_or(false)
+            || std::fs::canonicalize(native_path)
+                .ok()
+                .zip(std::fs::canonicalize(source).ok())
+                .map(|(a, b)| a == b)
+                .unwrap_or(false);
+        if points_at_source && std::fs::remove_file(native_path).is_ok() {
+            notes.push(format!(
+                "removed the stale link to refused skill '{name}' at {}",
+                native_path.display()
+            ));
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (native_path, source, name, notes);
+    }
 }
 
 #[cfg(not(unix))]
@@ -438,12 +489,14 @@ mod tests {
 
     impl Scratch {
         fn new() -> Self {
+            static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
             let nanos = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
+            let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let path = std::env::temp_dir()
-                .join(format!("loom-adapters-test-{}-{nanos}", std::process::id()));
+                .join(format!("loom-adapters-test-{}-{nanos}-{seq}", std::process::id()));
             fs::create_dir_all(&path).unwrap();
             Self(path)
         }
@@ -552,5 +605,53 @@ mod tests {
         assert_eq!(report.skills_synced, 1);
         assert!(native.join("good").exists());
         assert!(!native.join("broken").exists());
+    }
+
+    #[test]
+    fn a_stale_link_to_a_refused_skill_is_removed() {
+        let scratch = Scratch::new();
+        let loom = scratch.0.join("loom");
+        let native = scratch.0.join("native");
+        let skill_dir = loom.join("skills").join("gdrive");
+        write(&skill_dir.join("SKILL.md"), "# Google Drive\n\nNo frontmatter.\n");
+
+        // A link a previous (ungated) sync made.
+        fs::create_dir_all(&native).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&skill_dir, native.join("gdrive")).unwrap();
+        assert!(native.join("gdrive").exists());
+
+        let report =
+            sync_skills_to_native(loom.to_str().unwrap(), native.to_str().unwrap()).unwrap();
+
+        assert_eq!(report.skills_synced, 0);
+        assert!(
+            !native.join("gdrive").exists(),
+            "the stale link to a refused skill must be gone"
+        );
+        assert!(
+            report.notes.iter().any(|n| n.contains("removed")),
+            "notes: {:?}",
+            report.notes
+        );
+    }
+
+    #[test]
+    fn a_native_skill_the_user_placed_is_never_removed() {
+        let scratch = Scratch::new();
+        let loom = scratch.0.join("loom");
+        let native = scratch.0.join("native");
+        write(
+            &loom.join("skills").join("gdrive").join("SKILL.md"),
+            "# Google Drive\n\nNo frontmatter.\n",
+        );
+        // The tool's own copy — not a link Loom made.
+        write(&native.join("gdrive").join("SKILL.md"), "# Google Drive\n\nTool copy.\n");
+
+        let report =
+            sync_skills_to_native(loom.to_str().unwrap(), native.to_str().unwrap()).unwrap();
+
+        assert!(native.join("gdrive").exists(), "the tool's own skill was removed");
+        assert!(report.notes.iter().any(|n| n.contains("missing_description")));
     }
 }
