@@ -253,7 +253,11 @@ pub struct LaunchSection {
     pub env: HashMap<String, String>,
     /// Working directory (defaults to current directory or worktree).
     pub working_dir: Option<String>,
-    /// Container network mode (for docker/podman runtimes).
+    /// Container network posture (for docker/podman runtimes).
+    ///
+    /// One of `none` (default, no egress), `restricted` (egress limited to an
+    /// allowlist) or `unrestricted` (engine default network, full egress).
+    /// Free-form network names are rejected.
     pub network: Option<String>,
     /// Auto-remove container after execution (docker/podman).
     #[serde(default = "default_auto_remove")]

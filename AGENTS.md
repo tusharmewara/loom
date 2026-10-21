@@ -133,6 +133,47 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 - `cross-process` — enables ZeroMQ cross-process event bus
 - `tui` — enables TUI commands in CLI
 
+### Container Network Posture (`loom-runtime`)
+
+Container isolation is **opt-in**: the default runtime stays `process`. Once a
+container *is* selected, the **default network posture is `none` (no egress)**.
+
+| Posture | Engine argument | Meaning |
+|---|---|---|
+| `none` (default) | `--network none` | no egress |
+| `restricted` | `--network none` | fail-closed until the egress allowlist proxy lands |
+| `unrestricted` | *(no override)* | engine default network, full egress — explicit opt-in |
+
+Set it per run with the tool's `[launch] network` value (`none` \| `restricted`
+\| `unrestricted`, optionally `restricted:<host>[,<host>...]`). Free-form
+network names are rejected — a name is not a posture. `loom-runtime` has no
+`tests/` dir prior to v0.9.x; `crates/loom-runtime/tests/network_policy.rs`
+holds the pure-logic policy tests (run everywhere) and
+`crates/loom-runtime/tests/container_smoke.rs` holds the end-to-end smoke test
+(gated behind `LOOM_CONTAINER_SMOKE=1`, skipped when no engine is present; the
+`container` CI job runs it with Docker).
+
+**`restricted` is not enforced yet, and says so.** A `restricted` allowlist
+resolves to the same `none` engine posture as `none` — fail-closed, but the
+allowlist is *not* in force. The runtime logs the downgrade on every
+`restricted` run (`container network posture downgraded: restricted
+(posture=none, allowed_hosts not enforced yet: …)`), including the
+empty-allowlist case. Do not read a `restricted` run as "limited to those
+hosts" — it is "no egress at all".
+
+Enforcement differs per backend. Docker and Podman enforce isolation in the
+engine itself (`--network none`) and are unconditionally fail-closed.
+Kubernetes creates a `NetworkPolicy` object, which is only enforced when the
+cluster's CNI implements NetworkPolicy — a cluster whose CNI ignores the
+object leaves the Pod on the cluster's default egress. The Kubernetes backend
+therefore has no guaranteed isolation, and there is no CNI capability check.
+
+The container is removed by the runtime, not by the engine: the engine's
+auto-remove is **off** so the runtime can read the container's logs after the
+process exits. Every dispatch path must therefore call
+`Runtime::cleanup(&result)` — the CLI (`loom exec`) and the workflow dispatcher
+do, and the TUI dispatcher does too. A path that skips it leaks the container.
+
 ## Testing
 
 - **Unit tests**: inline in each crate under `#[cfg(test)] mod tests { ... }`

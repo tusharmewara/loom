@@ -5,6 +5,37 @@
 //! - **ContainerRuntime** — runs commands inside Docker containers
 //!
 //! The runtime is selected via `LaunchConfig.runtime` (default: "process").
+//!
+//! # Network posture
+//!
+//! Container isolation is **opt-in**: the default runtime stays `process`, so
+//! nothing changes for runs that never ask for a container. Once a run *does*
+//! select a container backend, the **default network posture is
+//! [`NetworkPolicy::NoNetwork`]** — the container gets no network at all.
+//! Unrestricted egress is an explicit opt-in, never the absence of a setting.
+//!
+//! | Posture | Engine argument | Meaning |
+//! |---|---|---|
+//! | [`NetworkPolicy::NoNetwork`] (default) | `--network none` | no egress |
+//! | [`NetworkPolicy::Restricted`] | `--network none` | fail-closed: egress denied until the allowlist proxy lands |
+//! | [`NetworkPolicy::Unrestricted`] | *(no override)* | engine default network, full egress |
+//!
+//! The posture is selected per run from the tool's `[launch] network` value
+//! (`none` | `restricted` | `unrestricted`); free-form network names are
+//! rejected — a name is not a posture.
+//!
+//! `restricted` is **fail-closed but not yet an allowlist**: it resolves to the
+//! `none` engine posture, because nothing enforces the host list yet. The
+//! runtime logs that downgrade on every `restricted` run (see
+//! [`NetworkPolicy::diagnostic`]), so an operator asking for
+//! `restricted:api.example.com` is never left thinking the allowlist is in
+//! force.
+//!
+//! Enforcement is per backend: Docker and Podman deny egress in the engine
+//! itself (`--network none`) and are unconditionally fail-closed. Kubernetes
+//! creates a `NetworkPolicy` object, which is only enforced when the
+//! cluster's CNI implements NetworkPolicy — there is no capability check, so
+//! the Kubernetes backend is not guaranteed to be fail-closed.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -36,9 +67,175 @@ pub struct ContainerSpec {
     pub env: HashMap<String, String>,
     pub working_dir: String,
     pub volumes: Vec<VolumeMount>,
-    pub network_mode: Option<String>,
+    /// Network posture for this run. The engine argument is derived from it:
+    /// Docker/Podman get `--network none` unless the posture is
+    /// [`NetworkPolicy::Unrestricted`], Kubernetes gets a `NetworkPolicy`
+    /// object.
+    pub network_policy: NetworkPolicy,
     pub resource_limits: Option<ResourceLimits>,
     pub labels: HashMap<String, String>,
+}
+
+/// Per-run network posture for container execution.
+///
+/// This is a **policy**, not a network name: the old `Option<String>` field
+/// conflated "which network" with "may this run reach the network at all",
+/// which made the *absence* of a value mean "host networking" — the opposite
+/// of isolation.
+///
+/// The default is [`NetworkPolicy::NoNetwork`]. Unrestricted egress is
+/// reachable only by asking for it explicitly.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NetworkPolicy {
+    /// No network at all — the container cannot reach anything.
+    /// The default posture for untrusted runs.
+    #[default]
+    NoNetwork,
+    /// Egress restricted to an allowlist of hosts.
+    ///
+    /// Fail-closed: an allowlist that is not enforced yet must never widen to
+    /// full egress, so this resolves to the same engine argument as
+    /// [`NetworkPolicy::NoNetwork`] until the egress proxy lands. The
+    /// allowlist is recorded on the container labels, so it is observable
+    /// (and auditable) before it is enforced — and the runtime logs the
+    /// downgrade (see [`NetworkPolicy::diagnostic`]) so the gap is visible
+    /// at run time, not only in the labels.
+    Restricted {
+        /// Hosts the run is allowed to reach.
+        allowed_hosts: Vec<String>,
+    },
+    /// Unrestricted egress on the engine's default network. Explicit opt-in.
+    Unrestricted,
+}
+
+impl NetworkPolicy {
+    /// Parse the policy from a tool's `[launch] network` value.
+    ///
+    /// Accepts `none` / `restricted` / `unrestricted` (case-insensitive), and
+    /// `restricted:<host>[,<host>...]` to name the allowlist. Anything else is
+    /// an error — free-form network names are not postures.
+    pub fn parse(value: &str) -> Result<Self> {
+        let value = value.trim();
+        let (name, hosts) = match value.split_once(':') {
+            Some((name, hosts)) => (name.trim(), hosts.trim()),
+            None => (value, ""),
+        };
+        match name.to_ascii_lowercase().as_str() {
+            "none" => Ok(NetworkPolicy::NoNetwork),
+            "restricted" => Ok(NetworkPolicy::Restricted {
+                allowed_hosts: parse_host_list(hosts),
+            }),
+            "unrestricted" => Ok(NetworkPolicy::Unrestricted),
+            other => anyhow::bail!(
+                "unknown network policy '{other}' (expected: none | restricted | unrestricted)"
+            ),
+        }
+    }
+
+    /// The container engine's network argument for this posture.
+    ///
+    /// `None` means "do not pass a network argument" — the engine's default
+    /// network applies. `Some("none")` means "no network at all".
+    pub fn engine_network_mode(&self) -> Option<&'static str> {
+        match self {
+            // Restricted is fail-closed: an unenforced allowlist must not
+            // widen to full egress.
+            NetworkPolicy::NoNetwork | NetworkPolicy::Restricted { .. } => Some("none"),
+            NetworkPolicy::Unrestricted => None,
+        }
+    }
+
+    /// Container-engine CLI arguments for this posture.
+    ///
+    /// Empty for [`NetworkPolicy::Unrestricted`] — the engine's default
+    /// network is left in place rather than overridden.
+    pub fn cli_args(&self) -> Vec<String> {
+        match self.engine_network_mode() {
+            Some(mode) => vec!["--network".to_string(), mode.to_string()],
+            None => Vec::new(),
+        }
+    }
+
+    /// Short name of the posture (used in labels and log lines).
+    pub fn name(&self) -> &'static str {
+        match self {
+            NetworkPolicy::NoNetwork => "none",
+            NetworkPolicy::Restricted { .. } => "restricted",
+            NetworkPolicy::Unrestricted => "unrestricted",
+        }
+    }
+
+    /// Hosts the posture allows, if any.
+    pub fn allowed_hosts(&self) -> &[String] {
+        match self {
+            NetworkPolicy::Restricted { allowed_hosts } => allowed_hosts,
+            _ => &[],
+        }
+    }
+
+    /// The diagnostic this posture needs, if any.
+    ///
+    /// `Restricted` resolves to the `none` engine posture because the
+    /// allowlist is not enforced yet, so the operator asked for one thing
+    /// and got another. That difference has to be visible: a silent
+    /// `restricted:api.example.com` reads like "only that host" while it
+    /// actually means "no egress at all".
+    ///
+    /// `None` for the postures that resolve to themselves.
+    pub fn diagnostic(&self) -> Option<String> {
+        match self {
+            NetworkPolicy::Restricted { allowed_hosts } => {
+                let hosts = if allowed_hosts.is_empty() {
+                    "allowed_hosts empty and not enforced yet".to_string()
+                } else {
+                    format!("allowed_hosts not enforced yet: {}", allowed_hosts.join(","))
+                };
+                Some(format!("restricted (posture=none, {hosts})"))
+            }
+            _ => None,
+        }
+    }
+}
+
+fn parse_host_list(hosts: &str) -> Vec<String> {
+    hosts
+        .split(',')
+        .map(str::trim)
+        .filter(|h| !h.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Resolve the effective network posture for a single run.
+///
+/// Precedence: an explicit per-run value (`LaunchConfig::network`, i.e. the
+/// tool's `[launch] network`) wins over the runtime's default posture. An
+/// absent value keeps the runtime default — [`NetworkPolicy::default()`], which
+/// is [`NetworkPolicy::NoNetwork`].
+///
+/// An unrecognised value is an **error**: a free-form network name is not a
+/// posture, and guessing would silently widen egress.
+pub fn resolve_network_policy(
+    runtime_default: &NetworkPolicy,
+    requested: Option<&str>,
+) -> Result<NetworkPolicy> {
+    let policy = match requested {
+        Some(value) => NetworkPolicy::parse(value)?,
+        None => runtime_default.clone(),
+    };
+    // The requested posture and the resolved posture can differ — a
+    // `restricted` allowlist is not enforced yet and resolves to the `none`
+    // engine posture. Say so, or the operator believes an allowlist is in
+    // force.
+    if let Some(diagnostic) = policy.diagnostic() {
+        tracing::warn!(
+            posture = policy.name(),
+            requested = requested.unwrap_or("(runtime default)"),
+            "container network posture downgraded: {diagnostic}"
+        );
+    }
+    Ok(policy)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -249,7 +446,7 @@ impl Runtime for ProcessRuntime {
 pub struct ContainerRuntime {
     client: Option<Box<dyn ContainerClient>>,
     default_image: String,
-    network: Option<String>,
+    network_policy: NetworkPolicy,
     auto_remove: bool,
 }
 
@@ -278,8 +475,13 @@ pub mod kubernetes_client {
     use k8s_openapi::api::core::v1::{
         Container, EmptyDirVolumeSource, EnvVar, Pod, PodSpec, PodTemplateSpec, Volume, VolumeMount,
     };
-    use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+    use k8s_openapi::api::networking::v1::{
+        NetworkPolicyEgressRule, NetworkPolicySpec,
+    };
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
     use kube::api::{Api, DeleteParams, ListParams, LogParams, PostParams};
+
+    use k8s_openapi::api::networking::v1::NetworkPolicy as K8sNetworkPolicy;
 
     /// Default namespace for task Jobs.
     pub const DEFAULT_NAMESPACE: &str = "default";
@@ -314,11 +516,23 @@ pub mod kubernetes_client {
             self
         }
 
+        /// Build a client against an explicit API server.
+        ///
+        /// Used by the ordering test, which points the client at a local fake
+        /// API server to observe the order of the calls the runtime makes.
+        pub fn with_client(client: kube::Client, namespace: String) -> Self {
+            Self { client, namespace }
+        }
+
         fn jobs(&self) -> Api<Job> {
             Api::namespaced(self.client.clone(), &self.namespace)
         }
 
         fn pods(&self) -> Api<Pod> {
+            Api::namespaced(self.client.clone(), &self.namespace)
+        }
+
+        fn network_policies(&self) -> Api<K8sNetworkPolicy> {
             Api::namespaced(self.client.clone(), &self.namespace)
         }
 
@@ -344,11 +558,82 @@ pub mod kubernetes_client {
                 })
                 .ok_or_else(|| anyhow::anyhow!("no Pod found for Job {}", job_name))
         }
+
+        /// Apply the run's network posture as a Kubernetes `NetworkPolicy`.
+        ///
+        /// The policy is named after the Job, so `remove_container` can delete
+        /// it again. Returns the created policy's name, or `None` when the
+        /// posture is [`NetworkPolicy::Unrestricted`] (no policy object is
+        /// needed — the Pod keeps the cluster's default egress).
+        ///
+        /// **This is only as enforced as the cluster's CNI.** A Kubernetes
+        /// `NetworkPolicy` is a declarative object; a Pod is only actually
+        /// denied egress when the cluster's network plugin implements
+        /// NetworkPolicy enforcement. On a cluster whose CNI ignores
+        /// `NetworkPolicy` objects, this policy is silently a no-op and the
+        /// Pod keeps the cluster's default egress. There is no check for
+        /// that here, so the Kubernetes backend is **not** unconditionally
+        /// fail-closed the way the Docker and Podman backends are: those two
+        /// enforce isolation in the engine itself (`--network none`), while
+        /// Kubernetes delegates enforcement to the cluster.
+        async fn apply_network_policy(
+            &self,
+            spec: &ContainerSpec,
+            job_name: &str,
+            pod_labels: &std::collections::BTreeMap<String, String>,
+        ) -> Result<Option<String>> {
+            let policy = &spec.network_policy;
+            if matches!(policy, NetworkPolicy::Unrestricted) {
+                return Ok(None);
+            }
+
+            let name = format!("loom-net-{job_name}");
+
+            // Fail-closed, exactly like the Docker/Podman backends: an empty
+            // egress list denies all egress. A `Restricted` allowlist is not
+            // enforced yet (it lands with the egress proxy), so it must not
+            // widen to full egress — and a hostname is not a CIDR, so it
+            // cannot be expressed as an `IPBlock` either.
+            let egress: Vec<NetworkPolicyEgressRule> = Vec::new();
+            let k8s_policy = K8sNetworkPolicy {
+                metadata: ObjectMeta {
+                    name: Some(name.clone()),
+                    namespace: Some(self.namespace.clone()),
+                    ..Default::default()
+                },
+                spec: Some(NetworkPolicySpec {
+                    pod_selector: LabelSelector {
+                        match_labels: Some(pod_labels.clone()),
+                        match_expressions: None,
+                    },
+                    policy_types: Some(vec!["Egress".to_string()]),
+                    egress: Some(egress),
+                    ingress: None,
+                }),
+            };
+
+            self.network_policies()
+                .create(&PostParams::default(), &k8s_policy)
+                .await
+                .with_context(|| {
+                    format!(
+                        "failed to create NetworkPolicy {name} in namespace {}",
+                        self.namespace
+                    )
+                })?;
+
+            Ok(Some(name))
+        }
     }
 
-    #[async_trait]
-    impl ContainerClient for KubernetesClient {
-        async fn create_container(&self, spec: &ContainerSpec) -> Result<String> {
+    impl KubernetesClient {
+        /// Create the Job for this run, with the network posture applied
+        /// before it.
+        ///
+        /// The order matters: the NetworkPolicy is created first, so the
+        /// Job's Pod is already covered by the time the Job controller starts
+        /// it.
+        pub async fn create_job(&self, spec: &ContainerSpec) -> Result<String> {
             let job_name = format!("loom-task-{}", Uuid::new_v4().simple());
 
             let env: Vec<EnvVar> = spec
@@ -404,6 +689,32 @@ pub mod kubernetes_client {
                 ..Default::default()
             };
 
+            // The Pod carries the task label the NetworkPolicy selects on.
+            let pod_labels = {
+                let mut labels = std::collections::BTreeMap::new();
+                labels.insert(
+                    "loom.task_id".to_string(),
+                    spec.labels
+                        .get("loom.task_id")
+                        .cloned()
+                        .unwrap_or_else(|| job_name.clone()),
+                );
+                labels
+            };
+
+            // Network posture — applied BEFORE the Job. A NetworkPolicy
+            // selects Pods by label, not by the Pod existing, so creating the
+            // policy first is what makes the posture effective: the Job's Pod
+            // is already covered by the time the Job controller starts it.
+            // Creating it after the Job leaves a window where the Pod runs
+            // with the cluster's default egress.
+            if let Some(policy_name) = self
+                .apply_network_policy(spec, &job_name, &pod_labels)
+                .await?
+            {
+                tracing::info!(policy = %policy_name, "created Kubernetes NetworkPolicy");
+            }
+
             let job = Job {
                 metadata: ObjectMeta {
                     name: Some(job_name.clone()),
@@ -412,8 +723,11 @@ pub mod kubernetes_client {
                 },
                 spec: Some(JobSpec {
                     template: PodTemplateSpec {
+                        metadata: Some(ObjectMeta {
+                            labels: Some(pod_labels.clone()),
+                            ..Default::default()
+                        }),
                         spec: Some(pod_spec),
-                        ..Default::default()
                     },
                     backoff_limit: Some(3),
                     ..Default::default()
@@ -433,7 +747,15 @@ pub mod kubernetes_client {
                 })?;
             let name = created.metadata.name.unwrap_or(job_name.clone());
             tracing::info!(job = %name, "created Kubernetes Job");
+
             Ok(name)
+        }
+    }
+
+    #[async_trait]
+    impl ContainerClient for KubernetesClient {
+        async fn create_container(&self, spec: &ContainerSpec) -> Result<String> {
+            self.create_job(spec).await
         }
 
         async fn start_container(&self, _id: &str) -> Result<()> {
@@ -505,6 +827,24 @@ pub mod kubernetes_client {
         }
 
         async fn remove_container(&self, id: &str, _force: bool) -> Result<()> {
+            // The NetworkPolicy is named after the Job — remove it too, so a
+            // finished run leaves no policy object behind.
+            let policy_name = format!("loom-net-{id}");
+            match self
+                .network_policies()
+                .delete(&policy_name, &DeleteParams::default())
+                .await
+            {
+                Ok(_) => {}
+                Err(kube::Error::Api(err)) if err.code == 404 => {}
+                Err(e) => {
+                    tracing::warn!(
+                        policy = %policy_name,
+                        "failed to delete NetworkPolicy: {e}"
+                    );
+                }
+            }
+
             match self.jobs().delete(id, &DeleteParams::default()).await {
                 Ok(_) => Ok(()),
                 Err(kube::Error::Api(err)) if err.code == 404 => Ok(()),
@@ -524,7 +864,7 @@ impl ContainerRuntime {
         Self {
             client: None,
             default_image: "loom/agent:latest".to_string(),
-            network: None,
+            network_policy: NetworkPolicy::default(),
             auto_remove: true,
         }
     }
@@ -533,7 +873,7 @@ impl ContainerRuntime {
         Self {
             client: None,
             default_image: "loom/agent:latest".to_string(),
-            network: None,
+            network_policy: NetworkPolicy::default(),
             auto_remove: true,
         }
     }
@@ -543,7 +883,7 @@ impl ContainerRuntime {
         Self {
             client: None,
             default_image: "loom/agent:latest".to_string(),
-            network: None,
+            network_policy: NetworkPolicy::default(),
             auto_remove: true,
         }
     }
@@ -553,9 +893,15 @@ impl ContainerRuntime {
         self
     }
 
-    pub fn with_network(mut self, network: String) -> Self {
-        self.network = Some(network);
+    /// Set the network posture for this runtime.
+    pub fn with_network_policy(mut self, policy: NetworkPolicy) -> Self {
+        self.network_policy = policy;
         self
+    }
+
+    /// The network posture this runtime applies.
+    pub fn network_policy(&self) -> &NetworkPolicy {
+        &self.network_policy
     }
 
     pub fn with_auto_remove(mut self, auto_remove: bool) -> Self {
@@ -639,12 +985,9 @@ impl Runtime for ContainerRuntime {
             .ok_or_else(|| anyhow::anyhow!("Container client not initialized"))?;
 
         // Build container spec from launch config
-        let spec = build_container_spec(
-            config,
-            task,
-            &runtime.default_image,
-            runtime.network.as_deref(),
-        )?;
+        // (`resolve_network_policy` logs the posture-downgrade diagnostic.)
+        let policy = resolve_network_policy(&runtime.network_policy, config.network.as_deref())?;
+        let spec = build_container_spec(config, task, &runtime.default_image, policy)?;
 
         // Pull image if needed
         client.pull_image(&spec.image).await?;
@@ -705,7 +1048,7 @@ impl Clone for ContainerRuntime {
         Self {
             client: None, // Client will be re-initialized
             default_image: self.default_image.clone(),
-            network: self.network.clone(),
+            network_policy: self.network_policy.clone(),
             auto_remove: self.auto_remove,
         }
     }
@@ -716,7 +1059,7 @@ fn build_container_spec(
     config: &LaunchConfig,
     task: &Task,
     default_image: &str,
-    network: Option<&str>,
+    network_policy: NetworkPolicy,
 ) -> Result<ContainerSpec> {
     let image = config
         .image
@@ -761,6 +1104,20 @@ fn build_container_spec(
     );
     env.insert("LOOM_RUNTIME".to_string(), "container".to_string());
 
+    let mut labels = HashMap::new();
+    labels.insert("loom.task_id".to_string(), task.task_id.clone());
+    labels.insert("loom.task_title".to_string(), task.title.clone());
+    labels.insert(
+        "loom.network_policy".to_string(),
+        network_policy.name().to_string(),
+    );
+    if !network_policy.allowed_hosts().is_empty() {
+        labels.insert(
+            "loom.network_allowed_hosts".to_string(),
+            network_policy.allowed_hosts().join(","),
+        );
+    }
+
     Ok(ContainerSpec {
         image,
         cmd: vec![config.command.clone()]
@@ -770,14 +1127,9 @@ fn build_container_spec(
         env,
         working_dir,
         volumes,
-        network_mode: network.map(|s| s.to_string()),
+        network_policy,
         resource_limits: None,
-        labels: {
-            let mut labels = HashMap::new();
-            labels.insert("loom.task_id".to_string(), task.task_id.clone());
-            labels.insert("loom.task_title".to_string(), task.title.clone());
-            labels
-        },
+        labels,
     })
 }
 
@@ -835,8 +1187,12 @@ mod docker_client {
                             })
                             .collect(),
                     ),
-                    network_mode: spec.network_mode.clone(),
-                    auto_remove: Some(true),
+                    network_mode: spec.network_policy.engine_network_mode().map(String::from),
+                    // The runtime owns the container lifecycle (`auto_remove`
+                    // on `ContainerRuntime`): the daemon deleting the
+                    // container on exit would take the logs with it and make
+                    // the runtime's own cleanup 404.
+                    auto_remove: Some(false),
                     cpu_shares: spec
                         .resource_limits
                         .as_ref()
@@ -923,11 +1279,19 @@ mod docker_client {
                 force,
                 ..Default::default()
             };
-            self.client
+            match self
+                .client
                 .remove_container(id, Some(options))
                 .await
-                .context("Failed to remove container")?;
-            Ok(())
+            {
+                Ok(_) => Ok(()),
+                // Already gone — the runtime asked for removal, so this is
+                // success, not a failure.
+                Err(bollard::errors::Error::DockerResponseServerError {
+                    status_code: 404, ..
+                }) => Ok(()),
+                Err(e) => Err(anyhow::anyhow!("Failed to remove container: {e}")),
+            }
         }
 
         async fn pull_image(&self, image: &str) -> Result<()> {
@@ -999,11 +1363,8 @@ mod podman_client {
             args.push("-w".to_string());
             args.push(spec.working_dir.clone());
 
-            // Network mode
-            if let Some(network) = &spec.network_mode {
-                args.push("--network".to_string());
-                args.push(network.clone());
-            }
+            // Network posture
+            args.extend(spec.network_policy.cli_args());
 
             // Labels
             for (k, v) in &spec.labels {
@@ -1181,10 +1542,14 @@ mod tests {
             runtime: None,
         };
 
-        let spec = build_container_spec(&config, &task, "default:latest", None).unwrap();
+        let spec =
+            build_container_spec(&config, &task, "default:latest", NetworkPolicy::default()).unwrap();
         assert_eq!(spec.image, "test:latest");
         assert_eq!(spec.cmd, vec!["echo", "hello"]);
         assert_eq!(spec.working_dir, "/workspace");
         assert!(!spec.volumes.is_empty());
+        // An unset network value must not widen egress.
+        assert_eq!(spec.network_policy, NetworkPolicy::NoNetwork);
+        assert_eq!(spec.labels.get("loom.network_policy").map(String::as_str), Some("none"));
     }
 }
