@@ -93,11 +93,6 @@ impl GrantRecord {
     pub fn is_expired(&self, now: u64) -> bool {
         now >= self.expires_at
     }
-
-    /// True when the grant may be used for `tool` in `run_id` right now.
-    pub fn is_usable(&self, tool: &str, run_id: &str, now: u64) -> bool {
-        !self.revoked && !self.is_expired(now) && self.tool == tool && self.run_id == run_id
-    }
 }
 
 /// A freshly issued grant handed back to the caller.
@@ -228,8 +223,10 @@ impl GrantStore {
         drop(inner);
 
         // Write-then-rename so a crash cannot leave a half-written registry.
+        // The registry is the revocation source of truth, so it is written
+        // owner-only (0600) — see docs/architecture/grant-trust-model.md.
         let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, &json)
+        crate::vault::write_private(&tmp, json.as_bytes())
             .with_context(|| format!("failed to write grant registry: {:?}", tmp))?;
         std::fs::rename(&tmp, &path)
             .with_context(|| format!("failed to replace grant registry: {:?}", path))?;
@@ -494,14 +491,5 @@ mod tests {
         let r = again.get(&rec.grant_id).unwrap();
         assert!(r.revoked);
         assert_eq!(r.revoked_at, Some(1_500));
-    }
-
-    #[test]
-    fn test_usable_checks_scope_and_time() {
-        let rec = record();
-        assert!(rec.is_usable("claude-code", "run-1", 1_500));
-        assert!(!rec.is_usable("other", "run-1", 1_500));
-        assert!(!rec.is_usable("claude-code", "run-2", 1_500));
-        assert!(!rec.is_usable("claude-code", "run-1", 2_000));
     }
 }

@@ -219,7 +219,7 @@ impl CredentialVault {
 
         let cred_path = auth_dir.join(format!("{}.enc", provider_id));
         let json = serde_json::to_string_pretty(&blob)?;
-        std::fs::write(&cred_path, &json)
+        write_private(&cred_path, json.as_bytes())
             .with_context(|| format!("failed to write credential: {:?}", cred_path))?;
 
         debug!(provider_id, "credential stored");
@@ -419,6 +419,38 @@ impl Drop for CredentialVault {
     fn drop(&mut self) {
         self.lock();
     }
+}
+
+/// Write `contents` to `path` with owner-only permissions.
+///
+/// On unix the file is opened with mode 0600 and the mode is re-applied
+/// after the write, so a pre-existing file cannot keep a wider mode.
+/// Used for the files that are the source of truth for a security
+/// decision (the grant registry, the encrypted credential blobs).
+pub(crate) fn write_private(path: &Path, contents: &[u8]) -> Result<()> {
+    use std::io::Write;
+
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut file = opts
+        .open(path)
+        .with_context(|| format!("failed to open for writing: {:?}", path))?;
+    file.write_all(contents)
+        .with_context(|| format!("failed to write: {:?}", path))?;
+    drop(file);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("failed to set permissions on: {:?}", path))?;
+    }
+    Ok(())
 }
 
 // Simple hex encoding/decoding without pulling in the `hex` crate

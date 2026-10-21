@@ -114,6 +114,13 @@ The AEAD does bound the damage: the scope fields (`provider_id`, `run_id`, `tool
 grant's scope or push its expiry out. The `revoked` flag and `revoked_at` are the
 only fields outside the AEAD.
 
+The registry is written with mode `0600` (owner-only), as is the encrypted
+credential blob `<provider>.enc` beside it. This does not close the tampering gap
+above — the owner can still write the file — but it removes the "any local user can
+edit the registry" case, which was the default under the process umask. On non-unix
+platforms the mode is not applied and the file carries whatever the filesystem
+default gives it.
+
 ## Expiry
 
 Expiry is stored in the record and enforced on every verification, not only at issue

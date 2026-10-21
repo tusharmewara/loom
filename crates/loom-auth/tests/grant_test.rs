@@ -328,3 +328,32 @@ fn test_grant_for_unknown_provider_fails() {
         .to_string();
     assert!(err.contains("no credential found"), "unexpected error: {err}");
 }
+
+/// The grant registry is the revocation source of truth, so it must not be
+/// group- or other-readable. The encrypted credential blob is a secret at
+/// rest, so it gets the same treatment.
+#[cfg(unix)]
+#[test]
+fn test_auth_files_are_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().to_str().unwrap();
+    let manager = manager_with_credential(path, "openai", "sk-secret-value");
+    manager
+        .issue_grant("openai", "run-1", "claude-code", 900)
+        .unwrap();
+
+    for (label, file) in [
+        ("grant registry", dir.path().join("auth").join("grants.json")),
+        ("credential blob", dir.path().join("auth").join("openai.enc")),
+    ] {
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "{label} is readable by group/other: mode {:o}",
+            mode
+        );
+    }
+}
