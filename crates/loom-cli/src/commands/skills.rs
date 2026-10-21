@@ -2,15 +2,27 @@ use crate::cli::SkillsAction;
 use loom_core::SkillEntry;
 use loom_skills::lockfile::{self, SkillsLock};
 use loom_skills::scan::{self, Severity, SkillDefect};
+use loom_skills::trigger::TriggerSet;
+use loom_skills::trigger_lines;
 use std::path::Path;
 
-fn update_lock(loom_dir: &Path) -> anyhow::Result<()> {
-    let engine = loom_skills::SkillsEngine::new(loom_dir.to_str().unwrap())?;
-    let registry_skills = engine.registry().list();
+/// Rewrite the lock file so it matches the registry exactly: every installed
+/// skill is locked, and a skill that is no longer installed is unlocked.
+fn update_lock(loom_dir: &Path, skills: &[SkillEntry]) -> anyhow::Result<()> {
     let lock_path = lockfile::default_lock_path(loom_dir.to_str().unwrap());
     let mut lock = SkillsLock::load(&lock_path)?.unwrap_or_default();
-    for skill in &registry_skills {
+    for skill in skills {
         lock.lock_skill(skill);
+    }
+    let names: Vec<&str> = skills.iter().map(|s| s.name.as_str()).collect();
+    let stale: Vec<String> = lock
+        .skills
+        .keys()
+        .filter(|name| !names.contains(&name.as_str()))
+        .cloned()
+        .collect();
+    for name in stale {
+        lock.unlock_skill(&name);
     }
     lock.save(&lock_path)?;
     Ok(())
@@ -208,9 +220,36 @@ fn list_lines(skills: &[SkillEntry], defects: &[SkillDefect]) -> String {
     out
 }
 
+/// The trigger set for the listed skills: one line per valid skill, and the
+/// skills that got no line.
+fn trigger_set(skills: &[SkillEntry], defects: &[SkillDefect]) -> TriggerSet {
+    trigger_lines(skills, defects, |e| e.description.as_str())
+}
+
+/// The trigger set as text. A skill is never dropped silently: the ones
+/// without a line are named.
+fn trigger_lines_text(set: &TriggerSet) -> String {
+    let mut out = String::new();
+    if set.lines.is_empty() {
+        out.push_str("No trigger lines.\n");
+    } else {
+        out.push_str("Triggers:\n");
+        for line in set.lines.values() {
+            out.push_str(&format!("  {line}\n"));
+        }
+    }
+    if !set.not_triggered.is_empty() {
+        out.push_str("Not triggered:\n");
+        for name in &set.not_triggered {
+            out.push_str(&format!("  {name}\n"));
+        }
+    }
+    out
+}
+
 /// The JSON listing. `count` and `skills` keep their shape: the TUI reads
 /// them.
-fn list_json(skills: &[SkillEntry], defects: &[SkillDefect]) -> serde_json::Value {
+fn list_json(skills: &[SkillEntry], defects: &[SkillDefect], triggers: &TriggerSet) -> serde_json::Value {
     let defects: Vec<serde_json::Value> = defects
         .iter()
         .map(|d| {
@@ -231,6 +270,8 @@ fn list_json(skills: &[SkillEntry], defects: &[SkillDefect]) -> serde_json::Valu
         "count": skills.len(),
         "skills": skills,
         "defects": defects,
+        "triggers": triggers.lines,
+        "not_triggered": triggers.not_triggered,
     })
 }
 
@@ -238,14 +279,16 @@ pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
     match action {
         SkillsAction::List { json, locked } => {
             let (registry_skills, defects) = inventory(loom_dir)?;
+            let triggers = trigger_set(&registry_skills, &defects);
 
             if *json {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&list_json(&registry_skills, &defects))?
+                    serde_json::to_string_pretty(&list_json(&registry_skills, &defects, &triggers))?
                 );
             } else {
                 print!("{}", list_lines(&registry_skills, &defects));
+                print!("{}", trigger_lines_text(&triggers));
             }
             if *locked {
                 let lock_path = lockfile::default_lock_path(loom_dir.to_str().unwrap());
@@ -320,13 +363,27 @@ pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
                 anyhow::bail!("Path does not exist: {path}");
             }
             let name = install_skill(loom_dir, src)?;
+            // Register it: the registry is the source of truth for what is
+            // installed, and the lock file mirrors the registry.
+            let entry = scan::scan_skill_tree(&loom_dir.join("skills"))
+                .skills
+                .into_iter()
+                .find(|s| s.name == name)
+                .ok_or_else(|| anyhow::anyhow!("installed skill '{name}' is not on disk"))?;
+            let engine = loom_skills::SkillsEngine::new(loom_dir.to_str().unwrap())?;
+            engine.registry().upsert(entry)?;
+            let skills = engine.registry().list();
+            update_lock(loom_dir, &skills)?;
             println!("Installed skill '{name}'");
-            update_lock(loom_dir)?;
         }
         SkillsAction::Remove { name } => {
             remove_skill(loom_dir, name)?;
+            // The registry is re-read from disk, so the removed skill is gone
+            // from it, and the lock file follows the registry.
+            let engine = loom_skills::SkillsEngine::new(loom_dir.to_str().unwrap())?;
+            let skills = engine.registry().list();
+            update_lock(loom_dir, &skills)?;
             println!("Removed skill '{name}'");
-            update_lock(loom_dir)?;
         }
     }
     Ok(())
@@ -618,12 +675,61 @@ mod tests {
         mixed_tree(dir.path());
 
         let (skills, defects) = inventory(dir.path())?;
-        let v = list_json(&skills, &defects);
+        let triggers = trigger_set(&skills, &defects);
+        let v = list_json(&skills, &defects, &triggers);
 
         // The TUI reads /count and /skills.
         assert_eq!(v["count"].as_u64().unwrap(), skills.len() as u64);
         assert!(v["skills"].is_array());
         assert!(v["defects"].is_array());
+        assert!(v["triggers"].is_object());
+        Ok(())
+    }
+
+    #[test]
+    fn a_fatal_skill_is_named_but_not_triggered() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        // A layout-A name mismatch is Fatal: the skill cannot work.
+        write(
+            &dir.path().join("skills/dirname/SKILL.md"),
+            &skill_md("othername", "\"Mismatched\""),
+        );
+        write(
+            &dir.path().join("skills/ok.md"),
+            &skill_md("ok", "\"A working skill\""),
+        );
+
+        let (skills, defects) = inventory(dir.path())?;
+        let triggers = trigger_set(&skills, &defects);
+
+        assert!(!triggers.lines.contains_key("othername"));
+        assert!(triggers.not_triggered.contains(&"othername".to_string()));
+        assert!(triggers.lines.contains_key("ok"));
+        Ok(())
+    }
+
+    #[test]
+    fn the_lock_file_follows_install_and_remove() -> anyhow::Result<()> {
+        let tmp = tempdir()?;
+        let loom_dir = tmp.path().join("loom");
+        let src = make_dir_skill(tmp.path(), "myskill", GOOD_FM);
+
+        install_skill(&loom_dir, &src)?;
+        let engine = loom_skills::SkillsEngine::new(loom_dir.to_str().unwrap())?;
+        let skills = engine.registry().list();
+        update_lock(&loom_dir, &skills)?;
+
+        let lock_path = lockfile::default_lock_path(loom_dir.to_str().unwrap());
+        let lock = SkillsLock::load(&lock_path)?.expect("lock file written");
+        assert!(lock.skills.contains_key("myskill"), "lock: {:?}", lock.skills);
+
+        remove_skill(&loom_dir, "myskill")?;
+        let engine = loom_skills::SkillsEngine::new(loom_dir.to_str().unwrap())?;
+        let skills = engine.registry().list();
+        update_lock(&loom_dir, &skills)?;
+
+        let lock = SkillsLock::load(&lock_path)?.expect("lock file written");
+        assert!(lock.skills.is_empty(), "lock: {:?}", lock.skills);
         Ok(())
     }
 }
