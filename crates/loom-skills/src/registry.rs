@@ -82,12 +82,13 @@ impl SkillRegistry {
 
     /// Walk the skills directory and make the registry match what is on disk.
     ///
-    /// The scan result IS the registry content. A skill with no `description:`
-    /// is not registered — the agent drops it silently at load, so a row for it
-    /// would be a lie. Rows whose skill is gone from disk are removed, so the
-    /// registry never reports a skill that is not installed. When a flat file
-    /// and a directory share a name, the first one wins and the collision is
-    /// reported as a defect — never resolved silently.
+    /// The scan result IS the registry content. Validation annotates a skill,
+    /// it never removes it: a skill with no `description:` still gets a row
+    /// (with an empty description) and its defect is reported separately.
+    /// Rows whose skill is gone from disk are removed, so the registry never
+    /// reports a skill that is not installed. When a flat file and a directory
+    /// share a name, the first one wins and the collision is reported as a
+    /// defect — never resolved silently.
     ///
     /// Only changed rows are written, so a repeated sync does not churn
     /// `updated_at` on every read.
@@ -96,10 +97,6 @@ impl SkillRegistry {
 
         let mut kept: Vec<SkillEntry> = Vec::new();
         for skill in &scan.skills {
-            // No description: the skill is dropped at load. Not registered.
-            if skill.description.trim().is_empty() {
-                continue;
-            }
             // First file with this name wins; the other is the duplicate the
             // scan already reported. The name column is UNIQUE, so one row is
             // the only thing the schema can hold.
@@ -542,7 +539,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_refuses_a_skill_without_a_description() -> anyhow::Result<()> {
+    fn sync_registers_a_skill_without_a_description() -> anyhow::Result<()> {
         let dir = tempdir()?;
         // No frontmatter at all: the live `gdrive` shape.
         write(
@@ -556,12 +553,14 @@ mod tests {
 
         let registry = SkillRegistry::new(dir.path().to_str().unwrap())?;
 
-        assert!(
-            registry.get("gdrive").is_none(),
-            "a description-less skill must not be registered as healthy"
-        );
+        // Validation annotates, it never removes: the skill is in the
+        // inventory, with an empty description.
+        let gdrive = registry
+            .get("gdrive")
+            .expect("a description-less skill is still registered");
+        assert_eq!(gdrive.description, "");
         assert!(registry.get("healthy").is_some());
-        assert_eq!(registry.count(), 1);
+        assert_eq!(registry.count(), 2);
 
         // The defect is reported, not swallowed.
         let scan = registry.last_scan();
