@@ -66,6 +66,9 @@ impl IpcHandler for LoomdIpcHandler {
                 Err(e) => IpcResponse::error(req.request_id, e.to_string()),
             },
             "skills.list" => {
+                // The filesystem is the source of truth: refresh before
+                // answering, or the daemon reports a stale inventory.
+                let _ = self.skills.registry().sync_from_disk();
                 let skills = self.skills.registry().list();
                 IpcResponse::ok(req.request_id, json!({ "skills": skills }))
             }
@@ -75,6 +78,7 @@ impl IpcHandler for LoomdIpcHandler {
                     .get("name")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
+                let _ = self.skills.registry().sync_from_disk();
                 match self.skills.registry().get(name) {
                     Some(skill) => {
                         IpcResponse::ok(req.request_id, json!({ "skill": skill, "found": true }))
