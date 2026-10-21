@@ -1,5 +1,11 @@
 use crate::cli::AuthAction;
+use loom_auth::audit::AuditLogger;
+use loom_auth::export::{
+    build_export, load_or_create_signing_key, parse_public_key, public_key_hex, sign_export,
+    verify_export, AuditExport, ExportVerdict,
+};
 use loom_auth::AuthManager;
+use loom_core::config::ConfigReader;
 use serde::Deserialize;
 use std::path::Path;
 
@@ -133,8 +139,269 @@ pub async fn run(loom_dir: &Path, action: &AuthAction) -> anyhow::Result<()> {
         AuthAction::Validate { provider_id } => {
             cmd_validate(loom_dir, provider_id).await?;
         }
+        AuthAction::Grant { action } => {
+            crate::commands::grant::run(loom_dir, action)?;
+        }
+        AuthAction::Export {
+            output,
+            json,
+            print_public_key,
+        } => {
+            cmd_export(loom_dir, output.as_deref(), *json, *print_public_key)?;
+        }
+        AuthAction::Verify {
+            path,
+            json,
+            public_key,
+        } => {
+            cmd_verify(loom_dir, path.as_deref(), *json, public_key.as_deref())?;
+        }
     }
     Ok(())
+}
+
+/// Export the audit chain to a portable, verifiable JSON file.
+///
+/// The retention window comes from the merged config
+/// (`[security] audit_retention_days`); entries older than the window are
+/// dropped from the export. The on-disk chain is never rewritten.
+///
+/// The document is signed with the machine's per-machine Ed25519 key
+/// (`<loom-dir>/auth/export-signing.key`, generated on first use). A consumer
+/// that pins the matching public key can prove the export came from this
+/// machine; the public key can be printed with `--print-public-key`.
+fn cmd_export(
+    loom_dir: &Path,
+    output: Option<&str>,
+    json: bool,
+    print_public_key: bool,
+) -> anyhow::Result<()> {
+    if print_public_key {
+        // Printing the key must not produce an export.
+        let key = load_or_create_signing_key(loom_dir)?;
+        let pubkey = public_key_hex(&key);
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "schema_version": 1,
+                    "command": "auth.export-public-key",
+                    "public_key": pubkey,
+                    "algorithm": "ed25519",
+                }))?
+            );
+        } else {
+            println!("{pubkey}");
+        }
+        return Ok(());
+    }
+
+    let retention_days = retention_days(loom_dir);
+    let logger = AuditLogger::new(loom_dir.to_str().unwrap());
+    let mut doc = build_export(&logger, retention_days)?;
+
+    // Sign the document with the machine key. A failure to sign is a hard
+    // failure: an unsigned export would only be self-consistent, and shipping
+    // it silently would downgrade the trust model.
+    let signing_key = load_or_create_signing_key(loom_dir)?;
+    sign_export(&mut doc, &signing_key);
+
+    let out_path = match output {
+        Some(p) => Path::new(p).to_path_buf(),
+        None => loom_dir.join("auth").join("audit-export.json"),
+    };
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let body = serde_json::to_string_pretty(&doc)?;
+    std::fs::write(&out_path, &body)
+        .map_err(|e| anyhow::anyhow!("failed to write audit export: {e}"))?;
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "schema_version": 1,
+                "command": "auth.export",
+                "path": out_path.to_string_lossy(),
+                "entries": doc.entries.len(),
+                "dropped_entries": doc.retention.dropped_entries,
+                "redacted_entries": doc.redaction.redacted_entries,
+                "retention_days": doc.retention.window_days,
+                "chain_intact": doc.source.chain_intact,
+                "export_digest": doc.export_digest,
+                "signed": doc.signature.is_some(),
+                "public_key": doc.signature.as_ref().map(|s| s.public_key.clone()),
+            }))?
+        );
+    } else {
+        println!("Audit export written to {}", out_path.display());
+        println!("  entries:         {}", doc.entries.len());
+        println!(
+            "  dropped (older than {retention_days}d): {}",
+            doc.retention.dropped_entries
+        );
+        println!("  redacted:        {}", doc.redaction.redacted_entries);
+        println!("  chain intact:    {}", doc.source.chain_intact);
+        println!("  export digest:   {}", doc.export_digest);
+        if doc.redaction.redacted_entries > 0 {
+            println!(
+                "  note: the free-text result of {} entr(ies) was redacted from the export",
+                doc.redaction.redacted_entries
+            );
+        }
+        if let Some(sig) = &doc.signature {
+            println!("  signed:          yes (ed25519)");
+            println!("  public key:      {}", sig.public_key);
+            println!("  pin it with:     loom auth verify <file> --public-key <hex|file>");
+        }
+    }
+    Ok(())
+}
+
+/// Build the JSON payload of `loom auth verify`.
+///
+/// The shape keeps the keys an earlier consumer already read
+/// (`schema_version`, `command`, `path`, `intact`, `entries`, `problems` and
+/// the four check flags) and adds the single `verdict` plus `verifies`, so
+/// nothing breaks silently. The check flags are only present for an export
+/// document — a local-chain verification has no digest, signature or chain
+/// head to report.
+fn verify_payload(
+    path: Option<&str>,
+    verdict: ExportVerdict,
+    entries: usize,
+    checks: Option<&loom_auth::export::ExportChecks>,
+    problems: &[String],
+    notes: &[String],
+) -> anyhow::Result<serde_json::Value> {
+    let mut payload = serde_json::json!({
+        "schema_version": 1,
+        "command": "auth.verify",
+        "path": path,
+        // What was verified: an export document, or the local on-disk chain.
+        "verifies": if checks.is_some() { "export" } else { "local_chain" },
+        "verdict": verdict,
+        "intact": matches!(verdict, ExportVerdict::Intact),
+        "entries": entries,
+        "problems": problems,
+    });
+    if let Some(checks) = checks {
+        if let serde_json::Value::Object(map) = serde_json::to_value(checks)? {
+            for (k, v) in map {
+                payload[k] = v;
+            }
+        }
+    }
+    if !notes.is_empty() {
+        payload["notes"] = serde_json::to_value(notes)?;
+    }
+    Ok(payload)
+}
+
+/// Verify an audit export file, or the local audit chain when no path is given.
+///
+/// A pinned public key (`--public-key <hex|file>`) is what turns the export
+/// from *self-consistent* into *provably from this machine*. Without one the
+/// verdict is `unanchored` — never `intact`.
+fn cmd_verify(
+    loom_dir: &Path,
+    path: Option<&str>,
+    json: bool,
+    public_key: Option<&str>,
+) -> anyhow::Result<()> {
+    let pinned = match public_key {
+        Some(spec) => Some(parse_public_key(spec)?),
+        None => None,
+    };
+
+    let (verdict, entries, checks, problems, notes) = match path {
+        Some(p) => {
+            let file = Path::new(p);
+            let raw = std::fs::read_to_string(file).map_err(|e| {
+                anyhow::anyhow!("failed to read audit export {}: {e}", file.display())
+            })?;
+            let doc: AuditExport = serde_json::from_str(&raw).map_err(|e| {
+                anyhow::anyhow!("failed to parse audit export {}: {e}", file.display())
+            })?;
+            let v = verify_export(&doc, pinned.as_ref());
+            (v.verdict, v.entries, Some(v.checks), v.problems, v.notes)
+        }
+        None => {
+            // No file: verify the local chain directly. This checks the
+            // on-disk chain, not an export — the export-specific checks do
+            // not apply and are not reported.
+            let logger = AuditLogger::new(loom_dir.to_str().unwrap());
+            let report = logger.verify_integrity()?;
+            let problems = report
+                .tampered_at
+                .iter()
+                .map(|t| format!("chain broken at entry {t}"))
+                .collect::<Vec<_>>();
+            let verdict = if report.intact {
+                ExportVerdict::Intact
+            } else {
+                ExportVerdict::Tampered
+            };
+            (verdict, report.total, None, problems, Vec::new())
+        }
+    };
+
+    if json {
+        let payload = verify_payload(path, verdict, entries, checks.as_ref(), &problems, &notes)?;
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        match verdict {
+            ExportVerdict::Intact => {
+                if checks.is_some() {
+                    println!("✓ audit export INTACT ({entries} entries)");
+                    println!("  chain re-derived, signature verified against the pinned key");
+                } else {
+                    println!("✓ audit chain intact ({entries} entries)");
+                }
+            }
+            ExportVerdict::Unanchored => {
+                println!("⚠ audit export UNANCHORED ({entries} entries)");
+                println!("  the exported fields re-derive the chain where they allow it —");
+                println!("  but no public key was pinned, so the document is NOT proven to come from this machine");
+            }
+            ExportVerdict::Tampered => {
+                if checks.is_some() {
+                    println!("✗ audit export TAMPERED ({entries} entries)");
+                } else {
+                    println!("✗ audit chain TAMPERED ({entries} entries)");
+                }
+            }
+        }
+        for problem in &problems {
+            println!("  - {problem}");
+        }
+        for note in &notes {
+            // The unanchored reason is already spelled out above; printing it
+            // twice adds nothing.
+            if note.starts_with("no public key was pinned") {
+                continue;
+            }
+            println!("  note: {note}");
+        }
+    }
+
+    if verdict == ExportVerdict::Tampered {
+        anyhow::bail!("audit chain verification failed");
+    }
+    Ok(())
+}
+
+/// The configured audit retention window, in days.
+///
+/// Read from the merged config (`[security] audit_retention_days`) so the
+/// policy lives in exactly one place. A config that cannot be read falls
+/// back to the built-in default.
+fn retention_days(loom_dir: &Path) -> u32 {
+    ConfigReader::new(loom_dir.to_str().unwrap())
+        .load()
+        .map(|c| c.security.audit_retention_days)
+        .unwrap_or(loom_core::types::DEFAULT_AUDIT_RETENTION_DAYS)
 }
 
 async fn cmd_validate(loom_dir: &Path, provider_id: &str) -> anyhow::Result<()> {
@@ -368,4 +635,218 @@ fn resolve_api_key(provider_id: &str) -> Option<String> {
     // Also check LOOM_VAULT_KEY or similar generic fallbacks
     // (handled by vault lookup in the caller)
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use loom_auth::audit::AuditLogger;
+
+    /// Seed an audit chain with one read, one write and one denial.
+    fn seed_chain(loom_dir: &Path) {
+        let logger = AuditLogger::new(loom_dir.to_str().unwrap());
+        logger.log_read("tool-a", "provider-1", true).unwrap();
+        logger.log_write("tool-b", "provider-2", true).unwrap();
+        logger.log_denied_access("tool-c", "provider-3", "acl denied");
+    }
+
+    #[test]
+    fn test_export_writes_file_and_verify_accepts_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom_dir = dir.path();
+        seed_chain(loom_dir);
+
+        let out = dir.path().join("out.json");
+        cmd_export(loom_dir, Some(out.to_str().unwrap()), true, false).unwrap();
+
+        assert!(out.exists(), "export file must be written");
+        let raw = std::fs::read_to_string(&out).unwrap();
+        let doc: AuditExport = serde_json::from_str(&raw).unwrap();
+        assert_eq!(doc.entries.len(), 3);
+        assert!(doc.signature.is_some(), "export must be signed");
+
+        // A re-imported export verifies as intact against the pinned key.
+        let key = public_key_hex(&load_or_create_signing_key(loom_dir).unwrap());
+        cmd_verify(loom_dir, Some(out.to_str().unwrap()), true, Some(&key)).unwrap();
+    }
+
+    #[test]
+    fn test_verify_without_pinned_key_is_unanchored() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom_dir = dir.path();
+        seed_chain(loom_dir);
+
+        let out = dir.path().join("out.json");
+        cmd_export(loom_dir, Some(out.to_str().unwrap()), true, false).unwrap();
+
+        // No pinned key: the document is self-consistent, but not anchored.
+        // It must still verify (not be reported as tampered).
+        cmd_verify(loom_dir, Some(out.to_str().unwrap()), true, None).unwrap();
+    }
+
+    /// The JSON shape is a contract: an existing consumer reads `intact`,
+    /// `entries`, `problems` and the four check flags. They must survive, and
+    /// the new `verdict` must be there next to them.
+    #[test]
+    fn test_verify_json_keeps_the_old_keys_and_adds_the_verdict() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom_dir = dir.path();
+        seed_chain(loom_dir);
+
+        let out = dir.path().join("out.json");
+        cmd_export(loom_dir, Some(out.to_str().unwrap()), true, false).unwrap();
+
+        let doc: AuditExport =
+            serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        // Verify without a pinned key: the verdict is `unanchored`, but the
+        // document is still consistent.
+        let v = loom_auth::export::verify_export(&doc, None);
+        let payload = verify_payload(
+            Some(out.to_str().unwrap()),
+            v.verdict,
+            v.entries,
+            Some(&v.checks),
+            &v.problems,
+            &v.notes,
+        )
+        .unwrap();
+
+        assert_eq!(payload["schema_version"], 1);
+        assert_eq!(payload["command"], "auth.verify");
+        assert_eq!(payload["verdict"], "unanchored");
+        assert_eq!(payload["intact"], false);
+        assert_eq!(payload["entries"], 3);
+        assert_eq!(payload["verifies"], "export");
+        // The old flags are still there, at the top level.
+        for key_name in [
+            "digest_ok",
+            "chain_linked",
+            "chain_head_ok",
+            "source_chain_intact",
+        ] {
+            assert!(
+                payload.get(key_name).is_some(),
+                "the old key '{key_name}' must survive: {payload}"
+            );
+        }
+        assert!(payload.get("notes").is_some());
+    }
+
+    /// The local-chain mode must not report export-specific checks (review
+    /// F10: four flags that are really one boolean).
+    #[test]
+    fn test_verify_json_local_chain_omits_the_export_checks() {
+        let payload = verify_payload(None, ExportVerdict::Intact, 7, None, &[], &[]).unwrap();
+        assert_eq!(payload["verifies"], "local_chain");
+        assert_eq!(payload["verdict"], "intact");
+        for key_name in [
+            "digest_ok",
+            "chain_linked",
+            "chain_head_ok",
+            "source_chain_intact",
+        ] {
+            assert!(
+                payload.get(key_name).is_none(),
+                "the local chain has no '{key_name}': {payload}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_verify_rejects_tampered_export() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom_dir = dir.path();
+        seed_chain(loom_dir);
+
+        let out = dir.path().join("out.json");
+        cmd_export(loom_dir, Some(out.to_str().unwrap()), true, false).unwrap();
+
+        // Tamper with an exported field.
+        let raw = std::fs::read_to_string(&out).unwrap();
+        let tampered = raw.replace("provider-1", "provider-9");
+        assert_ne!(raw, tampered);
+        std::fs::write(&out, tampered).unwrap();
+
+        let key = public_key_hex(&load_or_create_signing_key(loom_dir).unwrap());
+        let err = cmd_verify(loom_dir, Some(out.to_str().unwrap()), true, Some(&key)).unwrap_err();
+        assert!(
+            err.to_string().contains("verification failed"),
+            "tampered export must fail verification: {err}"
+        );
+    }
+
+    #[test]
+    fn test_export_never_writes_secret_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom_dir = dir.path();
+        let logger = AuditLogger::new(loom_dir.to_str().unwrap());
+        let secret = "sk-live-SUPERSECRETVALUE";
+        logger.log_denied_access("tool-a", "provider-1", secret);
+
+        let out = dir.path().join("out.json");
+        cmd_export(loom_dir, Some(out.to_str().unwrap()), true, false).unwrap();
+        let raw = std::fs::read_to_string(&out).unwrap();
+        assert!(
+            !raw.contains(secret),
+            "secret must never reach the export: {raw}"
+        );
+    }
+
+    #[test]
+    fn test_retention_days_comes_from_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom_dir = dir.path();
+
+        // Default: 365 days.
+        assert_eq!(retention_days(loom_dir), 365);
+
+        // Configured: 30 days.
+        std::fs::write(
+            loom_dir.join("config.toml"),
+            "[security]\naudit_retention_days = 30\n",
+        )
+        .unwrap();
+        assert_eq!(retention_days(loom_dir), 30);
+    }
+
+    #[test]
+    fn test_export_drops_entries_past_the_retention_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom_dir = dir.path();
+
+        // An old entry, then a fresh one.
+        let logger = AuditLogger::new(loom_dir.to_str().unwrap());
+        let old = loom_core::AuditEntry {
+            timestamp: "2020-01-01T00:00:00Z".to_string(),
+            requesting_tool: "old-tool".to_string(),
+            provider_id: "provider-1".to_string(),
+            access_type: "read".to_string(),
+            result: "granted".to_string(),
+            prev_hash: None,
+            entry_hash: None,
+        };
+        logger.log(&old).unwrap();
+        logger.log_read("new-tool", "provider-2", true).unwrap();
+
+        std::fs::write(
+            loom_dir.join("config.toml"),
+            "[security]\naudit_retention_days = 30\n",
+        )
+        .unwrap();
+
+        let out = dir.path().join("out.json");
+        cmd_export(loom_dir, Some(out.to_str().unwrap()), true, false).unwrap();
+        let raw = std::fs::read_to_string(&out).unwrap();
+        let doc: AuditExport = serde_json::from_str(&raw).unwrap();
+
+        assert_eq!(doc.retention.window_days, 30);
+        assert_eq!(doc.retention.policy, "drop");
+        assert_eq!(doc.retention.dropped_entries, 1);
+        assert_eq!(doc.entries.len(), 1);
+        assert_eq!(doc.entries[0].requesting_tool, "new-tool");
+
+        // The truncated export is still a valid artifact: it verifies.
+        let key = public_key_hex(&load_or_create_signing_key(loom_dir).unwrap());
+        cmd_verify(loom_dir, Some(out.to_str().unwrap()), true, Some(&key)).unwrap();
+    }
 }

@@ -9,6 +9,7 @@ pub mod debug;
 pub mod doctor;
 pub mod edit;
 pub mod exec;
+pub mod grant;
 pub mod hooks;
 pub mod init;
 pub mod init_shell;

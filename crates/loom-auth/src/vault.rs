@@ -219,23 +219,15 @@ impl CredentialVault {
 
         let cred_path = auth_dir.join(format!("{}.enc", provider_id));
         let json = serde_json::to_string_pretty(&blob)?;
-        std::fs::write(&cred_path, &json)
+        write_private(&cred_path, json.as_bytes())
             .with_context(|| format!("failed to write credential: {:?}", cred_path))?;
 
         debug!(provider_id, "credential stored");
         Ok(())
     }
 
-    /// Retrieve and decrypt a credential. Requires the vault to be unlocked.
-    pub fn get_credential(&self, provider_id: &str) -> Result<Option<String>> {
-        if self.locked {
-            anyhow::bail!("vault is locked; call unlock() first");
-        }
-        let key = self
-            .master_key
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("master key not available"))?;
-
+    /// Read the stored encrypted blob for a provider, if any.
+    fn load_blob(&self, provider_id: &str) -> Result<Option<EncryptedBlob>> {
         let cred_path = Path::new(&self.loom_dir)
             .join("auth")
             .join(format!("{}.enc", provider_id));
@@ -248,9 +240,70 @@ impl CredentialVault {
             .with_context(|| format!("failed to read credential: {:?}", cred_path))?;
         let blob: EncryptedBlob =
             serde_json::from_str(&json).context("failed to parse encrypted blob")?;
+        Ok(Some(blob))
+    }
+
+    /// Retrieve and decrypt a credential. Requires the vault to be unlocked.
+    pub fn get_credential(&self, provider_id: &str) -> Result<Option<String>> {
+        if self.locked {
+            anyhow::bail!("vault is locked; call unlock() first");
+        }
+        let key = self
+            .master_key
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("master key not available"))?;
+
+        let Some(blob) = self.load_blob(provider_id)? else {
+            return Ok(None);
+        };
 
         let plaintext = blob.decrypt(key)?;
         Ok(Some(plaintext))
+    }
+
+    /// Derive the grant key for a provider.
+    ///
+    /// The key mixes the vault master key, the provider id, the stored
+    /// secret and the stored blob's nonce (a storage-epoch marker). The
+    /// plaintext secret is consumed here and never returned: callers get a
+    /// 32-byte key they can use for AEAD, never the credential.
+    ///
+    /// Consequences:
+    /// - the master key never leaves the vault;
+    /// - changing the master password invalidates every derived grant;
+    /// - re-storing a credential (even with the same secret) produces a new
+    ///   nonce and therefore invalidates every derived grant.
+    pub fn derive_grant_key(&self, provider_id: &str) -> Result<[u8; 32]> {
+        if self.locked {
+            anyhow::bail!("vault is locked; call unlock() first");
+        }
+        let key = self
+            .master_key
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("master key not available"))?;
+
+        let blob = self
+            .load_blob(provider_id)?
+            .ok_or_else(|| anyhow::anyhow!("no credential found for provider: {provider_id}"))?;
+
+        let mut secret = blob.decrypt(key)?;
+
+        let mut hasher = Sha256::new();
+        hasher.update(b"loom-grant-key-v1");
+        hasher.update(key);
+        hasher.update((provider_id.len() as u64).to_le_bytes());
+        hasher.update(provider_id.as_bytes());
+        hasher.update((secret.len() as u64).to_le_bytes());
+        hasher.update(secret.as_bytes());
+        // Storage epoch: a re-stored credential is a rotated credential.
+        hasher.update(blob.nonce.as_bytes());
+
+        secret.zeroize();
+
+        let digest = hasher.finalize();
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&digest);
+        Ok(out)
     }
 
     /// List all stored credential provider IDs.
@@ -368,8 +421,40 @@ impl Drop for CredentialVault {
     }
 }
 
+/// Write `contents` to `path` with owner-only permissions.
+///
+/// On unix the file is opened with mode 0600 and the mode is re-applied
+/// after the write, so a pre-existing file cannot keep a wider mode.
+/// Used for the files that are the source of truth for a security
+/// decision (the grant registry, the encrypted credential blobs).
+pub(crate) fn write_private(path: &Path, contents: &[u8]) -> Result<()> {
+    use std::io::Write;
+
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut file = opts
+        .open(path)
+        .with_context(|| format!("failed to open for writing: {:?}", path))?;
+    file.write_all(contents)
+        .with_context(|| format!("failed to write: {:?}", path))?;
+    drop(file);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("failed to set permissions on: {:?}", path))?;
+    }
+    Ok(())
+}
+
 // Simple hex encoding/decoding without pulling in the `hex` crate
-mod hex {
+pub(crate) mod hex {
     const HEX_CHARS: &[u8] = b"0123456789abcdef";
 
     pub fn encode(bytes: &[u8]) -> String {

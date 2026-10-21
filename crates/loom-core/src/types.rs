@@ -35,12 +35,39 @@ pub struct LoomConfig {
 /// been allowed, because write access to the loom dir already implies
 /// trust. `require_signature = true` flips the posture to
 /// verify-by-default: unsigned hooks and plugins are rejected outright.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct SecurityConfig {
     /// Reject hooks and plugins that carry no signature.
     /// Default false (back-compat: unsigned local artifacts are allowed).
     #[serde(default)]
     pub require_signature: bool,
+    /// Audit chain retention window, in days.
+    ///
+    /// Entries older than this are dropped from an audit export
+    /// (`loom auth export`). The on-disk chain is never rewritten — dropping
+    /// entries from the head would break the hash linkage the chain's
+    /// integrity check relies on — so the window bounds what leaves the
+    /// machine, and the log file itself stays bounded by size rotation.
+    ///
+    /// `0` keeps everything (no expiry). Default: 365 days.
+    #[serde(default = "default_audit_retention_days")]
+    pub audit_retention_days: u32,
+}
+
+/// Default audit retention window: one year.
+pub const DEFAULT_AUDIT_RETENTION_DAYS: u32 = 365;
+
+fn default_audit_retention_days() -> u32 {
+    DEFAULT_AUDIT_RETENTION_DAYS
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            require_signature: false,
+            audit_retention_days: default_audit_retention_days(),
+        }
+    }
 }
 
 // ... rest of file unchanged ...
@@ -265,7 +292,11 @@ pub struct LaunchConfig {
     pub env: HashMap<String, String>,
     /// Working directory (defaults to current directory or worktree).
     pub working_dir: Option<String>,
-    /// Container network mode (for docker/podman runtimes).
+    /// Container network posture (for docker/podman runtimes).
+    ///
+    /// One of `none` (default, no egress), `restricted` (egress limited to an
+    /// allowlist) or `unrestricted` (engine default network, full egress).
+    /// Free-form network names are rejected.
     pub network: Option<String>,
     /// Auto-remove container after execution (docker/podman).
     #[serde(default = "default_auto_remove")]

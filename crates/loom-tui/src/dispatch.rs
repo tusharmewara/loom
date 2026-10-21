@@ -672,10 +672,23 @@ impl Dispatcher for RuntimeDispatch {
         // Execute via runtime
         let rt = tokio::runtime::Runtime::new().unwrap();
         match rt.block_on(runtime.run(&launch_config, &runtime_task)) {
-            Ok(_result) => DispatchResult::ok(
-                format!("Dispatched task {} via {} runtime", task_id, runtime.name()),
-                None,
-            ),
+            Ok(result) => {
+                // The runtime keeps the container alive so it can read the
+                // logs (the engine's auto-remove is off), so the caller has to
+                // release it. Without this the container outlives the
+                // dispatch. Cleanup is best-effort: a container that could
+                // not be removed is a leak, not a failed dispatch.
+                let cleanup = rt.block_on(runtime.cleanup(&result));
+                let message = match cleanup {
+                    Ok(()) => format!("Dispatched task {} via {} runtime", task_id, runtime.name()),
+                    Err(e) => format!(
+                        "Dispatched task {} via {} runtime (cleanup failed: {e})",
+                        task_id,
+                        runtime.name()
+                    ),
+                };
+                DispatchResult::ok(message, None)
+            }
             Err(e) => DispatchResult::err(format!("Runtime dispatch failed: {e}")),
         }
     }

@@ -5,6 +5,23 @@ All notable changes to the Loom project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- feat(auth): `loom auth export` writes the hash-chained audit log to a portable, signed JSON document (`<loom-dir>/auth/audit-export.json` by default). The document is **self-verifying**: every entry hash is re-derivable from the exported fields, and the whole document is signed with a per-machine Ed25519 key (`<loom-dir>/auth/export-signing.key`, mode `0600`, separate from the vault key — producing an export never unlocks the vault). `loom auth verify [path]` now reports ONE verdict — `intact` (chain re-derives **and** the signature verifies against a pinned public key), `tampered` (a named check failed), or `unanchored` (the chain re-derives but no public key was pinned, so the document is only self-consistent, not proven to come from this machine). `loom auth export --print-public-key` prints the public key to pin out of band; `loom auth verify <file> --public-key <hex|file>` verifies against it. The free-text `result` field is never exported: it is normalised to `granted` / `denied` / `other` and the entry is flagged `redacted`. The chain hash now covers the normalised outcome (`chain_scheme: 2`) so a consumer can re-derive it without the raw text; entries written by older Loom (`chain_scheme: 1`, hash over the raw result) still verify locally, and are covered by the signature in an export
+- feat(auth): audit retention is one config knob — `[security] audit_retention_days` (default 365, `0` keeps everything) in the existing merged config. The oldest out-of-window prefix is dropped from exports, so the exported chain stays contiguous and its hash linkage stays verifiable; the on-disk chain is never rewritten
+- feat(auth): `loom auth grant` issues scoped, revocable, expiring per-run credentials — `issue` (derived token for one provider + tool + run, never the secret), `verify` (scope, expiry, revocation), `revoke` (immediate, audited), `list`. The grant registry (`<loom-dir>/auth/grants.json`) is written `0600`. There is deliberately no CLI `redeem`: redemption returns plaintext and belongs to a trusted broker. Trust model: `docs/architecture/grant-trust-model.md`
+- feat(runtime): the per-run container network posture is a policy enum (`none` / `restricted` / `unrestricted`) instead of a free-form network name, so the absence of a value can no longer mean "engine default network" (unrestricted egress). A container run defaults to `none`; `unrestricted` is the explicit escape hatch; unknown values are rejected. Container isolation stays opt-in (the default runtime is still `process`). A new `container` CI job runs the end-to-end container smoke test with Docker
+- test(auth): the audit export's tamper-evidence is proven by tests, not asserted — a field tamper, a whole-document forgery against a pinned key, and a re-hashed tamper all fail verification, a correct export with no pinned key reports `unanchored` (never `intact`), and a log written by the older chain scheme still verifies
+
+### Fixed
+
+- fix(runtime): the TUI dispatch path now calls `Runtime::cleanup`, so a container run dispatched from the TUI no longer leaks the container. The engine's own auto-remove stays **off** — the runtime reads the container's logs after the process exits, and a daemon-side auto-remove would delete them
+- fix(runtime): a `restricted` run now logs the posture it actually got (`container network posture downgraded: restricted (posture=none, allowed_hosts not enforced yet: …)`) instead of silently discarding the allowlist
+- fix(runtime): the Kubernetes `NetworkPolicy` is now created **before** the Job — a policy selects Pods by label, not by the Pod existing
+- fix(auth): the grant registry is written `0600` (it was written with the default umask), and the unused `GrantRecord::is_usable` helper is gone
+
 ## [0.9.6] - 2026-10-20
 
 ### Added

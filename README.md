@@ -162,6 +162,7 @@ Loom advertises hard budgets and measures them on every build. The envelope is s
 - **ACP dispatch** — spawn any registered agent (claude-code, codex, opencode, goose, …) on demand via `loom acp run`; per-run logs, completion status, automatic session capture.
 - **Agent adapters** — 12 preset adapters + an infinite set via `loom-generic-adapter` (any tool whose config can be expressed in TOML).
 - **Remote capture** — `loom remote exec --capture-session …` runs a command on an SSH `RemoteHost` and records it as an indexed session.
+- **Container isolation** (`loom-runtime`) — opt-in: the default runtime stays `process`, so nothing changes until a tool's `[launch] runtime` says `docker`/`podman`/`kubernetes`. Once a container *is* selected, the **default network posture is `none` (no egress)**; `unrestricted` (engine default network, full egress) must be asked for by name. Postures: `none` (default), `restricted` (allowlist — currently fail-closed to `none` until the egress proxy lands), `unrestricted` (explicit escape hatch). Free-form network names (`bridge`, `host`, …) are rejected — a name is not a posture. Set per run with the tool's `[launch] network` value.
 
 ### Orchestration & tracking
 - **Workflow engine** — multi-phase tasks, phase advancement, templates; build from a chief plan or a ticket (`loom workflow create --from-plan/ticket`, `loom workflow draft-plan`).

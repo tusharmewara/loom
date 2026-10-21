@@ -743,6 +743,100 @@ pub enum AuthAction {
     },
     /// Validate a provider credential
     Validate { provider_id: String },
+    /// Manage scoped credential grants (per-run, per-tool, revocable)
+    Grant {
+        #[command(subcommand)]
+        action: GrantAction,
+    },
+    /// Export the audit chain to a portable, verifiable JSON file
+    Export {
+        /// Output path (default: <loom-dir>/auth/audit-export.json)
+        #[arg(short, long)]
+        output: Option<String>,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+        /// Print the machine's export public key and exit (no export written)
+        #[arg(long)]
+        print_public_key: bool,
+    },
+    /// Verify an audit EXPORT (audit chain export, not a grant).
+    ///
+    /// Prints one verdict: `intact`, `tampered` or `unanchored`. Grant
+    /// verification is a different command — `loom auth grant verify`.
+    Verify {
+        /// Export file to verify (default: the local audit chain)
+        path: Option<String>,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+        /// Pinned public key: 64 hex characters, or a path to a file holding them.
+        /// Without it the export is only self-consistent (verdict: unanchored).
+        #[arg(long)]
+        public_key: Option<String>,
+    },
+}
+
+/// Subcommands of `loom auth grant`.
+#[derive(Subcommand)]
+pub enum GrantAction {
+    /// Issue a scoped grant for one credential, one run and one tool
+    Issue {
+        /// Provider whose credential the grant authorizes
+        #[arg(long)]
+        provider: String,
+        /// Run identifier the grant is scoped to
+        #[arg(long)]
+        run: String,
+        /// Tool the grant is scoped to
+        #[arg(long)]
+        tool: String,
+        /// Grant lifetime in seconds (default 900)
+        #[arg(long, default_value_t = 900)]
+        ttl_secs: u64,
+        /// Vault master password (or set LOOM_VAULT_PASSWORD)
+        #[arg(long)]
+        vault_password: Option<String>,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Verify a grant token for a tool in a run.
+    ///
+    /// This verifies a GRANT. Audit export verification is
+    /// `loom auth verify`.
+    Verify {
+        /// The grant token
+        #[arg(long)]
+        token: String,
+        /// Run identifier the grant must be scoped to
+        #[arg(long)]
+        run: String,
+        /// Tool the grant must be scoped to
+        #[arg(long)]
+        tool: String,
+        /// Vault master password (or set LOOM_VAULT_PASSWORD)
+        #[arg(long)]
+        vault_password: Option<String>,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Revoke a grant (takes effect immediately)
+    Revoke {
+        /// Grant identifier
+        #[arg(long)]
+        grant_id: String,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// List known grants
+    List {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
