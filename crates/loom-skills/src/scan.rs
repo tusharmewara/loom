@@ -838,6 +838,17 @@ mod tests {
         );
         let defects = validate_skill_tree(dir.path());
         // a: missing_description + name_mismatch; c: empty_body + name_mismatch
-        assert!(defects.len() >= 4, "got {defects:?}");
+        let mut found: Vec<&str> = codes(&defects);
+        found.sort();
+        assert_eq!(
+            found,
+            vec![
+                "empty_body",
+                "missing_description",
+                "name_mismatch",
+                "name_mismatch"
+            ],
+            "every defect is returned, not just the first"
+        );
     }
 }
