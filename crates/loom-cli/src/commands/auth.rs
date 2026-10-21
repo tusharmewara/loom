@@ -133,6 +133,9 @@ pub async fn run(loom_dir: &Path, action: &AuthAction) -> anyhow::Result<()> {
         AuthAction::Validate { provider_id } => {
             cmd_validate(loom_dir, provider_id).await?;
         }
+        AuthAction::Grant { action } => {
+            crate::commands::grant::run(loom_dir, action)?;
+        }
     }
     Ok(())
 }

@@ -1,5 +1,6 @@
 pub mod acl;
 pub mod audit;
+pub mod grant;
 pub mod import;
 pub mod providers;
 pub mod vault;
@@ -10,6 +11,8 @@ use std::path::Path;
 use std::sync::Arc;
 use tracing::warn;
 
+use grant::{GrantRecord, IssuedGrant};
+
 /// Orchestrator for authentication, authorization, and audit.
 ///
 /// Owns and coordinates:
@@ -18,12 +21,14 @@ use tracing::warn;
 /// - `AuditLogger` — structured audit logging with rotation
 /// - `ProviderRegistry` — provider lifecycle and status tracking
 /// - `AutoImporter` — automatic import from tool configs
+/// - `GrantStore` — scoped credential grants (issue/verify/revoke)
 pub struct AuthManager {
     vault: vault::CredentialVault,
     acl: acl::AclEngine,
     audit: audit::AuditLogger,
     providers: providers::ProviderRegistry,
     importer: import::AutoImporter,
+    grants: grant::GrantStore,
 }
 
 impl AuthManager {
@@ -42,6 +47,7 @@ impl AuthManager {
         let audit = audit::AuditLogger::new(loom_dir);
         let providers = providers::ProviderRegistry::new(loom_dir);
         let importer = import::AutoImporter::new(loom_dir);
+        let grants = grant::GrantStore::new(loom_dir);
 
         Self {
             vault,
@@ -49,6 +55,7 @@ impl AuthManager {
             audit,
             providers,
             importer,
+            grants,
         }
     }
 
@@ -160,6 +167,209 @@ impl AuthManager {
         };
         self.importer
             .import_from_auth_store(auth_store_path, &self.providers, vault)
+    }
+
+    // ─── Grant Operations ──────────────────────────────────────────
+
+    /// Issue a scoped grant for one credential, one run and one tool.
+    ///
+    /// The caller receives a derived token — never the stored secret. The
+    /// ACL is checked for the same (provider, tool) pair that
+    /// `export_credential` uses, and the issuance is recorded in the
+    /// existing hash-chained audit log.
+    pub fn issue_grant(
+        &self,
+        provider_id: &str,
+        run_id: &str,
+        tool: &str,
+        ttl_secs: u64,
+    ) -> Result<IssuedGrant> {
+        if self.vault.is_locked() {
+            anyhow::bail!("vault is locked");
+        }
+
+        // Same ACL gate as credential export — a grant never widens access.
+        if !self.acl.check_access(provider_id, tool) {
+            self.audit
+                .log_denied_access(tool, provider_id, "grant issuance denied by ACL");
+            anyhow::bail!(
+                "access denied: tool '{}' not authorized for provider '{}'",
+                tool,
+                provider_id
+            );
+        }
+
+        let ttl = if ttl_secs == 0 {
+            grant::DEFAULT_GRANT_TTL_SECS
+        } else {
+            ttl_secs
+        };
+        let issued_at = grant::now_epoch();
+        let record = GrantRecord {
+            grant_id: grant::new_grant_id(),
+            provider_id: provider_id.to_string(),
+            run_id: run_id.to_string(),
+            tool: tool.to_string(),
+            issued_at,
+            expires_at: issued_at.saturating_add(ttl),
+            revoked: false,
+            revoked_at: None,
+        };
+
+        let grant_key = self.vault.derive_grant_key(provider_id)?;
+        let token = grant::mint_token(&grant_key, &record)?;
+
+        self.grants.insert(record.clone());
+        self.grants.save()?;
+        self.audit_grant("grant.issue", tool, provider_id, &record, "granted")?;
+
+        Ok(IssuedGrant {
+            grant_id: record.grant_id,
+            token,
+            provider_id: record.provider_id,
+            run_id: record.run_id,
+            tool: record.tool,
+            issued_at: record.issued_at,
+            expires_at: record.expires_at,
+        })
+    }
+
+    /// Verify a grant token for a use of `tool` in `run_id`.
+    ///
+    /// Checks, in order: the grant exists, it is not revoked, it has not
+    /// expired (at use time), it is scoped to this tool and run, and the
+    /// token authenticates under the current grant key. Returns the grant
+    /// record on success.
+    pub fn verify_grant(&self, token: &str, tool: &str, run_id: &str) -> Result<GrantRecord> {
+        let parsed = grant::parse_token(token)?;
+        self.grants.reload_if_changed();
+        let record = self
+            .grants
+            .get(parsed.grant_id)
+            .ok_or_else(|| anyhow::anyhow!("unknown grant: {}", parsed.grant_id))?;
+
+        if record.revoked {
+            self.audit_grant("grant.use", tool, &record.provider_id, &record, "denied: revoked")?;
+            anyhow::bail!("grant has been revoked");
+        }
+        let now = grant::now_epoch();
+        if record.is_expired(now) {
+            self.audit_grant("grant.use", tool, &record.provider_id, &record, "denied: expired")?;
+            anyhow::bail!("grant has expired");
+        }
+        if record.tool != tool {
+            self.audit_grant(
+                "grant.use",
+                tool,
+                &record.provider_id,
+                &record,
+                "denied: tool scope mismatch",
+            )?;
+            anyhow::bail!(
+                "grant is scoped to tool '{}', not '{}'",
+                record.tool,
+                tool
+            );
+        }
+        if record.run_id != run_id {
+            self.audit_grant(
+                "grant.use",
+                tool,
+                &record.provider_id,
+                &record,
+                "denied: run scope mismatch",
+            )?;
+            anyhow::bail!(
+                "grant is scoped to run '{}', not '{}'",
+                record.run_id,
+                run_id
+            );
+        }
+
+        // The token must authenticate under the *current* grant key, so a
+        // rotated master secret or a re-stored credential invalidates it.
+        let grant_key = self.vault.derive_grant_key(&record.provider_id)?;
+        grant::open_token(&grant_key, &record, token)?;
+
+        self.audit_grant("grant.use", tool, &record.provider_id, &record, "granted")?;
+        Ok(record)
+    }
+
+    /// Revoke a grant. Takes effect immediately.
+    ///
+    /// The revocation is recorded in the existing hash-chained audit log.
+    pub fn revoke_grant(&self, grant_id: &str) -> Result<bool> {
+        self.grants.reload_if_changed();
+        let Some(record) = self.grants.get(grant_id) else {
+            return Ok(false);
+        };
+        let now = grant::now_epoch();
+        if !self.grants.revoke(grant_id, now) {
+            return Ok(false);
+        }
+        self.grants.save()?;
+        self.audit_grant("grant.revoke", &record.tool, &record.provider_id, &record, "revoked")?;
+        Ok(true)
+    }
+
+    /// Redeem a grant for the stored credential.
+    ///
+    /// This is the broker side of the proxy: the agent holds a grant, a
+    /// trusted broker calls this and gets the plaintext. Every redemption
+    /// is audited.
+    ///
+    /// The ACL is re-checked here: a rule added after the grant was issued
+    /// must still block the credential from reaching the tool.
+    pub fn redeem_grant(&self, token: &str, tool: &str, run_id: &str) -> Result<String> {
+        let record = self.verify_grant(token, tool, run_id)?;
+        if !self.acl.check_access(&record.provider_id, tool) {
+            self.audit
+                .log_denied_access(tool, &record.provider_id, "grant redemption denied by ACL");
+            anyhow::bail!(
+                "access denied: tool '{}' not authorized for provider '{}'",
+                tool,
+                record.provider_id
+            );
+        }
+        let plaintext = self
+            .vault
+            .get_credential(&record.provider_id)?
+            .ok_or_else(|| anyhow::anyhow!("no credential found for provider: {}", record.provider_id))?;
+        self.audit_grant(
+            "grant.redeem",
+            tool,
+            &record.provider_id,
+            &record,
+            "granted",
+        )?;
+        Ok(plaintext)
+    }
+
+    /// List all known grants.
+    pub fn list_grants(&self) -> Vec<GrantRecord> {
+        self.grants.reload_if_changed();
+        self.grants.list()
+    }
+
+    /// Record a grant lifecycle event in the existing hash-chained audit log.
+    fn audit_grant(
+        &self,
+        access_type: &str,
+        tool: &str,
+        provider_id: &str,
+        record: &GrantRecord,
+        result: &str,
+    ) -> Result<()> {
+        let entry = loom_core::AuditEntry {
+            timestamp: loom_core::rfc3339_now(),
+            requesting_tool: tool.to_string(),
+            provider_id: provider_id.to_string(),
+            access_type: access_type.to_string(),
+            result: format!("{result} grant={} run={}", record.grant_id, record.run_id),
+            prev_hash: None,
+            entry_hash: None,
+        };
+        self.audit.log(&entry)
     }
 
     // ─── Convenience ───────────────────────────────────────────────
