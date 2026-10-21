@@ -309,7 +309,9 @@ pub trait Dispatcher: Send + Sync {
 pub struct TerminalLaunch;
 
 impl TerminalLaunch {
-    fn find_agent_binary() -> Option<String> {
+    /// First agent CLI found on PATH. Shared with the embedded pane, which
+    /// falls back to it when a task has no recorded agent.
+    pub(crate) fn find_agent_binary() -> Option<String> {
         let candidates = ["opencode", "claude-code", "jcode", "crush"];
         for bin in &candidates {
             if Self::command_exists(bin) {

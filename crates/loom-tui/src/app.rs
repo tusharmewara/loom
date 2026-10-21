@@ -696,38 +696,56 @@ impl App {
 
     /// Dispatch a task into the embedded pane.
     ///
-    /// This is the single owner of the embedded-pane path: it spawns
-    /// `loom workflow dispatch <task> --agent <agent>` for the task's
-    /// recorded agent and installs the child's output stream into the
-    /// pane. There is no separate embedded-pane dispatcher.
-    pub fn dispatch_embedded_pane(&mut self) -> CommandResult {
+    /// This is the single owner of the embedded-pane path: it resolves the
+    /// agent, spawns `loom workflow dispatch <task> --agent <agent>` and
+    /// installs the child's output stream into the pane. There is no
+    /// separate embedded-pane dispatcher.
+    pub async fn dispatch_embedded_pane(&mut self) -> CommandResult {
+        let fail = |message: String| CommandResult {
+            action: "Embedded Pane".to_string(),
+            success: false,
+            message,
+        };
+
         let Some(task) = self.selected_task().cloned() else {
-            return CommandResult {
-                action: "Embedded Pane".to_string(),
-                success: false,
-                message: "No task selected".to_string(),
-            };
+            return fail("No task selected".to_string());
         };
         let task_id = task
             .pointer("/task_id")
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
-        let Some(agent) = task
+        if task_id.is_empty() {
+            return fail("Selected task has no id".to_string());
+        }
+
+        // The workflow LIST payload carries no agent — the full task record
+        // does, so read it before deciding which agent to launch.
+        let record = self
+            .adapter
+            .fetch_workflow_show(&task_id)
+            .await
+            .ok()
+            .and_then(|d| d.pointer("/task").cloned())
+            .unwrap_or(task);
+
+        let agent = record
             .pointer("/last_agent")
             .and_then(Value::as_str)
             .map(String::from)
-        else {
-            return CommandResult {
-                action: "Embedded Pane".to_string(),
-                success: false,
-                message: format!("Task {task_id} has no recorded agent to dispatch"),
-            };
-        };
+            .or_else(crate::dispatch::TerminalLaunch::find_agent_binary)
+            .unwrap_or_default();
+        if agent.is_empty() {
+            return fail(format!(
+                "Task {task_id} has no recorded agent and no agent binary is on PATH"
+            ));
+        }
 
         let (child, log_rx, stdin) = self.adapter.stream_background(&agent, &task_id);
         let success = child.is_some();
-        self.embedded_task = Some(task);
+        self.embedded_log.clear();
+        self.embedded_log_scroll = 0;
+        self.embedded_task = Some(record);
         self.embedded_log_rx = Some(log_rx);
         self.embedded_child = child;
         self.embedded_stdin = stdin;
@@ -2014,28 +2032,80 @@ mod tests {
         assert!(result.message.contains("No task"));
     }
 
-    #[tokio::test]
-    async fn embedded_pane_dispatch_attempts_the_workflow_dispatch() {
-        // `/bin/echo` stands in for the loom binary: the assertion is that
-        // the dispatch path actually spawns `workflow dispatch <task> --agent
-        // <agent>`, not that it formats a success string.
-        let mut app = App::new(LoomCliAdapter::new("/bin/echo", crate::loom_dir()));
-        app.workflow = json!({
-            "tasks": [{ "task_id": "task-42", "last_agent": "claude-code" }]
-        });
+    /// A fake `loom` binary that answers `workflow show` with a task record
+    /// and `workflow dispatch` with its own argv plus one agent line.
+    /// Returns the path to the script and the directory holding it.
+    fn fake_loom_bin() -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("loom-tui-p1-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let bin = dir.join("loom");
+        std::fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             if [ \"$1\" = \"workflow\" ] && [ \"$2\" = \"show\" ]; then\n\
+             \x20 echo '{\"command\":\"workflow.show\",\"schema_version\":1,\"task\":{\"task_id\":\"task-42\",\"title\":\"Probe task\",\"phase\":\"Plan\",\"status\":\"Pending\",\"last_agent\":\"qodercli\"}}'\n\
+             \x20 exit 0\n\
+             fi\n\
+             if [ \"$1\" = \"workflow\" ] && [ \"$2\" = \"dispatch\" ]; then\n\
+             \x20 echo \"ARGV: $@\"\n\
+             \x20 echo 'AGENT-OUTPUT-LINE'\n\
+             \x20 exit 0\n\
+             fi\n\
+             exit 1\n",
+        )
+        .expect("write fake loom");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod");
+        }
+        (bin, dir)
+    }
 
-        let result = app.dispatch_embedded_pane();
+    /// The pane must spawn the real dispatch command AND surface the
+    /// agent's output. The list payload carries no agent, so the agent is
+    /// resolved from the full task record (`loom workflow show`).
+    #[tokio::test]
+    async fn embedded_pane_dispatch_spawns_the_dispatch_and_streams_output() {
+        let (bin, dir) = fake_loom_bin();
+        let mut app = App::new(LoomCliAdapter::new(
+            bin.to_str().expect("path"),
+            dir.to_str().expect("path"),
+        ));
+        // Exactly what `loom workflow list --json` returns: no agent field.
+        app.workflow = json!({ "tasks": [{ "task_id": "task-42", "title": "Probe task" }] });
+
+        let result = app.dispatch_embedded_pane().await;
         assert!(result.success, "dispatch should spawn: {}", result.message);
 
         let mut rx = app.embedded_log_rx.take().expect("log receiver installed");
-        let line = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
-            .await
-            .expect("output line in time")
-            .expect("stream open");
+        let mut lines = Vec::new();
+        while let Some(line) =
+            tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+                .await
+                .expect("output line in time")
+        {
+            lines.push(line);
+            if lines.len() >= 2 {
+                break;
+            }
+        }
+
+        let argv = lines
+            .iter()
+            .find(|l| l.starts_with("ARGV:"))
+            .expect("dispatch command line was streamed");
         assert!(
-            line.contains("workflow dispatch task-42 --agent claude-code"),
-            "unexpected dispatch command: {line}"
+            argv.contains("workflow dispatch task-42 --agent qodercli"),
+            "unexpected dispatch command: {argv}"
         );
+        assert!(
+            lines.iter().any(|l| l == "AGENT-OUTPUT-LINE"),
+            "agent output was not streamed: {lines:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
