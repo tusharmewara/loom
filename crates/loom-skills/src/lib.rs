@@ -6,6 +6,7 @@ pub mod lockfile;
 pub mod manager;
 pub mod registry;
 pub mod scan;
+pub mod trigger;
 
 pub use adapter::{adapt_skill, ToolAdapterConfig};
 pub use edit::{make_replace_edit, HashlineAnchor, HashlineEdit, InsertionPoint};
@@ -15,6 +16,7 @@ pub use scan::{
     scan_skill_tree, validate_skill_file, validate_skill_tree, Layout, Severity, SkillDefect,
     SkillScan,
 };
+pub use trigger::{trigger_lines, TriggerSet, TRIGGER_MAX_CHARS};
 
 use loom_core::HealthCheck;
 use std::sync::Arc;
