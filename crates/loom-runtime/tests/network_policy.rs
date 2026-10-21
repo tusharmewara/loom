@@ -89,7 +89,10 @@ fn parse_rejects_free_form_network_names() {
 
 #[test]
 fn parse_accepts_the_three_postures() {
-    assert_eq!(NetworkPolicy::parse("none").unwrap(), NetworkPolicy::NoNetwork);
+    assert_eq!(
+        NetworkPolicy::parse("none").unwrap(),
+        NetworkPolicy::NoNetwork
+    );
     assert_eq!(
         NetworkPolicy::parse("NONE").unwrap(),
         NetworkPolicy::NoNetwork
@@ -151,11 +154,7 @@ fn runtime_trait_is_reachable_from_outside_the_crate() {
         {
             "kubernetes"
         }
-        #[cfg(not(any(
-            feature = "docker",
-            feature = "podman",
-            feature = "kubernetes"
-        )))]
+        #[cfg(not(any(feature = "docker", feature = "podman", feature = "kubernetes")))]
         {
             "container"
         }

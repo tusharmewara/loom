@@ -99,7 +99,10 @@ async fn container_run_is_network_isolated_by_default() {
         ..Default::default()
     };
 
-    let result = runtime.run(&config, &task()).await.expect("container run failed");
+    let result = runtime
+        .run(&config, &task())
+        .await
+        .expect("container run failed");
     assert!(result.success, "container exited non-zero: {result:?}");
     assert!(
         !result.stdout.contains("eth0"),
@@ -117,7 +120,9 @@ async fn container_run_is_network_isolated_by_default() {
         ])
         .output()
         .expect("docker inspect failed");
-    let network_mode = String::from_utf8_lossy(&inspected.stdout).trim().to_string();
+    let network_mode = String::from_utf8_lossy(&inspected.stdout)
+        .trim()
+        .to_string();
     assert_eq!(
         network_mode, "none",
         "expected NetworkMode=none, got {network_mode}"
@@ -159,9 +164,15 @@ async fn unrestricted_posture_is_the_explicit_escape_hatch() {
         ..Default::default()
     };
 
-    let result = runtime.run(&config, &task()).await.expect("container run failed");
+    let result = runtime
+        .run(&config, &task())
+        .await
+        .expect("container run failed");
     assert!(result.success, "container exited non-zero: {result:?}");
-    assert!(result.stdout.contains("HELLO"), "unexpected output: {result:?}");
+    assert!(
+        result.stdout.contains("HELLO"),
+        "unexpected output: {result:?}"
+    );
 
     let container_id = result.container_id.clone().expect("container id");
     let inspected = Command::new("docker")
@@ -173,7 +184,9 @@ async fn unrestricted_posture_is_the_explicit_escape_hatch() {
         ])
         .output()
         .expect("docker inspect failed");
-    let network_mode = String::from_utf8_lossy(&inspected.stdout).trim().to_string();
+    let network_mode = String::from_utf8_lossy(&inspected.stdout)
+        .trim()
+        .to_string();
     assert_ne!(
         network_mode, "none",
         "unrestricted posture must not disable networking"

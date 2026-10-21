@@ -212,11 +212,7 @@ struct Frontmatter {
     version: Option<String>,
 }
 
-fn inspect(
-    path: &Path,
-    expected: &str,
-    layout: Layout,
-) -> (Vec<SkillDefect>, Option<Frontmatter>) {
+fn inspect(path: &Path, expected: &str, layout: Layout) -> (Vec<SkillDefect>, Option<Frontmatter>) {
     let mut defects = Vec::new();
 
     let content = match std::fs::read_to_string(path) {
@@ -383,20 +379,12 @@ fn skill_entry(name: &str, path: &Path, fm: &Frontmatter) -> SkillEntry {
         tags: fm.tags.clone(),
         ecosystem_compatible: fm.ecosystem_compatible.clone(),
         ecosystem_requires: fm.ecosystem_requires.clone(),
-        version: fm
-            .version
-            .clone()
-            .unwrap_or_else(|| "1.0.0".to_string()),
+        version: fm.version.clone().unwrap_or_else(|| "1.0.0".to_string()),
         last_modified: loom_core::rfc3339_now(),
     }
 }
 
-fn defect(
-    path: &Path,
-    severity: Severity,
-    code: &'static str,
-    message: String,
-) -> SkillDefect {
+fn defect(path: &Path, severity: Severity, code: &'static str, message: String) -> SkillDefect {
     SkillDefect {
         path: path.to_path_buf(),
         severity,
@@ -593,10 +581,7 @@ mod tests {
             "---\nname: quoted\ndescription: \"Use when the user asks for it\"\n---\n\n# Body\n",
         );
         let scan = scan_skill_tree(dir.path());
-        assert_eq!(
-            scan.skills[0].description,
-            "Use when the user asks for it"
-        );
+        assert_eq!(scan.skills[0].description, "Use when the user asks for it");
     }
 
     #[test]
@@ -645,7 +630,10 @@ mod tests {
             "---\nname: broken\ndescription: [unclosed\n---\n\n# Body\n",
         );
         let defects = validate_skill_tree(dir.path());
-        let d = defects.iter().find(|d| d.code == "invalid_frontmatter").unwrap();
+        let d = defects
+            .iter()
+            .find(|d| d.code == "invalid_frontmatter")
+            .unwrap();
         assert_eq!(d.severity, Severity::Fatal);
     }
 
@@ -657,7 +645,10 @@ mod tests {
             "---\nname: unterminated\ndescription: d\n\n# Body\n",
         );
         let defects = validate_skill_tree(dir.path());
-        let d = defects.iter().find(|d| d.code == "invalid_frontmatter").unwrap();
+        let d = defects
+            .iter()
+            .find(|d| d.code == "invalid_frontmatter")
+            .unwrap();
         assert_eq!(d.severity, Severity::Fatal);
         assert!(d.message.contains("never closed"));
     }
@@ -715,10 +706,7 @@ mod tests {
     #[test]
     fn existing_script_is_not_reported() {
         let dir = tempdir().unwrap();
-        write(
-            &dir.path().join("ok/scripts/run.sh"),
-            "#!/bin/sh\n",
-        );
+        write(&dir.path().join("ok/scripts/run.sh"), "#!/bin/sh\n");
         write(
             &dir.path().join("ok/SKILL.md"),
             "---\nname: ok\ndescription: d\n---\n\nRun `scripts/run.sh`.\n",
@@ -815,10 +803,7 @@ mod tests {
     fn validate_skill_file_checks_one_file() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("solo/SKILL.md");
-        write(
-            &path,
-            "---\nname: other\ndescription: d\n---\n\n# Body\n",
-        );
+        write(&path, "---\nname: other\ndescription: d\n---\n\n# Body\n");
         let defects = validate_skill_file(&path, Some("solo"));
         assert!(codes(&defects).contains(&"name_mismatch"));
         let defects = validate_skill_file(&path, None);

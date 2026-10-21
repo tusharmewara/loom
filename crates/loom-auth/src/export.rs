@@ -525,7 +525,10 @@ pub fn verify_export(doc: &AuditExport, pinned_key: Option<&VerifyingKey>) -> Ex
                     {
                         Some(bytes) => {
                             signature_ok = key
-                                .verify_strict(&signature_payload(doc), &Signature::from_bytes(&bytes))
+                                .verify_strict(
+                                    &signature_payload(doc),
+                                    &Signature::from_bytes(&bytes),
+                                )
                                 .is_ok();
                             if !signature_ok {
                                 problems.push(
@@ -534,8 +537,9 @@ pub fn verify_export(doc: &AuditExport, pinned_key: Option<&VerifyingKey>) -> Ex
                                 );
                             }
                         }
-                        None => problems
-                            .push("signature is not a valid ed25519 signature".to_string()),
+                        None => {
+                            problems.push("signature is not a valid ed25519 signature".to_string())
+                        }
                     }
                 }
             }
@@ -621,8 +625,9 @@ pub fn load_or_create_signing_key(loom_dir: &Path) -> Result<SigningKey> {
     let path = signing_key_path(loom_dir);
     match std::fs::read_to_string(&path) {
         Ok(raw) => {
-            let bytes = hex::decode(raw.trim())
-                .with_context(|| format!("export signing key at {} is not valid hex", path.display()))?;
+            let bytes = hex::decode(raw.trim()).with_context(|| {
+                format!("export signing key at {} is not valid hex", path.display())
+            })?;
             let seed: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
                 anyhow::anyhow!(
                     "export signing key at {} must be 32 bytes; restore it or remove it to generate a new one",
@@ -664,7 +669,10 @@ pub fn parse_public_key(spec: &str) -> Result<VerifyingKey> {
     let bytes = hex::decode(&hex_text)
         .with_context(|| format!("public key is not valid hex: {hex_text}"))?;
     let arr: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
-        anyhow::anyhow!("public key must be 32 bytes (64 hex characters), got {}", hex_text.len())
+        anyhow::anyhow!(
+            "public key must be 32 bytes (64 hex characters), got {}",
+            hex_text.len()
+        )
     })?;
     VerifyingKey::from_bytes(&arr).map_err(|e| anyhow::anyhow!("invalid ed25519 public key: {e}"))
 }
@@ -762,7 +770,11 @@ mod tests {
         let (doc, _key) = signed_export(dir.path());
 
         let v = verify_export(&doc, None);
-        assert_eq!(v.verdict, ExportVerdict::Unanchored, "must not be intact: {v:?}");
+        assert_eq!(
+            v.verdict,
+            ExportVerdict::Unanchored,
+            "must not be intact: {v:?}"
+        );
         assert!(v.checks.digest_ok && v.checks.chain_ok);
         assert!(!v.checks.anchored);
     }

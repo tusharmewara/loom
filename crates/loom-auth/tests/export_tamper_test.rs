@@ -116,7 +116,9 @@ fn attack_1_field_tamper_fails_verification() {
     assert!(!v.checks.digest_ok);
     assert!(!v.checks.chain_ok);
     assert!(
-        v.problems.iter().any(|p| p.contains("chain re-derivation failed")),
+        v.problems
+            .iter()
+            .any(|p| p.contains("chain re-derivation failed")),
         "the failing check must be named: {v:?}"
     );
 }
@@ -236,7 +238,14 @@ fn legacy_scheme_log_still_verifies_intact() {
         .enumerate()
     {
         let timestamp = format!("2026-02-0{}T00:00:00Z", i + 1);
-        let hash = chain_hash(prev.as_deref(), &timestamp, tool, "provider-1", "read", result);
+        let hash = chain_hash(
+            prev.as_deref(),
+            &timestamp,
+            tool,
+            "provider-1",
+            "read",
+            result,
+        );
         let entry = AuditEntry {
             timestamp,
             requesting_tool: tool.to_string(),
@@ -249,7 +258,11 @@ fn legacy_scheme_log_still_verifies_intact() {
         lines.push(serde_json::to_string(&entry).unwrap());
         prev = Some(hash);
     }
-    std::fs::write(auth_dir.join("audit.log"), format!("{}\n", lines.join("\n"))).unwrap();
+    std::fs::write(
+        auth_dir.join("audit.log"),
+        format!("{}\n", lines.join("\n")),
+    )
+    .unwrap();
 
     // The local chain verifies: the old scheme is still accepted.
     let logger = AuditLogger::new(dir.path().to_str().unwrap());
@@ -278,7 +291,10 @@ fn legacy_scheme_log_still_verifies_intact() {
     let key = loom_auth::export::load_or_create_signing_key(dir.path()).unwrap();
     let pubkey = loom_auth::export::public_key_hex(&key);
     sign_export(&mut doc, &key);
-    let v = verify_export(&doc, Some(&loom_auth::export::parse_public_key(&pubkey).unwrap()));
+    let v = verify_export(
+        &doc,
+        Some(&loom_auth::export::parse_public_key(&pubkey).unwrap()),
+    );
     assert_eq!(v.verdict, ExportVerdict::Intact, "must verify: {v:?}");
     assert_eq!(
         v.checks.entries_unverifiable, 1,
@@ -312,7 +328,13 @@ fn raw_result_never_appears_in_export_bytes() {
     let key = loom_auth::export::load_or_create_signing_key(dir.path()).unwrap();
     let pubkey = loom_auth::export::public_key_hex(&key);
     sign_export(&mut doc, &key);
-    let v = verify_export(&doc, Some(&loom_auth::export::parse_public_key(&pubkey).unwrap()));
+    let v = verify_export(
+        &doc,
+        Some(&loom_auth::export::parse_public_key(&pubkey).unwrap()),
+    );
     assert_eq!(v.verdict, ExportVerdict::Intact, "must verify: {v:?}");
-    assert!(v.checks.chain_ok, "the chain must re-derive from redacted fields");
+    assert!(
+        v.checks.chain_ok,
+        "the chain must re-derive from redacted fields"
+    );
 }

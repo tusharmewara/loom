@@ -256,12 +256,24 @@ impl AuthManager {
             .ok_or_else(|| anyhow::anyhow!("unknown grant: {}", parsed.grant_id))?;
 
         if record.revoked {
-            self.audit_grant("grant.use", tool, &record.provider_id, &record, "denied: revoked")?;
+            self.audit_grant(
+                "grant.use",
+                tool,
+                &record.provider_id,
+                &record,
+                "denied: revoked",
+            )?;
             anyhow::bail!("grant has been revoked");
         }
         let now = grant::now_epoch();
         if record.is_expired(now) {
-            self.audit_grant("grant.use", tool, &record.provider_id, &record, "denied: expired")?;
+            self.audit_grant(
+                "grant.use",
+                tool,
+                &record.provider_id,
+                &record,
+                "denied: expired",
+            )?;
             anyhow::bail!("grant has expired");
         }
         if record.tool != tool {
@@ -272,11 +284,7 @@ impl AuthManager {
                 &record,
                 "denied: tool scope mismatch",
             )?;
-            anyhow::bail!(
-                "grant is scoped to tool '{}', not '{}'",
-                record.tool,
-                tool
-            );
+            anyhow::bail!("grant is scoped to tool '{}', not '{}'", record.tool, tool);
         }
         if record.run_id != run_id {
             self.audit_grant(
@@ -315,7 +323,13 @@ impl AuthManager {
             return Ok(false);
         }
         self.grants.save()?;
-        self.audit_grant("grant.revoke", &record.tool, &record.provider_id, &record, "revoked")?;
+        self.audit_grant(
+            "grant.revoke",
+            &record.tool,
+            &record.provider_id,
+            &record,
+            "revoked",
+        )?;
         Ok(true)
     }
 
@@ -330,8 +344,11 @@ impl AuthManager {
     pub fn redeem_grant(&self, token: &str, tool: &str, run_id: &str) -> Result<String> {
         let record = self.verify_grant(token, tool, run_id)?;
         if !self.acl.check_access(&record.provider_id, tool) {
-            self.audit
-                .log_denied_access(tool, &record.provider_id, "grant redemption denied by ACL");
+            self.audit.log_denied_access(
+                tool,
+                &record.provider_id,
+                "grant redemption denied by ACL",
+            );
             anyhow::bail!(
                 "access denied: tool '{}' not authorized for provider '{}'",
                 tool,
@@ -341,7 +358,9 @@ impl AuthManager {
         let plaintext = self
             .vault
             .get_credential(&record.provider_id)?
-            .ok_or_else(|| anyhow::anyhow!("no credential found for provider: {}", record.provider_id))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("no credential found for provider: {}", record.provider_id)
+            })?;
         self.audit_grant(
             "grant.redeem",
             tool,

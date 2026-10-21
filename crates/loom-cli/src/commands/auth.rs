@@ -325,13 +325,7 @@ fn cmd_verify(
                 anyhow::anyhow!("failed to parse audit export {}: {e}", file.display())
             })?;
             let v = verify_export(&doc, pinned.as_ref());
-            (
-                v.verdict,
-                v.entries,
-                Some(v.checks),
-                v.problems,
-                v.notes,
-            )
+            (v.verdict, v.entries, Some(v.checks), v.problems, v.notes)
         }
         None => {
             // No file: verify the local chain directly. This checks the
@@ -349,13 +343,7 @@ fn cmd_verify(
             } else {
                 ExportVerdict::Tampered
             };
-            (
-                verdict,
-                report.total,
-                None,
-                problems,
-                Vec::new(),
-            )
+            (verdict, report.total, None, problems, Vec::new())
         }
     };
 
@@ -751,7 +739,12 @@ mod tests {
         let payload = verify_payload(None, ExportVerdict::Intact, 7, None, &[], &[]).unwrap();
         assert_eq!(payload["verifies"], "local_chain");
         assert_eq!(payload["verdict"], "intact");
-        for key_name in ["digest_ok", "chain_linked", "chain_head_ok", "source_chain_intact"] {
+        for key_name in [
+            "digest_ok",
+            "chain_linked",
+            "chain_head_ok",
+            "source_chain_intact",
+        ] {
             assert!(
                 payload.get(key_name).is_none(),
                 "the local chain has no '{key_name}': {payload}"
@@ -775,8 +768,7 @@ mod tests {
         std::fs::write(&out, tampered).unwrap();
 
         let key = public_key_hex(&load_or_create_signing_key(loom_dir).unwrap());
-        let err =
-            cmd_verify(loom_dir, Some(out.to_str().unwrap()), true, Some(&key)).unwrap_err();
+        let err = cmd_verify(loom_dir, Some(out.to_str().unwrap()), true, Some(&key)).unwrap_err();
         assert!(
             err.to_string().contains("verification failed"),
             "tampered export must fail verification: {err}"

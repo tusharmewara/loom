@@ -249,7 +249,11 @@ fn trigger_lines_text(set: &TriggerSet) -> String {
 
 /// The JSON listing. `count` and `skills` keep their shape: the TUI reads
 /// them.
-fn list_json(skills: &[SkillEntry], defects: &[SkillDefect], triggers: &TriggerSet) -> serde_json::Value {
+fn list_json(
+    skills: &[SkillEntry],
+    defects: &[SkillDefect],
+    triggers: &TriggerSet,
+) -> serde_json::Value {
     let defects: Vec<serde_json::Value> = defects
         .iter()
         .map(|d| {
@@ -284,7 +288,11 @@ pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
             if *json {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&list_json(&registry_skills, &defects, &triggers))?
+                    serde_json::to_string_pretty(&list_json(
+                        &registry_skills,
+                        &defects,
+                        &triggers
+                    ))?
                 );
             } else {
                 print!("{}", list_lines(&registry_skills, &defects));
@@ -629,7 +637,10 @@ mod tests {
             &skills.join("both/SKILL.md"),
             &skill_md("both", "\"The directory copy\""),
         );
-        write(&skills.join("both.md"), &skill_md("both", "\"The flat copy\""));
+        write(
+            &skills.join("both.md"),
+            &skill_md("both", "\"The flat copy\""),
+        );
         // No frontmatter at all: the live `gdrive` shape.
         write(
             &skills.join("no-desc/SKILL.md"),
@@ -743,7 +754,11 @@ mod tests {
 
         let lock_path = lockfile::default_lock_path(loom_dir.to_str().unwrap());
         let lock = SkillsLock::load(&lock_path)?.expect("lock file written");
-        assert!(lock.skills.contains_key("myskill"), "lock: {:?}", lock.skills);
+        assert!(
+            lock.skills.contains_key("myskill"),
+            "lock: {:?}",
+            lock.skills
+        );
 
         remove_skill(&loom_dir, "myskill")?;
         let engine = loom_skills::SkillsEngine::new(loom_dir.to_str().unwrap())?;

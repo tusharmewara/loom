@@ -584,7 +584,10 @@ mod tests {
         let loom = scratch.path().join("loom");
         let native = scratch.path().join("native");
         let skill_dir = loom.join("skills").join("gdrive");
-        write(&skill_dir.join("SKILL.md"), "# Google Drive\n\nNo frontmatter.\n");
+        write(
+            &skill_dir.join("SKILL.md"),
+            "# Google Drive\n\nNo frontmatter.\n",
+        );
 
         // A link a previous (ungated) sync made.
         fs::create_dir_all(&native).unwrap();
@@ -617,12 +620,21 @@ mod tests {
             "# Google Drive\n\nNo frontmatter.\n",
         );
         // The tool's own copy — not a link Loom made.
-        write(&native.join("gdrive").join("SKILL.md"), "# Google Drive\n\nTool copy.\n");
+        write(
+            &native.join("gdrive").join("SKILL.md"),
+            "# Google Drive\n\nTool copy.\n",
+        );
 
         let report =
             sync_skills_to_native(loom.to_str().unwrap(), native.to_str().unwrap()).unwrap();
 
-        assert!(native.join("gdrive").exists(), "the tool's own skill was removed");
-        assert!(report.notes.iter().any(|n| n.contains("missing_description")));
+        assert!(
+            native.join("gdrive").exists(),
+            "the tool's own skill was removed"
+        );
+        assert!(report
+            .notes
+            .iter()
+            .any(|n| n.contains("missing_description")));
     }
 }

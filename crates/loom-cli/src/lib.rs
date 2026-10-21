@@ -10,8 +10,8 @@ use std::time::SystemTime;
 
 pub use cli::{
     AcpAction, AstAction, AuthAction, Cli, Command, DaemonAction, GrantAction, HooksAction,
-    IssuesAction, McpAction, MemoryAction, RoutingAction, RulesAction, SessionsAction, SkillsAction,
-    WorkflowAction,
+    IssuesAction, McpAction, MemoryAction, RoutingAction, RulesAction, SessionsAction,
+    SkillsAction, WorkflowAction,
 };
 pub use commands::telemetry::TelemetryAction;
 

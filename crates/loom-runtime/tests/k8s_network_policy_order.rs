@@ -45,11 +45,7 @@ async fn start_fake_api_server() -> (String, Requests) {
                 };
                 let request = String::from_utf8_lossy(&buf[..n]).to_string();
                 let head = request.split("\r\n\r\n").next().unwrap_or("").to_string();
-                let path = head
-                    .split_whitespace()
-                    .nth(1)
-                    .unwrap_or("")
-                    .to_string();
+                let path = head.split_whitespace().nth(1).unwrap_or("").to_string();
                 let content_length = head
                     .lines()
                     .find(|l| l.to_ascii_lowercase().starts_with("content-length:"))
@@ -160,14 +156,13 @@ async fn an_unrestricted_posture_creates_no_policy_at_all() {
 
     let spec = spec(NetworkPolicy::Unrestricted);
 
-    kubernetes
-        .create_job(&spec)
-        .await
-        .expect("create job");
+    kubernetes.create_job(&spec).await.expect("create job");
 
     let seen = requests.lock().expect("requests lock").clone();
     assert!(
-        !seen.iter().any(|(path, _)| path.contains("networkpolicies")),
+        !seen
+            .iter()
+            .any(|(path, _)| path.contains("networkpolicies")),
         "an unrestricted posture must not create a NetworkPolicy: {seen:?}"
     );
     assert!(

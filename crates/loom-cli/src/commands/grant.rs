@@ -13,7 +13,9 @@ fn vault_password(flag: Option<&String>) -> anyhow::Result<String> {
     flag.cloned()
         .or_else(|| std::env::var("LOOM_VAULT_PASSWORD").ok())
         .filter(|p| !p.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("vault password required (--vault-password or LOOM_VAULT_PASSWORD)"))
+        .ok_or_else(|| {
+            anyhow::anyhow!("vault password required (--vault-password or LOOM_VAULT_PASSWORD)")
+        })
 }
 
 /// Open an unlocked manager for the grant operations that need the master key.
@@ -54,7 +56,10 @@ pub fn run(loom_dir: &Path, action: &GrantAction) -> anyhow::Result<()> {
             } else {
                 println!("grant:  {}", issued.grant_id);
                 println!("token:  {}", issued.token);
-                println!("scope:  provider={} run={} tool={}", issued.provider_id, issued.run_id, issued.tool);
+                println!(
+                    "scope:  provider={} run={} tool={}",
+                    issued.provider_id, issued.run_id, issued.tool
+                );
                 println!("expiry: {} (unix seconds)", issued.expires_at);
             }
         }

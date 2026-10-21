@@ -705,11 +705,7 @@ impl Dispatcher for RuntimeDispatch {
                 // not be removed is a leak, not a failed dispatch.
                 let cleanup = rt.block_on(runtime.cleanup(&result));
                 let message = match cleanup {
-                    Ok(()) => format!(
-                        "Dispatched task {} via {} runtime",
-                        task_id,
-                        runtime.name()
-                    ),
+                    Ok(()) => format!("Dispatched task {} via {} runtime", task_id, runtime.name()),
                     Err(e) => format!(
                         "Dispatched task {} via {} runtime (cleanup failed: {e})",
                         task_id,

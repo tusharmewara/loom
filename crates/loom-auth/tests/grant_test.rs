@@ -11,10 +11,7 @@ use loom_core::{AclRule, AuditEntry};
 fn manager_with_credential(dir: &str, provider: &str, secret: &str) -> AuthManager {
     let mut manager = AuthManager::new(dir);
     manager.unlock_vault("master-password").unwrap();
-    manager
-        .vault()
-        .set_credential(provider, secret)
-        .unwrap();
+    manager.vault().set_credential(provider, secret).unwrap();
     manager
 }
 
@@ -82,8 +79,12 @@ fn test_grant_fails_after_expiry() {
     let manager = manager_with_credential(path, "openai", "sk-secret-value");
 
     // One-second lifetime, so expiry is enforced on the use path.
-    let issued = manager.issue_grant("openai", "run-1", "claude-code", 1).unwrap();
-    assert!(manager.verify_grant(&issued.token, "claude-code", "run-1").is_ok());
+    let issued = manager
+        .issue_grant("openai", "run-1", "claude-code", 1)
+        .unwrap();
+    assert!(manager
+        .verify_grant(&issued.token, "claude-code", "run-1")
+        .is_ok());
 
     std::thread::sleep(std::time::Duration::from_millis(1_200));
 
@@ -103,7 +104,9 @@ fn test_grant_fails_after_revocation() {
     let issued = manager
         .issue_grant("openai", "run-1", "claude-code", 900)
         .unwrap();
-    assert!(manager.verify_grant(&issued.token, "claude-code", "run-1").is_ok());
+    assert!(manager
+        .verify_grant(&issued.token, "claude-code", "run-1")
+        .is_ok());
 
     assert!(manager.revoke_grant(&issued.grant_id).unwrap());
 
@@ -172,7 +175,9 @@ fn test_rotated_master_password_invalidates_grants() {
     let issued = manager
         .issue_grant("openai", "run-1", "claude-code", 900)
         .unwrap();
-    assert!(manager.verify_grant(&issued.token, "claude-code", "run-1").is_ok());
+    assert!(manager
+        .verify_grant(&issued.token, "claude-code", "run-1")
+        .is_ok());
 
     manager
         .vault_mut()
@@ -180,7 +185,9 @@ fn test_rotated_master_password_invalidates_grants() {
         .unwrap();
 
     assert!(
-        manager.verify_grant(&issued.token, "claude-code", "run-1").is_err(),
+        manager
+            .verify_grant(&issued.token, "claude-code", "run-1")
+            .is_err(),
         "grant survived a master password rotation"
     );
 }
@@ -194,7 +201,9 @@ fn test_rotated_credential_invalidates_grants() {
     let issued = manager
         .issue_grant("openai", "run-1", "claude-code", 900)
         .unwrap();
-    assert!(manager.verify_grant(&issued.token, "claude-code", "run-1").is_ok());
+    assert!(manager
+        .verify_grant(&issued.token, "claude-code", "run-1")
+        .is_ok());
 
     // Rotation: the same provider now holds a different secret.
     manager
@@ -203,7 +212,9 @@ fn test_rotated_credential_invalidates_grants() {
         .unwrap();
 
     assert!(
-        manager.verify_grant(&issued.token, "claude-code", "run-1").is_err(),
+        manager
+            .verify_grant(&issued.token, "claude-code", "run-1")
+            .is_err(),
         "grant survived a credential rotation"
     );
 }
@@ -312,8 +323,12 @@ fn test_locked_vault_blocks_grants() {
 
     let locked = AuthManager::new(path);
     assert!(locked.vault_is_locked());
-    assert!(locked.issue_grant("openai", "run-1", "claude-code", 900).is_err());
-    assert!(locked.verify_grant(&issued.token, "claude-code", "run-1").is_err());
+    assert!(locked
+        .issue_grant("openai", "run-1", "claude-code", 900)
+        .is_err());
+    assert!(locked
+        .verify_grant(&issued.token, "claude-code", "run-1")
+        .is_err());
 }
 
 #[test]
@@ -326,7 +341,10 @@ fn test_grant_for_unknown_provider_fails() {
         .issue_grant("nope", "run-1", "claude-code", 900)
         .unwrap_err()
         .to_string();
-    assert!(err.contains("no credential found"), "unexpected error: {err}");
+    assert!(
+        err.contains("no credential found"),
+        "unexpected error: {err}"
+    );
 }
 
 /// The grant registry is the revocation source of truth, so it must not be
@@ -345,8 +363,14 @@ fn test_auth_files_are_owner_only() {
         .unwrap();
 
     for (label, file) in [
-        ("grant registry", dir.path().join("auth").join("grants.json")),
-        ("credential blob", dir.path().join("auth").join("openai.enc")),
+        (
+            "grant registry",
+            dir.path().join("auth").join("grants.json"),
+        ),
+        (
+            "credential blob",
+            dir.path().join("auth").join("openai.enc"),
+        ),
     ] {
         let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
         assert_eq!(

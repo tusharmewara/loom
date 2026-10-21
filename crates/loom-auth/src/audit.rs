@@ -121,7 +121,11 @@ impl AuditLogger {
         let mut entry = entry.clone();
         let prev = inner.last_hash.clone();
         entry.prev_hash = prev.clone();
-        entry.entry_hash = Some(compute_entry_hash(&entry, prev.as_deref(), CHAIN_SCHEME_OUTCOME));
+        entry.entry_hash = Some(compute_entry_hash(
+            &entry,
+            prev.as_deref(),
+            CHAIN_SCHEME_OUTCOME,
+        ));
         inner.last_hash = entry.entry_hash.clone();
 
         let mut file = OpenOptions::new()

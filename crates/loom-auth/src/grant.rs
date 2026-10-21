@@ -164,9 +164,7 @@ impl GrantStore {
 
     /// Path of the grant registry file.
     pub fn path(&self) -> PathBuf {
-        Path::new(&self.loom_dir)
-            .join("auth")
-            .join("grants.json")
+        Path::new(&self.loom_dir).join("auth").join("grants.json")
     }
 
     /// Read the registry from disk, replacing the in-memory state.
@@ -180,7 +178,8 @@ impl GrantStore {
         }
         let raw = std::fs::read_to_string(&path)
             .with_context(|| format!("failed to read grant registry: {:?}", path))?;
-        let file: GrantFile = serde_json::from_str(&raw).context("failed to parse grant registry")?;
+        let file: GrantFile =
+            serde_json::from_str(&raw).context("failed to parse grant registry")?;
         inner.grants = file
             .grants
             .into_iter()
@@ -215,7 +214,11 @@ impl GrantStore {
             version: 1,
             grants: {
                 let mut v: Vec<GrantRecord> = inner.grants.values().cloned().collect();
-                v.sort_by(|a, b| a.issued_at.cmp(&b.issued_at).then(a.grant_id.cmp(&b.grant_id)));
+                v.sort_by(|a, b| {
+                    a.issued_at
+                        .cmp(&b.issued_at)
+                        .then(a.grant_id.cmp(&b.grant_id))
+                });
                 v
             },
         };
@@ -238,9 +241,7 @@ impl GrantStore {
     /// Insert (or replace) a grant record.
     pub fn insert(&self, record: GrantRecord) {
         let mut inner = self.inner.write().unwrap_or_else(|e| e.into_inner());
-        inner
-            .grants
-            .insert(record.grant_id.clone(), record);
+        inner.grants.insert(record.grant_id.clone(), record);
     }
 
     /// Look up a grant by id.
@@ -253,7 +254,11 @@ impl GrantStore {
     pub fn list(&self) -> Vec<GrantRecord> {
         let inner = self.inner.read().unwrap_or_else(|e| e.into_inner());
         let mut v: Vec<GrantRecord> = inner.grants.values().cloned().collect();
-        v.sort_by(|a, b| a.issued_at.cmp(&b.issued_at).then(a.grant_id.cmp(&b.grant_id)));
+        v.sort_by(|a, b| {
+            a.issued_at
+                .cmp(&b.issued_at)
+                .then(a.grant_id.cmp(&b.grant_id))
+        });
         v
     }
 
@@ -366,7 +371,8 @@ pub fn parse_token(token: &str) -> Result<ParsedToken<'_>> {
     if prefix != GRANT_TOKEN_PREFIX {
         anyhow::bail!("unknown grant token format");
     }
-    let nonce = hex::decode(nonce_hex).map_err(|e| anyhow::anyhow!("malformed grant token: {e}"))?;
+    let nonce =
+        hex::decode(nonce_hex).map_err(|e| anyhow::anyhow!("malformed grant token: {e}"))?;
     let ciphertext =
         hex::decode(ct_hex).map_err(|e| anyhow::anyhow!("malformed grant token: {e}"))?;
     if nonce.len() != NONCE_BYTES {

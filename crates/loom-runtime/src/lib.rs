@@ -189,7 +189,10 @@ impl NetworkPolicy {
                 let hosts = if allowed_hosts.is_empty() {
                     "allowed_hosts empty and not enforced yet".to_string()
                 } else {
-                    format!("allowed_hosts not enforced yet: {}", allowed_hosts.join(","))
+                    format!(
+                        "allowed_hosts not enforced yet: {}",
+                        allowed_hosts.join(",")
+                    )
                 };
                 Some(format!("restricted (posture=none, {hosts})"))
             }
@@ -475,9 +478,7 @@ pub mod kubernetes_client {
     use k8s_openapi::api::core::v1::{
         Container, EmptyDirVolumeSource, EnvVar, Pod, PodSpec, PodTemplateSpec, Volume, VolumeMount,
     };
-    use k8s_openapi::api::networking::v1::{
-        NetworkPolicyEgressRule, NetworkPolicySpec,
-    };
+    use k8s_openapi::api::networking::v1::{NetworkPolicyEgressRule, NetworkPolicySpec};
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
     use kube::api::{Api, DeleteParams, ListParams, LogParams, PostParams};
 
@@ -1279,11 +1280,7 @@ mod docker_client {
                 force,
                 ..Default::default()
             };
-            match self
-                .client
-                .remove_container(id, Some(options))
-                .await
-            {
+            match self.client.remove_container(id, Some(options)).await {
                 Ok(_) => Ok(()),
                 // Already gone — the runtime asked for removal, so this is
                 // success, not a failure.
@@ -1542,14 +1539,17 @@ mod tests {
             runtime: None,
         };
 
-        let spec =
-            build_container_spec(&config, &task, "default:latest", NetworkPolicy::default()).unwrap();
+        let spec = build_container_spec(&config, &task, "default:latest", NetworkPolicy::default())
+            .unwrap();
         assert_eq!(spec.image, "test:latest");
         assert_eq!(spec.cmd, vec!["echo", "hello"]);
         assert_eq!(spec.working_dir, "/workspace");
         assert!(!spec.volumes.is_empty());
         // An unset network value must not widen egress.
         assert_eq!(spec.network_policy, NetworkPolicy::NoNetwork);
-        assert_eq!(spec.labels.get("loom.network_policy").map(String::as_str), Some("none"));
+        assert_eq!(
+            spec.labels.get("loom.network_policy").map(String::as_str),
+            Some("none")
+        );
     }
 }
