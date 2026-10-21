@@ -743,6 +743,70 @@ pub enum AuthAction {
     },
     /// Validate a provider credential
     Validate { provider_id: String },
+    /// Manage scoped credential grants (per-run, per-tool, revocable)
+    Grant {
+        #[command(subcommand)]
+        action: GrantAction,
+    },
+}
+
+/// Subcommands of `loom auth grant`.
+#[derive(Subcommand)]
+pub enum GrantAction {
+    /// Issue a scoped grant for one credential, one run and one tool
+    Issue {
+        /// Provider whose credential the grant authorizes
+        #[arg(long)]
+        provider: String,
+        /// Run identifier the grant is scoped to
+        #[arg(long)]
+        run: String,
+        /// Tool the grant is scoped to
+        #[arg(long)]
+        tool: String,
+        /// Grant lifetime in seconds (default 900)
+        #[arg(long, default_value_t = 900)]
+        ttl_secs: u64,
+        /// Vault master password (or set LOOM_VAULT_PASSWORD)
+        #[arg(long)]
+        vault_password: Option<String>,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Verify a grant token for a tool in a run
+    Verify {
+        /// The grant token
+        #[arg(long)]
+        token: String,
+        /// Run identifier the grant must be scoped to
+        #[arg(long)]
+        run: String,
+        /// Tool the grant must be scoped to
+        #[arg(long)]
+        tool: String,
+        /// Vault master password (or set LOOM_VAULT_PASSWORD)
+        #[arg(long)]
+        vault_password: Option<String>,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Revoke a grant (takes effect immediately)
+    Revoke {
+        /// Grant identifier
+        #[arg(long)]
+        grant_id: String,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// List known grants
+    List {
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]

@@ -212,6 +212,10 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 - `loom auth providers [--json]` — List registered providers
 - `loom auth show <provider> [--json]` — Show provider config
 - `loom auth validate <provider>` — Validate credential
+- `loom auth grant issue --provider <id> --run <run> --tool <tool> [--ttl-secs 900] [--json]` — Issue a scoped, revocable, expiring grant (never the secret)
+- `loom auth grant verify --token <token> --run <run> --tool <tool> [--json]` — Verify a grant's scope/expiry/revocation
+- `loom auth grant revoke --grant-id <id> [--json]` — Revoke a grant (immediate, audited)
+- `loom auth grant list [--json]` — List known grants
 
 ### Hooks
 - `loom hooks list [--json]` — List registered hooks
@@ -322,6 +326,7 @@ emits `{ config, extends_chain: [...] }` for tooling.
 14. **Knowledge graph boosts routing decisions** — when evaluating a prompt with `loom routing evaluate`, if the prompt mentions known entities in the knowledge graph, the complexity score receives a boost (up to +0.25) based on entity degree and type. Entities found are listed in `knowledge_entities` in the signals.
 15. **Knowledge-enhanced session resume** — `loom sessions resume --inject-knowledge` queries the knowledge graph for entities matching the session topic and recent messages, then injects entity definitions and their relationships as a system message before resuming.
 16. **`LOOM_AGENTS_DIR` is the ecosystem directory** — the CLI and the daemon both resolve it through `loom_core::loom_dir()` (env var wins, else `~/.loom`). Never hardcode `~/.loom` in a command: pass the resolved dir down. The TUI's CLI adapter exports it to every child process.
+17. **Scoped credential grants** — `loom auth grant` issues a derived, revocable, expiring token scoped to one provider + tool + run; the agent never holds the stored secret. Trust model and residual risks: `docs/architecture/grant-trust-model.md`. There is deliberately no CLI `redeem` — redemption returns plaintext and belongs to a trusted broker (`AuthManager::redeem_grant`).
 
 ## TUI Architecture
 
