@@ -538,6 +538,28 @@ mod tests {
     }
 
     #[test]
+    fn install_missing_script_warns_not_refuses() {
+        let tmp = tempdir().unwrap();
+        let loom_dir = tmp.path().join("loom");
+        let src = make_dir_skill(
+            tmp.path(),
+            "scripted",
+            "---\nname: scripted\ndescription: Use when testing.\n---",
+        );
+        // The body references a script the directory does not have.
+        std::fs::write(
+            src.join("SKILL.md"),
+            "---\nname: scripted\ndescription: Use when testing.\n---\n\nRun $SKILL_DIR/scripts/run.sh\n",
+        )
+        .unwrap();
+
+        // Day one: a missing script is a warning, it must not block an install.
+        let name = install_skill(&loom_dir, &src).unwrap();
+        assert_eq!(name, "scripted");
+        assert!(loom_dir.join("skills/scripted/SKILL.md").is_file());
+    }
+
+    #[test]
     fn missing_name_falls_back_to_directory_or_stem() {
         let tmp = tempdir().unwrap();
         let loom_dir = tmp.path().join("loom");
