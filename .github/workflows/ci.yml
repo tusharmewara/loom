@@ -82,6 +82,45 @@ jobs:
           cargo tarpaulin --workspace --output-type lcov --skip-open 2>&1 | tail -10 || echo "Coverage generation had issues, continuing..."
           # Note: tarpaulin may have issues with workspace - ensure coverage is collected
 
+  # ===== Container Runtime =====
+  # The container path is a first-class, CI-tested path (PILLAR 2). The
+  # network posture policy is pure logic and runs in the `test` job; this job
+  # runs the end-to-end container smoke test against the runner's Docker.
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-container-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Verify Docker is present
+        run: docker version
+
+      - name: Run container smoke test
+        env:
+          LOOM_CONTAINER_SMOKE: "1"
+        run: |
+          set -o pipefail
+          cargo test -p loom-runtime --features docker --test container_smoke -- --nocapture 2>&1 | tee container-smoke-output.log
+
+      - name: Upload Container Test Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-test-results-${{ runner.os }}
+          path: container-smoke-output.log
+
   # ===== Integration Tests =====
   integration:
     runs-on: ubuntu-latest

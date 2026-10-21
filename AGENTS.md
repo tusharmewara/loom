@@ -133,6 +133,26 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 - `cross-process` — enables ZeroMQ cross-process event bus
 - `tui` — enables TUI commands in CLI
 
+### Container Network Posture (`loom-runtime`)
+
+Container isolation is **opt-in**: the default runtime stays `process`. Once a
+container *is* selected, the **default network posture is `none` (no egress)**.
+
+| Posture | Engine argument | Meaning |
+|---|---|---|
+| `none` (default) | `--network none` | no egress |
+| `restricted` | `--network none` | fail-closed until the egress allowlist proxy lands |
+| `unrestricted` | *(no override)* | engine default network, full egress — explicit opt-in |
+
+Set it per run with the tool's `[launch] network` value (`none` \| `restricted`
+\| `unrestricted`, optionally `restricted:<host>[,<host>...]`). Free-form
+network names are rejected — a name is not a posture. `loom-runtime` has no
+`tests/` dir prior to v0.9.x; `crates/loom-runtime/tests/network_policy.rs`
+holds the pure-logic policy tests (run everywhere) and
+`crates/loom-runtime/tests/container_smoke.rs` holds the end-to-end smoke test
+(gated behind `LOOM_CONTAINER_SMOKE=1`, skipped when no engine is present; the
+`container` CI job runs it with Docker).
+
 ## Testing
 
 - **Unit tests**: inline in each crate under `#[cfg(test)] mod tests { ... }`
