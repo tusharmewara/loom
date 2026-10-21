@@ -12,8 +12,7 @@ use loom_generic_adapter::config::ToolToml;
 use loom_generic_adapter::GenericAdapter;
 
 fn spec_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../docs/protocol/adapter-and-acp-protocol.md")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/protocol/adapter-and-acp-protocol.md")
 }
 
 /// The first fenced ```toml block after the `### 1.5` heading.
@@ -63,5 +62,8 @@ fn published_spec_example_parses_and_loads() {
     let adapter = GenericAdapter::new(dir.path().to_str().unwrap(), "acme")
         .expect("GenericAdapter loads the published example");
     assert_eq!(adapter.tool_name(), "acme");
-    assert!(adapter.launch_config().is_some(), "launch config is derived");
+    assert!(
+        adapter.launch_config().is_some(),
+        "launch config is derived"
+    );
 }
