@@ -315,7 +315,7 @@ emits `{ config, extends_chain: [...] }` for tooling.
 7. **TUI keybindings**: `D` opens action palette (daemon controls), `a` opens dispatch menu only on task tabs (5=Skills, 6=Sessions), `?` for help. Tab indices: 0=Dashboard, 1=Daemon, 2=Discovery, 3=MCP, 4=Skills, 5=Sessions, 6=Logs, 7=Knowledge, 8=PRs, 9=Runtime, 10=Kanban, 11=Graph, 12=Cost, 13=Orchestrator, 14=Review. Digits `1-9` select tabs 0-8, `0` selects tab 9 (Runtime), `!`/`@`/`#` select tabs 10-12. The command palette offers `tab 1`..`tab 11`, which map to tab indices 0-10 — Orchestrator and Review are reachable only by Tab cycling.
 8. **Adapter binaries for TerminalLaunch**: checks PATH for `opencode`, `claude-code`, `jcode`, `crush` (in order).
 9. **ACP dispatch is wired and tracked** — `acp.dispatch` spawns headlessly with per-run logs, records completion plus a Loom session, and serves `run.status`. A canonical ACP-spec client also exists (`loom acp run`, `loom-sessions/src/acp_protocol.rs`).
-10. **EmbeddedPane dispatch** — opens the embedded pane and streams `workflow dispatch` output for the task.
+10. **Embedded-pane dispatch** — `App::dispatch_embedded_pane` opens the embedded pane, spawns `loom workflow dispatch <task> --agent <agent>` and streams the agent's output for the task.
 11. **`loom-ipc` uses Unix sockets only** — no TCP or Windows named pipe support.
 12. **All crates share the workspace version** — 0.9.6 (`[workspace.package] version` in the root `Cargo.toml`); the separate `ECOSYSTEM_VERSION` constant is 2.0.0.
 13. **Knowledge extraction auto-runs on `loom sessions index` and `loom sessions export`** — entities and relationships are automatically extracted into `~/.loom/knowledge/graph.db` during session indexing.
@@ -328,7 +328,7 @@ emits `{ config, extends_chain: [...] }` for tooling.
 - `ratatui` + `crossterm` backend
 - 15 tabs, 1s auto-refresh
 - Action palette for daemon operations (Start/Stop/Restart/InstallService/UninstallService)
-- Dispatch menu on task tabs: TerminalLaunch (opens new terminal window with agent), ACPDispatch (wired — dispatches over daemon IPC), EmbeddedPane (implemented — opens the embedded pane and streams dispatch output)
+- Dispatch menu on task tabs: TerminalLaunch (opens new terminal window with agent), ACPDispatch (wired — dispatches over daemon IPC), embedded-pane dispatch (implemented — `App::dispatch_embedded_pane` opens the embedded pane and streams the dispatch output)
 - Keybinding cheat sheet accessible via `?`
 
 ## Directory Structure

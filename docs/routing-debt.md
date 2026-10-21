@@ -8,10 +8,25 @@ since moved, each step's **Landed:** paragraph gives the current location.*
 
 > **CLOSED 2026-10-21 — this is a historical record, not live work.**
 >
-> **What closed it:** all six routing debts below landed on `main` (Steps 0–3 and
-> 5–6 via the `debt/*` branches, merged; Step 4 by re-syncing the Supplement to
-> the shipped constants). Each step keeps its original diagnosis and now records
-> what landed and where.
+> **What closed it:** all six routing debts below landed on `main` (Step 0 is the
+> trivial pre-step that tracked `ROADMAP.md`; Steps 1–6 are the six debts). Every
+> step landed as a `debt/step*` branch merged through a pull-request merge, and
+> each branch head was a single commit:
+>
+> | Step | Branch (`debt/`) | Branch head | Merged on `main` |
+> |---|---|---|---|
+> | 0 | `step0-roadmap` | `868cf09` | `02f936c` (PR #1) |
+> | 1 | `step1-char-count` | `f4a5f61` | `faa99da` (PR #2) |
+> | 2 | `step2-characterization-tests` | `fc62ae6` | `6991e91` (PR #3) |
+> | 3 | `step3-unify-derivation` | `eb1338e` | `11da566` (PR #4) |
+> | 4 | `step4-doc-sync` | `ea03d0e` | `0ee6d58` (PR #5) |
+> | 5 | `step5-https-and-signatures` | `7dba77c` | `e152553` (PR #6) |
+> | 6 | `step6-outcome-telemetry` | `cafb014` | `4d8c9c8` (PR #7) |
+>
+> Step 4 additionally re-synced the Supplement to the shipped constants — that
+> re-sync lives in the working tree only, because the Supplement sits under the
+> gitignored `planning/` path. Each step keeps its original diagnosis and now
+> records what landed and where.
 >
 > The **decision record** (NO on Jev/Laya/Microsoft-Decision-1/Prism) and its
 > **flip conditions** are unchanged and still binding — closing the debts does

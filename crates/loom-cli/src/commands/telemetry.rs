@@ -49,7 +49,6 @@ pub async fn run(loom_dir: &str, action: &TelemetryAction) -> Result<()> {
 }
 
 async fn get_metrics_from_daemon(loom_dir: &str) -> Result<serde_json::Value> {
-    use loom_ipc::client::send_command;
     use loom_ipc::IpcRequest;
     use std::path::Path;
 
@@ -60,7 +59,11 @@ async fn get_metrics_from_daemon(loom_dir: &str) -> Result<serde_json::Value> {
     }
 
     let req = IpcRequest::new("telemetry.metrics").with_params(serde_json::json!({}));
-    let resp = send_command(socket_path.to_str().unwrap(), req).await?;
+    // A telemetry probe is single-shot (no backoff, no daemon start) but names
+    // the cause and the remedy like every other command.
+    let resp = crate::ipc_client::probe_daemon(Path::new(loom_dir), req)
+        .await
+        .map_err(|e| crate::ipc_client::stale_socket_advice(&e.to_string()))?;
 
     if resp.status == "ok" {
         Ok(resp.data.unwrap_or(serde_json::json!({})))
@@ -70,7 +73,6 @@ async fn get_metrics_from_daemon(loom_dir: &str) -> Result<serde_json::Value> {
 }
 
 async fn reset_metrics_in_daemon(loom_dir: &str) -> Result<()> {
-    use loom_ipc::client::send_command;
     use loom_ipc::IpcRequest;
     use std::path::Path;
 
@@ -80,7 +82,11 @@ async fn reset_metrics_in_daemon(loom_dir: &str) -> Result<()> {
     }
 
     let req = IpcRequest::new("telemetry.reset").with_params(serde_json::json!({}));
-    let resp = send_command(socket_path.to_str().unwrap(), req).await?;
+    // A telemetry probe is single-shot (no backoff, no daemon start) but names
+    // the cause and the remedy like every other command.
+    let resp = crate::ipc_client::probe_daemon(Path::new(loom_dir), req)
+        .await
+        .map_err(|e| crate::ipc_client::stale_socket_advice(&e.to_string()))?;
 
     if resp.status != "ok" {
         anyhow::bail!("Failed to reset: {}", resp.error.unwrap_or_default());

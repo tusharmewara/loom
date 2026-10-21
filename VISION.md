@@ -21,7 +21,7 @@ The codebase is substantial — ~28k lines across 184 files at that point — bu
 
 ### Phase 1 — TUI Foundation (commits 1-10)
 The earliest commits built out the **terminal UI** (`loom-tui` crate):
-- `Dispatcher` trait for launching tools from the TUI (TerminalLaunch, ACPDispatch, EmbeddedPane)
+- `Dispatcher` trait for launching tools from the TUI (TerminalLaunch, ACPDispatch; the embedded pane is no longer a `Dispatcher` — `App::dispatch_embedded_pane` owns it)
 - Keyboard navigation: dispatch menu (`a`), daemon action palette (`D`), help overlay (`?`)
 - Tab-based layout with auto-refresh (Dashboard, Daemon, Discovery, MCP, Skills, Sessions, Logs)
 - Task selection and dispatch flow
