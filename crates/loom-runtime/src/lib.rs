@@ -426,7 +426,7 @@ pub mod kubernetes_client {
         Container, EmptyDirVolumeSource, EnvVar, Pod, PodSpec, PodTemplateSpec, Volume, VolumeMount,
     };
     use k8s_openapi::api::networking::v1::{
-        IPBlock, NetworkPolicyEgressRule, NetworkPolicyPeer, NetworkPolicySpec,
+        NetworkPolicyEgressRule, NetworkPolicySpec,
     };
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
     use kube::api::{Api, DeleteParams, ListParams, LogParams, PostParams};
@@ -520,28 +520,12 @@ pub mod kubernetes_client {
 
             let name = format!("loom-net-{job_name}");
 
-            // An empty egress list denies all egress: a deny-all policy.
-            // `Restricted` lists the allowlisted destinations; `NoNetwork`
-            // lists none.
-            let egress: Vec<NetworkPolicyEgressRule> = match policy {
-                NetworkPolicy::Restricted { allowed_hosts } if !allowed_hosts.is_empty() => {
-                    allowed_hosts
-                        .iter()
-                        .map(|host| NetworkPolicyEgressRule {
-                            to: Some(vec![NetworkPolicyPeer {
-                                ip_block: Some(IPBlock {
-                                    cidr: host.clone(),
-                                    except: None,
-                                }),
-                                ..Default::default()
-                            }]),
-                            ..Default::default()
-                        })
-                        .collect()
-                }
-                _ => Vec::new(),
-            };
-
+            // Fail-closed, exactly like the Docker/Podman backends: an empty
+            // egress list denies all egress. A `Restricted` allowlist is not
+            // enforced yet (it lands with the egress proxy), so it must not
+            // widen to full egress — and a hostname is not a CIDR, so it
+            // cannot be expressed as an `IPBlock` either.
+            let egress: Vec<NetworkPolicyEgressRule> = Vec::new();
             let k8s_policy = K8sNetworkPolicy {
                 metadata: ObjectMeta {
                     name: Some(name.clone()),

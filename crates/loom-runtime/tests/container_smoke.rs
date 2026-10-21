@@ -22,6 +22,13 @@ fn docker_available() -> bool {
         .unwrap_or(false)
 }
 
+/// The engine must be usable by the *runtime*, not just by the CLI: the
+/// bollard client resolves its own socket. If the runtime cannot reach an
+/// engine, the test skips — a missing engine is never a failure.
+async fn runtime_available() -> bool {
+    ContainerRuntime::docker().is_available().await
+}
+
 /// The container backends are feature-gated. Without the `docker` feature
 /// this crate has no Docker client at all, so there is nothing to smoke.
 fn docker_feature_enabled() -> bool {
@@ -68,20 +75,26 @@ async fn container_run_is_network_isolated_by_default() {
         println!("skipped: no container engine reachable");
         return;
     }
+    if !runtime_available().await {
+        println!("skipped: the runtime cannot reach a container engine");
+        return;
+    }
 
     let runtime = ContainerRuntime::docker()
         .with_image("alpine:3".to_string())
         .with_auto_remove(false);
 
-    // The default posture must deny egress: the probe cannot reach the
-    // network from inside the container.
+    // The default posture must deny egress. The probe is the container's own
+    // network interfaces, not an outbound request: a request would also fail
+    // on a CI host with no internet, which would make the test pass for the
+    // wrong reason. With `--network none` the container has only `lo`.
     let config = LaunchConfig {
         runtime: "docker".to_string(),
         image: Some("alpine:3".to_string()),
         command: "sh".to_string(),
         args: vec![
             "-c".to_string(),
-            "wget -q -T 5 -O- http://example.com >/dev/null 2>&1 || echo NO_NETWORK".to_string(),
+            "echo IFACES:; ls /sys/class/net".to_string(),
         ],
         ..Default::default()
     };
@@ -89,8 +102,8 @@ async fn container_run_is_network_isolated_by_default() {
     let result = runtime.run(&config, &task()).await.expect("container run failed");
     assert!(result.success, "container exited non-zero: {result:?}");
     assert!(
-        result.stdout.contains("NO_NETWORK"),
-        "container reached the network under the default posture: {result:?}"
+        !result.stdout.contains("eth0"),
+        "container had a network interface under the default posture: {result:?}"
     );
 
     // The engine must have been told to disable networking.
@@ -126,6 +139,10 @@ async fn unrestricted_posture_is_the_explicit_escape_hatch() {
     }
     if !docker_available() {
         println!("skipped: no container engine reachable");
+        return;
+    }
+    if !runtime_available().await {
+        println!("skipped: the runtime cannot reach a container engine");
         return;
     }
 

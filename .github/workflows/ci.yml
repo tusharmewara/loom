@@ -114,6 +114,12 @@ jobs:
         run: |
           set -o pipefail
           cargo test -p loom-runtime --features docker --test container_smoke -- --nocapture 2>&1 | tee container-smoke-output.log
+          # The smoke test must have actually run, not skipped: this job
+          # exists to prove the container path works against a real engine.
+          if grep -q "skipped:" container-smoke-output.log; then
+            echo "::error::container smoke test skipped on a runner with Docker present"
+            exit 1
+          fi
 
       - name: Upload Container Test Results
         uses: actions/upload-artifact@v4
