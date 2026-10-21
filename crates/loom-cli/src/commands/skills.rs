@@ -1,8 +1,8 @@
 use crate::cli::SkillsAction;
-use loom_ipc::IpcRequest;
+use loom_core::SkillEntry;
 use loom_skills::lockfile::{self, SkillsLock};
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use loom_skills::scan::{self, Severity, SkillDefect};
+use std::path::Path;
 
 fn update_lock(loom_dir: &Path) -> anyhow::Result<()> {
     let engine = loom_skills::SkillsEngine::new(loom_dir.to_str().unwrap())?;
@@ -19,238 +19,10 @@ fn update_lock(loom_dir: &Path) -> anyhow::Result<()> {
 // ---------------------------------------------------------------------------
 // Install / remove.
 //
-// The Phase A validator (card A1, `crates/loom-skills/src/scan.rs`) has not
-// landed yet, so the defect check below is local. It follows the shape the A1
-// API is specified to take — `validate_skill_file(path, dir_name)` returning
-// defects that carry a path, a stable code and a message — so swapping in
-// `loom_skills::scan::validate_skill_file` later is a one-line change.
+// Validation is `loom_skills::scan` — the one validator and the one YAML
+// parser in the tree. A Fatal defect refuses the install and leaves the
+// skills directory untouched.
 // ---------------------------------------------------------------------------
-
-/// How serious a defect is: `Fatal` refuses the install, `Warn` does not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Severity {
-    Fatal,
-    Warn,
-}
-
-/// One defect in one skill file.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SkillDefect {
-    path: PathBuf,
-    severity: Severity,
-    /// Stable machine-readable code, e.g. `missing_description`.
-    code: &'static str,
-    /// Human-readable reason naming the file and the field.
-    message: String,
-}
-
-/// Why a skill's frontmatter could not be used.
-#[derive(Debug)]
-enum FrontmatterError {
-    /// The file has no `---` block at all.
-    Absent,
-    /// The block is present but unusable.
-    Invalid(String),
-}
-
-/// Parse the `---` fenced frontmatter of a skill file into its top-level keys.
-///
-/// Handles the styles the live corpus uses: plain scalars, folded (`>`),
-/// literal (`|`) and quoted. Unknown keys are ignored, not rejected.
-fn parse_frontmatter(content: &str) -> Result<BTreeMap<String, String>, FrontmatterError> {
-    let mut lines = content.lines();
-    match lines.next() {
-        Some(first) if first.trim_end() == "---" => {}
-        _ => return Err(FrontmatterError::Absent),
-    }
-    let mut block = Vec::new();
-    let mut closed = false;
-    for line in lines {
-        if line.trim_end() == "---" {
-            closed = true;
-            break;
-        }
-        block.push(line);
-    }
-    if !closed {
-        return Err(FrontmatterError::Invalid(
-            "unterminated `---` frontmatter fence".into(),
-        ));
-    }
-    Ok(parse_yaml_block(&block))
-}
-
-/// Read the top-level `key: value` pairs out of a YAML block.
-fn parse_yaml_block(block: &[&str]) -> BTreeMap<String, String> {
-    let mut map = BTreeMap::new();
-    let mut i = 0;
-    while i < block.len() {
-        let line = block[i];
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') || line.starts_with(char::is_whitespace) {
-            i += 1;
-            continue;
-        }
-        let Some((key, rest)) = line.split_once(':') else {
-            i += 1;
-            continue;
-        };
-        let key = key.trim().to_string();
-        let value = rest.trim();
-        // The indented lines that follow belong to this key.
-        let mut cont: Vec<&str> = Vec::new();
-        i += 1;
-        while i < block.len()
-            && (block[i].trim().is_empty() || block[i].starts_with(char::is_whitespace))
-        {
-            if !block[i].trim().is_empty() {
-                cont.push(block[i].trim());
-            }
-            i += 1;
-        }
-        if matches!(value, ">" | "|" | ">-" | "|-" | ">+" | "|+") {
-            // Block scalar: `>` folds the lines into one, `|` keeps the breaks.
-            let joined = if value.starts_with('>') {
-                cont.join(" ")
-            } else {
-                cont.join("\n")
-            };
-            map.insert(key, joined);
-            continue;
-        }
-        // A plain scalar may also continue on the next line(s).
-        let mut scalar = plain_scalar(value);
-        if !cont.is_empty() {
-            let tail = cont.join(" ");
-            scalar = if scalar.is_empty() {
-                tail
-            } else {
-                format!("{scalar} {tail}")
-            };
-        }
-        map.insert(key, scalar);
-    }
-    map
-}
-
-/// A plain YAML scalar: quoted values lose their quotes, a trailing `#`
-/// comment is dropped.
-fn plain_scalar(value: &str) -> String {
-    let v = value.trim();
-    if v.len() >= 2 {
-        let bytes = v.as_bytes();
-        let quote = bytes[0];
-        if (quote == b'"' || quote == b'\'') && bytes[v.len() - 1] == quote {
-            let inner = &v[1..v.len() - 1];
-            return if quote == b'"' {
-                inner
-                    .replace("\\\"", "\"")
-                    .replace("\\n", "\n")
-                    .replace("\\\\", "\\")
-            } else {
-                inner.replace("''", "'")
-            };
-        }
-    }
-    match v.find(" #") {
-        Some(idx) => v[..idx].trim().to_string(),
-        None => v.to_string(),
-    }
-}
-
-/// Check one skill file for defects. `dir_name` is the expected name for the
-/// directory layout (`<name>/SKILL.md`); `None` for a flat `.md` file, whose
-/// file stem is the expected name.
-fn validate_skill_content(path: &Path, content: &str, dir_name: Option<&str>) -> Vec<SkillDefect> {
-    let mut defects = Vec::new();
-    let fm = match parse_frontmatter(content) {
-        Ok(fm) => fm,
-        Err(FrontmatterError::Absent) => {
-            defects.push(SkillDefect {
-                path: path.to_path_buf(),
-                severity: Severity::Fatal,
-                code: "missing_description",
-                message: format!(
-                    "{} has no frontmatter, so it has no 'description:' — the agent ignores the skill",
-                    path.display()
-                ),
-            });
-            defects.push(SkillDefect {
-                path: path.to_path_buf(),
-                severity: Severity::Warn,
-                code: "missing_name",
-                message: format!(
-                    "{} has no 'name:' — the directory/file name is used instead",
-                    path.display()
-                ),
-            });
-            return defects;
-        }
-        Err(FrontmatterError::Invalid(msg)) => {
-            defects.push(SkillDefect {
-                path: path.to_path_buf(),
-                severity: Severity::Fatal,
-                code: "invalid_frontmatter",
-                message: format!("{}: {msg}", path.display()),
-            });
-            return defects;
-        }
-    };
-
-    match fm.get("description").map(|d| d.trim()) {
-        None | Some("") => defects.push(SkillDefect {
-            path: path.to_path_buf(),
-            severity: Severity::Fatal,
-            code: "missing_description",
-            message: format!(
-                "{} has no 'description:' in its frontmatter — the agent drops the skill silently",
-                path.display()
-            ),
-        }),
-        Some(_) => {}
-    }
-
-    match fm.get("name").map(|n| n.trim()).filter(|n| !n.is_empty()) {
-        None => defects.push(SkillDefect {
-            path: path.to_path_buf(),
-            severity: Severity::Warn,
-            code: "missing_name",
-            message: format!(
-                "{} has no 'name:' — the directory/file name is used instead",
-                path.display()
-            ),
-        }),
-        Some(name) => {
-            let expected = dir_name.or_else(|| path.file_stem().and_then(|s| s.to_str()));
-            if let Some(expected) = expected {
-                if name != expected {
-                    let kind = if dir_name.is_some() {
-                        "directory"
-                    } else {
-                        "file"
-                    };
-                    defects.push(SkillDefect {
-                        path: path.to_path_buf(),
-                        // The directory name is the addressing key for every
-                        // consumer, so a mismatch there is fatal; a flat file
-                        // has no directory to contradict.
-                        severity: if dir_name.is_some() {
-                            Severity::Fatal
-                        } else {
-                            Severity::Warn
-                        },
-                        code: "name_mismatch",
-                        message: format!(
-                            "{} declares name '{name}' but its {kind} name is '{expected}'",
-                            path.display()
-                        ),
-                    });
-                }
-            }
-        }
-    }
-    defects
-}
 
 /// A skill name must be a single path segment.
 fn is_safe_name(name: &str) -> bool {
@@ -312,15 +84,8 @@ fn install_skill(loom_dir: &Path, src: &Path) -> anyhow::Result<String> {
         (src.to_path_buf(), None, stem, false)
     };
 
-    let content = std::fs::read_to_string(&skill_file)
-        .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", skill_file.display()))?;
-
-    let defects = validate_skill_content(&skill_file, &content, dir_name.as_deref());
-    let fm_name = parse_frontmatter(&content)
-        .ok()
-        .and_then(|fm| fm.get("name").map(|n| n.trim().to_string()))
-        .filter(|n| !n.is_empty());
-    let name = fm_name.unwrap_or_else(|| fallback.clone());
+    let defects = scan::validate_skill_file(&skill_file, dir_name.as_deref());
+    let name = effective_name(&skill_file, dir_name.as_deref(), &fallback);
 
     let fatals: Vec<&SkillDefect> = defects
         .iter()
@@ -368,6 +133,22 @@ fn install_skill(loom_dir: &Path, src: &Path) -> anyhow::Result<String> {
     Ok(name)
 }
 
+/// The name a skill is addressed by: the frontmatter `name:` if present,
+/// otherwise the directory name (layout A) or the file stem (layout B).
+fn effective_name(path: &Path, dir_name: Option<&str>, fallback: &str) -> String {
+    if let Some(name) = scan::frontmatter_name(path) {
+        return name;
+    }
+    match dir_name {
+        Some(dir) => dir.to_string(),
+        None => path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(fallback)
+            .to_string(),
+    }
+}
+
 /// Remove an installed skill: the flat `<name>.md` file or the whole `<name>/`
 /// directory tree. Nothing is left behind.
 fn remove_skill(loom_dir: &Path, name: &str) -> anyhow::Result<()> {
@@ -389,93 +170,110 @@ fn remove_skill(loom_dir: &Path, name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Inventory.
+//
+// The registry is the source of truth. The daemon and the MCP server read
+// the same registry, so reading it here keeps one read path instead of a
+// second, divergent one.
+// ---------------------------------------------------------------------------
+
+/// The registered skills and the defects the scan found.
+fn inventory(loom_dir: &Path) -> anyhow::Result<(Vec<SkillEntry>, Vec<SkillDefect>)> {
+    let engine = loom_skills::SkillsEngine::new(loom_dir.to_str().unwrap())?;
+    let skills = engine.registry().list();
+    let defects = engine.registry().last_scan().defects;
+    Ok((skills, defects))
+}
+
+/// The human-readable listing: every registered skill, then every defect the
+/// scan found. A duplicate is a warning — the collision is reported, never
+/// silently resolved.
+fn list_lines(skills: &[SkillEntry], defects: &[SkillDefect]) -> String {
+    let mut out = String::new();
+    if skills.is_empty() {
+        out.push_str("No skills found.\n");
+    } else {
+        for skill in skills {
+            out.push_str(&format!("{}  {}\n", skill.name, skill.description));
+        }
+    }
+    for defect in defects {
+        let tag = match defect.severity {
+            Severity::Fatal => "✗",
+            Severity::Warn => "⚠",
+        };
+        out.push_str(&format!("  {tag} [{}] {}\n", defect.code, defect.message));
+    }
+    out
+}
+
+/// The JSON listing. `count` and `skills` keep their shape: the TUI reads
+/// them.
+fn list_json(skills: &[SkillEntry], defects: &[SkillDefect]) -> serde_json::Value {
+    let defects: Vec<serde_json::Value> = defects
+        .iter()
+        .map(|d| {
+            serde_json::json!({
+                "path": d.path.to_string_lossy(),
+                "severity": match d.severity {
+                    Severity::Fatal => "fatal",
+                    Severity::Warn => "warn",
+                },
+                "code": d.code,
+                "message": d.message,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "schema_version": 1,
+        "command": "skills.list",
+        "count": skills.len(),
+        "skills": skills,
+        "defects": defects,
+    })
+}
+
 pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
     match action {
         SkillsAction::List { json, locked } => {
-            let req = IpcRequest::new("skills.list");
-            match crate::ipc_client::send_daemon_command(loom_dir, req).await {
-                Ok(resp) if resp.status == "ok" => {
-                    if let Some(data) = resp.data {
-                        if let Some(skills) = data.get("skills") {
-                            if *json {
-                                println!(
-                                    "{}",
-                                    serde_json::to_string_pretty(&serde_json::json!({
-                                        "schema_version": 1,
-                                        "command": "skills.list",
-                                        "count": skills.as_array().map(|a| a.len()).unwrap_or(0),
-                                        "skills": skills
-                                    }))?
-                                );
-                            } else {
-                                println!("{}", serde_json::to_string_pretty(skills)?);
-                            }
-                            return Ok(());
-                        }
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => eprintln!("Daemon unavailable ({e}); listing local skills dir"),
-            }
+            let (registry_skills, defects) = inventory(loom_dir)?;
 
-            let skills_dir = loom_dir.join("skills");
-            let mut skill_names = Vec::new();
-            if skills_dir.exists() {
-                for entry in std::fs::read_dir(&skills_dir)? {
-                    let name = entry?.file_name().to_string_lossy().to_string();
-                    skill_names.push(name.clone());
-                }
-            }
             if *json {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&serde_json::json!({
-                        "schema_version": 1,
-                        "command": "skills.list",
-                        "count": skill_names.len(),
-                        "skills": skill_names
-                    }))?
+                    serde_json::to_string_pretty(&list_json(&registry_skills, &defects))?
                 );
             } else {
-                if skill_names.is_empty() {
-                    println!("No skills found.");
-                } else {
-                    for name in &skill_names {
-                        println!("{}", name);
-                    }
-                }
+                print!("{}", list_lines(&registry_skills, &defects));
             }
             if *locked {
                 let lock_path = lockfile::default_lock_path(loom_dir.to_str().unwrap());
                 match SkillsLock::load(&lock_path) {
                     Ok(Some(lock)) => {
-                        let loom_str = loom_dir.to_str().unwrap();
-                        if let Ok(engine) = loom_skills::SkillsEngine::new(loom_str) {
-                            let skills = engine.registry().list();
-                            if lock.is_clean(&skills) {
-                                println!("  ✓ Lock file clean");
-                            } else {
-                                let violations = lock.verify_against(&skills);
-                                for v in &violations {
-                                    match v.kind {
-                                        lockfile::LockViolationKind::Missing => {
-                                            println!(
-                                                "  ✗ {}: in lock but removed from registry",
-                                                v.name
-                                            );
-                                        }
-                                        lockfile::LockViolationKind::VersionMismatch => {
-                                            println!(
-                                                "  ✗ {}: version mismatch (expected {}, actual {})",
-                                                v.name, v.expected, v.actual
-                                            );
-                                        }
-                                        lockfile::LockViolationKind::ContentChanged => {
-                                            println!("  ✗ {}: content hash changed", v.name);
-                                        }
-                                        lockfile::LockViolationKind::Unlocked => {
-                                            println!("  ✗ {}: not in lock file", v.name);
-                                        }
+                        if lock.is_clean(&registry_skills) {
+                            println!("  ✓ Lock file clean");
+                        } else {
+                            let violations = lock.verify_against(&registry_skills);
+                            for v in &violations {
+                                match v.kind {
+                                    lockfile::LockViolationKind::Missing => {
+                                        println!(
+                                            "  ✗ {}: in lock but removed from registry",
+                                            v.name
+                                        );
+                                    }
+                                    lockfile::LockViolationKind::VersionMismatch => {
+                                        println!(
+                                            "  ✗ {}: version mismatch (expected {}, actual {})",
+                                            v.name, v.expected, v.actual
+                                        );
+                                    }
+                                    lockfile::LockViolationKind::ContentChanged => {
+                                        println!("  ✗ {}: content hash changed", v.name);
+                                    }
+                                    lockfile::LockViolationKind::Unlocked => {
+                                        println!("  ✗ {}: not in lock file", v.name);
                                     }
                                 }
                             }
@@ -487,34 +285,9 @@ pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
             }
         }
         SkillsAction::Show { name, json } => {
-            let req =
-                IpcRequest::new("skills.show").with_params(serde_json::json!({ "name": name }));
-            match crate::ipc_client::send_daemon_command(loom_dir, req).await {
-                Ok(resp) if resp.status == "ok" => {
-                    if let Some(data) = resp.data {
-                        if *json {
-                            println!(
-                                "{}",
-                                serde_json::to_string_pretty(&serde_json::json!({
-                                    "schema_version": 1,
-                                    "command": "skills.show",
-                                    "name": name,
-                                    "skill": data
-                                }))?
-                            );
-                        } else {
-                            println!("{}", serde_json::to_string_pretty(&data)?);
-                        }
-                        return Ok(());
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => eprintln!("Daemon unavailable ({e})"),
-            }
+            let (registry_skills, defects) = inventory(loom_dir)?;
 
-            let path = loom_dir.join("skills").join(name);
-            if path.exists() {
-                let content = std::fs::read_to_string(&path)?;
+            if let Some(skill) = registry_skills.into_iter().find(|s| &s.name == name) {
                 if *json {
                     println!(
                         "{}",
@@ -522,15 +295,24 @@ pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
                             "schema_version": 1,
                             "command": "skills.show",
                             "name": name,
-                            "content": content
+                            "skill": skill
                         }))?
                     );
                 } else {
-                    println!("{}", content);
+                    println!("{}", serde_json::to_string_pretty(&skill)?);
                 }
-            } else {
-                anyhow::bail!("Skill '{name}' not found");
+                return Ok(());
             }
+
+            // Not registered: it may be on disk but refused for a defect.
+            // Name the defect instead of claiming the skill does not exist.
+            if let Some(defect) = defects
+                .iter()
+                .find(|d| d.path.to_string_lossy().contains(name.as_str()))
+            {
+                anyhow::bail!("Skill '{name}' is not registered: {}", defect.message);
+            }
+            anyhow::bail!("Skill '{name}' not found");
         }
         SkillsAction::Install { path } => {
             let src = Path::new(path);
@@ -553,6 +335,7 @@ pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use tempfile::tempdir;
 
     /// A skill directory holding a SKILL.md with the given frontmatter.
@@ -713,28 +496,134 @@ mod tests {
     }
 
     #[test]
-    fn frontmatter_styles_all_parse() {
-        let folded = parse_frontmatter("---\nname: a\ndescription: >\n  one\n  two\n---").unwrap();
-        assert_eq!(folded.get("description").unwrap(), "one two");
+    fn invalid_yaml_is_refused() {
+        let tmp = tempdir().unwrap();
+        let loom_dir = tmp.path().join("loom");
+        let src = tmp.path().join("badyaml.md");
+        std::fs::write(
+            &src,
+            "---\nname: badyaml\ndescription: [unclosed\n---\n\nBody.\n",
+        )
+        .unwrap();
 
-        let literal = parse_frontmatter("---\nname: b\ndescription: |\n  one\n  two\n---").unwrap();
-        assert_eq!(literal.get("description").unwrap(), "one\ntwo");
-
-        let quoted =
-            parse_frontmatter("---\nname: \"c\"\ndescription: \"quoted value\"\n---").unwrap();
-        assert_eq!(quoted.get("name").unwrap(), "c");
-        assert_eq!(quoted.get("description").unwrap(), "quoted value");
+        let err = install_skill(&loom_dir, &src).unwrap_err().to_string();
+        assert!(err.contains("invalid_frontmatter"), "err: {err}");
+        assert!(!loom_dir.join("skills/badyaml.md").exists());
     }
 
     #[test]
     fn unterminated_fence_is_invalid_frontmatter() {
-        let defects = validate_skill_content(
-            Path::new("/tmp/x/SKILL.md"),
-            "---\nname: x\ndescription: y\n",
-            Some("x"),
-        );
+        let tmp = tempdir().unwrap();
+        let src = tmp.path().join("fence.md");
+        std::fs::write(&src, "---\nname: x\ndescription: y\n").unwrap();
+
+        let defects = scan::validate_skill_file(&src, None);
         assert!(defects
             .iter()
             .any(|d| d.code == "invalid_frontmatter" && d.severity == Severity::Fatal));
+    }
+
+    fn skill_md(name: &str, description: &str) -> String {
+        format!("---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n\nBody.\n")
+    }
+
+    fn write(path: &Path, content: &str) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, content).unwrap();
+    }
+
+    /// A mixed-layout tree: one directory skill, one flat skill, one skill
+    /// with no description, and one name that exists in both layouts.
+    fn mixed_tree(loom_dir: &Path) {
+        let skills = loom_dir.join("skills");
+        write(
+            &skills.join("dir-skill/SKILL.md"),
+            &skill_md("dir-skill", "\"A skill in a directory\""),
+        );
+        write(
+            &skills.join("flat-skill.md"),
+            &skill_md("flat-skill", "\"A skill in a flat file\""),
+        );
+        write(
+            &skills.join("both/SKILL.md"),
+            &skill_md("both", "\"The directory copy\""),
+        );
+        write(&skills.join("both.md"), &skill_md("both", "\"The flat copy\""));
+        // No frontmatter at all: the live `gdrive` shape.
+        write(
+            &skills.join("no-desc/SKILL.md"),
+            "# No Description\n\nBody.\n",
+        );
+    }
+
+    #[test]
+    fn list_shows_every_skill() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        mixed_tree(dir.path());
+
+        let (skills, defects) = inventory(dir.path())?;
+        let out = list_lines(&skills, &defects);
+
+        // Both layouts are listed.
+        assert!(out.contains("dir-skill"), "dir skill missing from: {out}");
+        assert!(out.contains("flat-skill"), "flat skill missing from: {out}");
+        // The description is shown, not just the name.
+        assert!(out.contains("A skill in a directory"));
+        assert!(out.contains("A skill in a flat file"));
+        Ok(())
+    }
+
+    #[test]
+    fn list_reports_a_description_less_skill() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        mixed_tree(dir.path());
+
+        let (skills, defects) = inventory(dir.path())?;
+        let out = list_lines(&skills, &defects);
+
+        assert!(
+            out.contains("missing_description"),
+            "description-less skill not reported: {out}"
+        );
+        // Validation annotates, it does not remove: the skill is still listed.
+        assert!(
+            skills.iter().any(|s| s.name == "no-desc"),
+            "description-less skill dropped from the inventory"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn list_reports_a_duplicate_pair() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        mixed_tree(dir.path());
+
+        let (skills, defects) = inventory(dir.path())?;
+        let out = list_lines(&skills, &defects);
+
+        assert!(
+            out.contains("duplicate_name"),
+            "duplicate pair not reported: {out}"
+        );
+        // The name column is UNIQUE: one row for the colliding name.
+        assert_eq!(skills.iter().filter(|s| s.name == "both").count(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn list_json_keeps_the_count_and_skills_keys() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        mixed_tree(dir.path());
+
+        let (skills, defects) = inventory(dir.path())?;
+        let v = list_json(&skills, &defects);
+
+        // The TUI reads /count and /skills.
+        assert_eq!(v["count"].as_u64().unwrap(), skills.len() as u64);
+        assert!(v["skills"].is_array());
+        assert!(v["defects"].is_array());
+        Ok(())
     }
 }
