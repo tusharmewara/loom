@@ -77,6 +77,8 @@ loom daemon start               # or let the CLI auto-launch it for you
 
 See [`STATUS.md`](STATUS.md) for the crate-by-crate feature map and [`docs/kasetto-trellis-analysis.md`](docs/kasetto-trellis-analysis.md) for the capability matrix against the OSS agent ecosystem.
 
+Third-party agents integrate through Loom's public protocol — the versioned **adapter contract and ACP dispatch spec** in [`docs/protocol/adapter-and-acp-protocol.md`](docs/protocol/adapter-and-acp-protocol.md). It documents the tool TOML shape, the ACP wire contract, and how to register a tool or an ACP agent, with every claim anchored to a source line.
+
 ---
 
 ## 🏗️ Architecture overview
