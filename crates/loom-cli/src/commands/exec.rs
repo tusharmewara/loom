@@ -544,12 +544,8 @@ fn inject_shared_skills(loom_dir: &str, native_skills_dir: &str) -> Result<()> {
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_default();
         // Same rule as the layout-A path: a Fatal defect refuses the skill.
-        let (linkable, notes) = loom_adapters::skill_link_decision(
-            &defects,
-            &path,
-            &stem,
-            Some((&target, &path)),
-        );
+        let (linkable, notes) =
+            loom_adapters::skill_link_decision(&defects, &path, &stem, Some((&target, &path)));
         for note in notes {
             println!("⚠ {note}");
         }
@@ -950,7 +946,10 @@ mod tests {
         assert!(!native_a.join("gdrive").exists(), "layout A linked it");
         assert!(!native_b.join("gdrive.md").exists(), "layout B linked it");
         assert!(
-            report.notes.iter().any(|n| n.contains("missing_description")),
+            report
+                .notes
+                .iter()
+                .any(|n| n.contains("missing_description")),
             "notes: {:?}",
             report.notes
         );

@@ -577,7 +577,10 @@ mod tests {
     fn sync_reports_a_duplicate_pair() -> anyhow::Result<()> {
         let dir = tempdir()?;
         let skills = dir.path().join("skills");
-        write(&skills.join("dup/SKILL.md"), &skill_md("dup", "\"One copy\""));
+        write(
+            &skills.join("dup/SKILL.md"),
+            &skill_md("dup", "\"One copy\""),
+        );
         write(&skills.join("dup.md"), &skill_md("dup", "\"Another copy\""));
 
         let registry = SkillRegistry::new(dir.path().to_str().unwrap())?;
@@ -637,7 +640,11 @@ mod tests {
         std::fs::remove_dir_all(dir.path().join("skills/gone"))?;
         registry.sync_from_disk()?;
 
-        assert_eq!(registry.count(), 0, "a removed skill must not stay registered");
+        assert_eq!(
+            registry.count(),
+            0,
+            "a removed skill must not stay registered"
+        );
         assert!(registry.get("gone").is_none());
         Ok(())
     }
