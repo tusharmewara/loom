@@ -524,6 +524,9 @@ fn inject_shared_skills(loom_dir: &str, native_skills_dir: &str) -> Result<()> {
     let native_dir = Path::new(native_skills_dir);
     std::fs::create_dir_all(native_dir)?;
 
+    // Same rule as the layout-A path: a Fatal defect refuses the skill.
+    let defects = loom_adapters::skill_defects_by_file(&shared_dir);
+
     let mut count = 0;
     for entry in std::fs::read_dir(&shared_dir)? {
         let entry = entry?;
@@ -536,6 +539,23 @@ fn inject_shared_skills(loom_dir: &str, native_skills_dir: &str) -> Result<()> {
             None => continue,
         };
         let target = native_dir.join(&name);
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        // Same rule as the layout-A path: a Fatal defect refuses the skill.
+        let (linkable, notes) = loom_adapters::skill_link_decision(
+            &defects,
+            &path,
+            &stem,
+            Some((&target, &path)),
+        );
+        for note in notes {
+            println!("⚠ {note}");
+        }
+        if !linkable {
+            continue;
+        }
         if target.exists() {
             continue;
         }
@@ -858,5 +878,81 @@ mod tests {
     fn test_load_project_config_missing() {
         let result = load_project_config();
         let _ = result; // doesn't panic
+    }
+
+    // ─── Layout-B skill injection ───────────────────────────────────────────
+
+    fn write_skill(path: &Path, content: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn inject_shared_skills_skips_a_skill_without_description() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom = dir.path().join("loom");
+        let native = dir.path().join("native");
+        // No description: — the agent drops it silently at load.
+        write_skill(
+            &loom.join("skills").join("gdrive.md"),
+            "# Google Drive\n\nUpload and download files.\n",
+        );
+        write_skill(
+            &loom.join("skills").join("alpha.md"),
+            "---\nname: alpha\ndescription: Does alpha things.\n---\n\n# Alpha\n\nBody.\n",
+        );
+
+        inject_shared_skills(loom.to_str().unwrap(), native.to_str().unwrap()).unwrap();
+
+        assert!(!native.join("gdrive.md").exists(), "fatal skill was linked");
+        assert!(
+            native.join("alpha.md").exists(),
+            "valid skill was not linked"
+        );
+    }
+
+    #[test]
+    fn inject_shared_skills_links_a_warn_only_skill() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom = dir.path().join("loom");
+        let native = dir.path().join("native");
+        // No `name:` — a Warn, never fatal.
+        write_skill(
+            &loom.join("skills").join("beta.md"),
+            "---\ndescription: Does beta things.\n---\n\n# Beta\n\nBody.\n",
+        );
+
+        inject_shared_skills(loom.to_str().unwrap(), native.to_str().unwrap()).unwrap();
+
+        assert!(native.join("beta.md").exists());
+    }
+
+    #[test]
+    fn both_sync_paths_agree_on_the_same_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom = dir.path().join("loom");
+        let native_a = dir.path().join("native-a");
+        let native_b = dir.path().join("native-b");
+        // The same defective content, once in layout A and once in layout B.
+        let broken = "# Google Drive\n\nNo frontmatter at all.\n";
+        write_skill(&loom.join("skills").join("gdrive").join("SKILL.md"), broken);
+        write_skill(&loom.join("skills").join("gdrive.md"), broken);
+
+        // Layout A: the adapter path.
+        let report = loom_adapters::sync_skills_to_native(
+            loom.to_str().unwrap(),
+            native_a.to_str().unwrap(),
+        )
+        .unwrap();
+        // Layout B: the exec path.
+        inject_shared_skills(loom.to_str().unwrap(), native_b.to_str().unwrap()).unwrap();
+
+        assert!(!native_a.join("gdrive").exists(), "layout A linked it");
+        assert!(!native_b.join("gdrive.md").exists(), "layout B linked it");
+        assert!(
+            report.notes.iter().any(|n| n.contains("missing_description")),
+            "notes: {:?}",
+            report.notes
+        );
     }
 }

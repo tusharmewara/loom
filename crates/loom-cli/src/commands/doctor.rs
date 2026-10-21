@@ -169,6 +169,9 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool, verbose: bool) -> Result
         }
     }
 
+    // Skill validation: what the sync path refuses to link.
+    rows.push(skill_validation_row(&agents_path.join("skills")));
+
     // Snapshot health
     let snapshot_db = SnapshotDb::new(loom_dir);
     match snapshot_db
@@ -269,6 +272,60 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool, verbose: bool) -> Result
         anyhow::bail!("doctor found {failures} failing checks");
     }
     Ok(())
+}
+
+/// The skill validation row: how many skills, how many defects, and which
+/// skills the sync path refuses to link.
+fn skill_validation_row(skills_dir: &Path) -> CheckRow {
+    let scan = loom_skills::scan_skill_tree(skills_dir);
+    let fatal: Vec<_> = scan
+        .defects
+        .iter()
+        .filter(|d| d.severity == loom_skills::Severity::Fatal)
+        .collect();
+    let warn: Vec<_> = scan
+        .defects
+        .iter()
+        .filter(|d| d.severity == loom_skills::Severity::Warn)
+        .collect();
+
+    let mut detail = format!(
+        "{} skill(s), {} fatal, {} warning",
+        scan.skills.len(),
+        fatal.len(),
+        warn.len()
+    );
+    if !fatal.is_empty() {
+        let offenders: Vec<String> = fatal
+            .iter()
+            .take(3)
+            .map(|d| format!("{} ({})", d.path.display(), d.code))
+            .collect();
+        detail.push_str(&format!("; refused: {}", offenders.join(", ")));
+    }
+    if !warn.is_empty() {
+        let offenders: Vec<String> = warn
+            .iter()
+            .take(3)
+            .map(|d| format!("{} ({})", d.path.display(), d.code))
+            .collect();
+        detail.push_str(&format!("; warned: {}", offenders.join(", ")));
+    }
+
+    CheckRow::new(
+        "Skill validation",
+        if !fatal.is_empty() {
+            CheckStatus::Fail
+        } else if !warn.is_empty() {
+            CheckStatus::Warn
+        } else {
+            CheckStatus::Pass
+        },
+        detail,
+    )
+    .with_explanation(
+        "A skill with a fatal defect (no description:, invalid frontmatter, a name that disagrees with its directory, a missing referenced script) is never synced into a native tool directory — the agent would ignore it silently.",
+    )
 }
 
 fn print_report(rows: &[CheckRow], verbose: bool) {
@@ -558,5 +615,49 @@ mod tests {
         assert!(dir.path().join("config.toml").exists());
         assert!(dir.path().join("skills").is_dir());
         assert!(dir.path().join("mcp").is_dir());
+    }
+
+    #[test]
+    fn skill_validation_row_reports_counts_and_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills = dir.path().join("skills");
+
+        std::fs::create_dir_all(skills.join("gdrive")).unwrap();
+        std::fs::write(
+            skills.join("gdrive").join("SKILL.md"),
+            "# Google Drive\n\nNo frontmatter at all.\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(skills.join("alpha")).unwrap();
+        std::fs::write(
+            skills.join("alpha").join("SKILL.md"),
+            "---\nname: alpha\ndescription: Does alpha things.\n---\n\n# Alpha\n\nBody.\n",
+        )
+        .unwrap();
+
+        let row = skill_validation_row(&skills);
+        assert!(matches!(row.status, CheckStatus::Fail));
+        assert!(row.detail.contains("1 fatal"), "detail: {}", row.detail);
+        assert!(
+            row.detail.contains("gdrive") && row.detail.contains("missing_description"),
+            "detail: {}",
+            row.detail
+        );
+    }
+
+    #[test]
+    fn skill_validation_row_passes_on_a_clean_tree() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills = dir.path().join("skills");
+        std::fs::create_dir_all(skills.join("alpha")).unwrap();
+        std::fs::write(
+            skills.join("alpha").join("SKILL.md"),
+            "---\nname: alpha\ndescription: Does alpha things.\n---\n\n# Alpha\n\nBody.\n",
+        )
+        .unwrap();
+
+        let row = skill_validation_row(&skills);
+        assert!(matches!(row.status, CheckStatus::Pass));
+        assert!(row.detail.contains("1 skill(s)"), "detail: {}", row.detail);
     }
 }
