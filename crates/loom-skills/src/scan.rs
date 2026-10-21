@@ -518,7 +518,7 @@ mod tests {
     }
 
     #[test]
-    fn name_mismatch_in_dir_layout_is_fatal() {
+    fn name_mismatch_layout_a_is_fatal() {
         let dir = tempdir().unwrap();
         write(
             &dir.path().join("dirname/SKILL.md"),
@@ -532,7 +532,7 @@ mod tests {
     }
 
     #[test]
-    fn name_mismatch_in_flat_layout_is_warn() {
+    fn name_mismatch_layout_b_is_warn() {
         let dir = tempdir().unwrap();
         write(
             &dir.path().join("file.md"),
@@ -600,7 +600,35 @@ mod tests {
     }
 
     #[test]
-    fn unknown_keys_are_ignored() {
+    fn folded_literal_and_quoted_descriptions_parse_identically() {
+        let dir = tempdir().unwrap();
+        // The three YAML description styles, one expected text.
+        write(
+            &dir.path().join("folded/SKILL.md"),
+            "---\nname: folded\ndescription: >\n  Use when the task\n  mentions X or Y.\n---\n\n# Body\n",
+        );
+        write(
+            &dir.path().join("literal/SKILL.md"),
+            "---\nname: literal\ndescription: |\n  Use when the task mentions X or Y.\n---\n\n# Body\n",
+        );
+        write(
+            &dir.path().join("quoted/SKILL.md"),
+            "---\nname: quoted\ndescription: \"Use when the task mentions X or Y.\"\n---\n\n# Body\n",
+        );
+
+        let scan = scan_skill_tree(dir.path());
+        assert_eq!(scan.skills.len(), 3);
+        for skill in &scan.skills {
+            assert_eq!(
+                skill.description, "Use when the task mentions X or Y.",
+                "{} parsed differently",
+                skill.name
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_frontmatter_keys_do_not_invalidate() {
         let dir = tempdir().unwrap();
         write(
             &dir.path().join("extra/SKILL.md"),
@@ -647,7 +675,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_body_is_warned() {
+    fn empty_body_is_warn() {
         let dir = tempdir().unwrap();
         write(
             &dir.path().join("hollow/SKILL.md"),
@@ -699,7 +727,7 @@ mod tests {
     }
 
     #[test]
-    fn flat_and_dir_pair_is_a_duplicate() {
+    fn duplicate_flat_dir_pair_is_reported() {
         let dir = tempdir().unwrap();
         write(
             &dir.path().join("dup/SKILL.md"),
@@ -734,7 +762,43 @@ mod tests {
     }
 
     #[test]
-    fn empty_tree_has_no_defects() {
+    fn nested_md_inside_a_skill_dir_is_not_a_skill() {
+        let dir = tempdir().unwrap();
+        // The `ui-craft` shape: a skill dir that also holds a copy of its own
+        // markdown. The nested copy is not a skill of its own.
+        write(
+            &dir.path().join("ui-craft/SKILL.md"),
+            "---\nname: ui-craft\ndescription: d\n---\n\n# Body\n",
+        );
+        write(
+            &dir.path().join("ui-craft/ui-craft.md"),
+            "---\nname: ui-craft\ndescription: d\n---\n\n# Body\n",
+        );
+        let scan = scan_skill_tree(dir.path());
+        assert_eq!(scan.skills.len(), 1);
+        assert_eq!(scan.skills[0].name, "ui-craft");
+        assert!(!codes(&scan.defects).contains(&"duplicate_name"));
+    }
+
+    #[test]
+    fn scan_skills_emits_registry_ready_entries() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("ready/SKILL.md");
+        write(
+            &path,
+            "---\nname: ready\ndescription: Use when testing.\n---\n\n# Body\n",
+        );
+        let scan = scan_skill_tree(dir.path());
+        let entry = &scan.skills[0];
+        assert_eq!(entry.name, "ready");
+        assert_eq!(entry.description, "Use when testing.");
+        assert_eq!(entry.path, path.to_string_lossy());
+        assert!(!entry.version.is_empty(), "the version is synthesized");
+        assert_eq!(entry.content_hash.len(), 64, "SHA-256 of the file bytes");
+    }
+
+    #[test]
+    fn empty_tree_returns_no_defects() {
         let dir = tempdir().unwrap();
         assert!(validate_skill_tree(dir.path()).is_empty());
         assert!(scan_skill_tree(dir.path()).skills.is_empty());
@@ -762,7 +826,7 @@ mod tests {
     }
 
     #[test]
-    fn every_defect_is_returned() {
+    fn validate_skill_tree_returns_every_defect() {
         let dir = tempdir().unwrap();
         write(
             &dir.path().join("a/SKILL.md"),

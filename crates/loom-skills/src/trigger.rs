@@ -320,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn cap_drops_the_line_and_names_the_skill() {
+    fn cap_boundary_is_exact() {
         let cue = "x".repeat(CUE_MAX_CHARS);
         let skills: Vec<SkillEntry> = (0..40)
             .map(|i| flat_entry(&format!("s{i:02}"), &cue))
@@ -369,7 +369,31 @@ mod tests {
     }
 
     #[test]
-    fn output_order_is_stable() {
+    fn every_valid_skill_gets_a_line() {
+        let valid = vec![
+            dir_entry("alpha", "cue"),
+            dir_entry("beta", "cue"),
+            flat_entry("gamma", "cue"),
+        ];
+        let bad = dir_entry("delta", "cue");
+        let defect = SkillDefect {
+            path: bad.path.clone().into(),
+            severity: Severity::Fatal,
+            code: "name_mismatch",
+            message: "mismatch".to_string(),
+        };
+        let mut all = valid.clone();
+        all.push(bad);
+        let set = trigger_lines(&all, &[defect], desc_of);
+        assert_eq!(set.lines.len(), 3, "one line per valid skill");
+        for skill in &valid {
+            assert!(set.lines.contains_key(&skill.name), "{}", skill.name);
+        }
+        assert!(set.not_triggered.contains(&"delta".to_string()));
+    }
+
+    #[test]
+    fn trigger_lines_are_deterministic() {
         let a = flat_entry("alpha", "first");
         let b = flat_entry("beta", "second");
         let c = flat_entry("gamma", "third");

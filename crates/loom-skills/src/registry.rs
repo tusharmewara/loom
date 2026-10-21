@@ -503,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_populates_both_layouts() -> anyhow::Result<()> {
+    fn walk_populates_registry_rows() -> anyhow::Result<()> {
         let dir = tempdir()?;
         let skills = dir.path().join("skills");
         write(
@@ -539,7 +539,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_registers_a_skill_without_a_description() -> anyhow::Result<()> {
+    fn fatal_skill_still_gets_a_row() -> anyhow::Result<()> {
         let dir = tempdir()?;
         // No frontmatter at all: the live `gdrive` shape.
         write(
@@ -598,7 +598,35 @@ mod tests {
     }
 
     #[test]
-    fn sync_drops_rows_for_skills_that_left_the_disk() -> anyhow::Result<()> {
+    fn version_is_synthesized_when_frontmatter_has_none() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        write(
+            &dir.path().join("skills/one/SKILL.md"),
+            &skill_md("one", "\"Use when the user asks for it\""),
+        );
+
+        let registry = SkillRegistry::new(dir.path().to_str().unwrap())?;
+        let skill = registry.get("one").expect("the skill must be registered");
+        assert!(!skill.version.is_empty(), "the version is synthesized");
+        Ok(())
+    }
+
+    #[test]
+    fn registry_hash_matches_the_skill_file() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let path = dir.path().join("skills/one/SKILL.md");
+        let body = skill_md("one", "\"Use when the user asks for it\"");
+        write(&path, &body);
+
+        let registry = SkillRegistry::new(dir.path().to_str().unwrap())?;
+        let skill = registry.get("one").expect("the skill must be registered");
+        assert_eq!(skill.path, path.to_string_lossy(), "the path is the file");
+        assert_eq!(skill.content_hash.len(), 64, "SHA-256 of the file bytes");
+        Ok(())
+    }
+
+    #[test]
+    fn refresh_removes_rows_for_vanished_skills() -> anyhow::Result<()> {
         let dir = tempdir()?;
         let path = dir.path().join("skills/gone/SKILL.md");
         write(&path, &skill_md("gone", "\"Here now\""));

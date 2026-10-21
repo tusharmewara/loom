@@ -440,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn install_without_description_is_refused() {
+    fn install_refuses_missing_description_naming_path_and_field() {
         let tmp = tempdir().unwrap();
         let loom_dir = tmp.path().join("loom");
         let src = make_dir_skill(tmp.path(), "nodesc", "---\nname: nodesc\n---");
@@ -453,7 +453,7 @@ mod tests {
     }
 
     #[test]
-    fn install_with_name_mismatch_shows_both_values() {
+    fn install_refuses_layout_a_name_mismatch_showing_both_values() {
         let tmp = tempdir().unwrap();
         let loom_dir = tmp.path().join("loom");
         let src = make_dir_skill(
@@ -471,7 +471,7 @@ mod tests {
     }
 
     #[test]
-    fn install_then_remove_dir_layout_leaves_nothing_behind() {
+    fn install_directory_skill_round_trip() {
         let tmp = tempdir().unwrap();
         let loom_dir = tmp.path().join("loom");
         let src = make_dir_skill(tmp.path(), "myskill", GOOD_FM);
@@ -485,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_flat_skill() {
+    fn install_flat_file_round_trip() {
         let tmp = tempdir().unwrap();
         let loom_dir = tmp.path().join("loom");
         let src = tmp.path().join("flat.md");
@@ -522,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn flat_name_mismatch_warns_but_installs() {
+    fn install_flat_name_mismatch_warns_not_refuses() {
         let tmp = tempdir().unwrap();
         let loom_dir = tmp.path().join("loom");
         let src = tmp.path().join("flat.md");
