@@ -52,7 +52,8 @@ pub async fn run(loom_dir: &str, action: &KnowledgeAction) -> anyhow::Result<()>
                                             prompt.chars().count(),
                                         );
                                     }
-                                    match kg.extract_from_llm_response(&response.text, &session_id) {
+                                    match kg.extract_from_llm_response(&response.text, &session_id)
+                                    {
                                         Ok((e, r)) => {
                                             total_entities += e;
                                             total_rels += r;

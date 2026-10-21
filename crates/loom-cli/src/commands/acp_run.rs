@@ -164,7 +164,8 @@ async fn run_acp_prompt_direct(
             }
             _ => {
                 eprintln!("  Tokens: not reported by the agent [unavailable]");
-            }        }
+            }
+        }
     }
 
     if json_output {

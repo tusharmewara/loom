@@ -692,6 +692,18 @@ pub struct UsageCounts {
     pub cost_usd: Option<f64>,
 }
 
+impl UsageCounts {
+    /// Did the source report a token count?
+    ///
+    /// A run that reported only a context-window size or only a cost did
+    /// NOT report a token count. The two are different provenance, and
+    /// conflating them makes a ledger say "zero tokens measured" for a
+    /// run that only ever reported a cost.
+    pub fn reported_token_count(&self) -> bool {
+        self.input_tokens.is_some() || self.output_tokens.is_some()
+    }
+}
+
 /// Cost in USD of a measured token count at the given per-1k prices.
 ///
 /// `None` when either token count is missing: a cost needs both legs, and a
@@ -781,6 +793,13 @@ impl UsageRecord {
     /// `Unavailable` when it reported nothing. Legs the source did not
     /// report stay `None` — a context-window size is not a turn count, so
     /// it is never promoted to `input_tokens`/`output_tokens`.
+    ///
+    /// Two provenance bits come out of this, and they are NOT the same
+    /// thing: `source` says the source reported *something* (a token
+    /// count, a context size, a cost), while the token legs say whether a
+    /// token *count* was reported. A run that reported only a cost is
+    /// measured, but it is not a run that reported a token count — see
+    /// [`UsageRecord::reported_token_count`].
     pub fn from_counts(
         run_id: &str,
         tool: &str,
@@ -809,6 +828,15 @@ impl UsageRecord {
             cost_usd: counts.cost_usd,
             ..Default::default()
         }
+    }
+
+    /// Did this run report a token count?
+    ///
+    /// `false` for a run that reported only a context size or only a cost:
+    /// the source was `Measured`, but there is no token count to sum. An
+    /// aggregate over such runs must stay `None`, not `0`.
+    pub fn reported_token_count(&self) -> bool {
+        self.input_tokens.is_some() || self.output_tokens.is_some()
     }
 
     /// Attach the `chars/4` forecast for the prompt this run was given.

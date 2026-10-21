@@ -68,8 +68,9 @@ fn test_cost_estimate_is_computed_from_the_token_count() {
         .models
         .iter()
         .find(|m| m.model_id == decision.recommended_model)
-        .expect("the decided model must be in the catalog");    let expected = (100.0 / 1000.0) * model.input_cost_per_1k
-        + (25.0 / 1000.0) * model.output_cost_per_1k;
+        .expect("the decided model must be in the catalog");
+    let expected =
+        (100.0 / 1000.0) * model.input_cost_per_1k + (25.0 / 1000.0) * model.output_cost_per_1k;
     assert!((decision.cost_estimate.estimated_cost_usd - expected).abs() < 1e-12);
 }
 

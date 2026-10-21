@@ -618,7 +618,14 @@ async fn run_dispatch(
         // Meter the dispatch. The agent is an external process that reports
         // no token count, so the run is recorded as unavailable — the
         // forecast leg is stored beside it, clearly labelled.
-        record_dispatch_usage(loom_dir_str, task_id, &phase_name, &current_agent, &current_task, &prompt_for_capture);
+        record_dispatch_usage(
+            loom_dir_str,
+            task_id,
+            &phase_name,
+            &current_agent,
+            &current_task,
+            &prompt_for_capture,
+        );
 
         // Capture this dispatch as a session, unless the user opted
         // out. This is what makes the dispatch loop *visible* to

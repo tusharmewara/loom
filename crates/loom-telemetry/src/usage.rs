@@ -32,14 +32,21 @@ pub struct UsageMeter {
 pub struct UsageTotals {
     /// Runs recorded, whatever their source.
     pub runs: u64,
-    /// Runs whose source reported real counts.
+    /// Runs whose source reported a usage figure of any kind (a token
+    /// count, a context size, or a cost).
+    pub reported_runs: u64,
+    /// Runs whose source reported a *token count*. A run that reported only
+    /// a cost or only a context size is reported but not measured here —
+    /// it has no token count to sum.
     pub measured_runs: u64,
     /// Runs whose source reported nothing.
     pub unavailable_runs: u64,
-    /// Input tokens across measured runs.
-    pub input_tokens: u64,
-    /// Output tokens across measured runs.
-    pub output_tokens: u64,
+    /// Input tokens across the runs that reported one. `None` = no run in
+    /// this scope reported an input count. Distinct from 0.
+    pub input_tokens: Option<u64>,
+    /// Output tokens across the runs that reported one. `None` = no run in
+    /// this scope reported an output count. Distinct from 0.
+    pub output_tokens: Option<u64>,
     /// Cost reported by the source (or priced from measured counts), in USD.
     /// `None` = no run in this scope has a cost. Distinct from $0.
     pub cost_usd: Option<f64>,
@@ -57,10 +64,15 @@ pub struct UsageTotals {
 pub struct ToolUsage {
     pub tool: String,
     pub runs: u64,
+    /// Runs whose source reported a usage figure of any kind.
+    pub reported_runs: u64,
+    /// Runs whose source reported a token count.
     pub measured_runs: u64,
     pub unavailable_runs: u64,
-    pub input_tokens: u64,
-    pub output_tokens: u64,
+    /// Input tokens across the runs that reported one. `None` = none did.
+    pub input_tokens: Option<u64>,
+    /// Output tokens across the runs that reported one. `None` = none did.
+    pub output_tokens: Option<u64>,
     /// Cost of the measured runs, in USD. `None` = no run in this scope
     /// has a cost. Distinct from $0.
     pub cost_usd: Option<f64>,
@@ -180,6 +192,12 @@ impl UsageMeter {
     }
 
     /// Totals across every recorded run.
+    ///
+    /// The token sums are `SUM(input_tokens)` with NO `COALESCE`: a run
+    /// that reported no count leaves the column NULL, and a scope where
+    /// NO run reported a count sums to NULL — "unavailable", not 0. A
+    /// `COALESCE` here would manufacture a zero that reads like a
+    /// measurement.
     pub fn totals(&self) -> Result<UsageTotals> {
         let conn = self.connect()?;
         let mut stmt = conn.prepare(
@@ -187,8 +205,9 @@ impl UsageMeter {
                  COUNT(*),
                  SUM(CASE WHEN source = 'measured' THEN 1 ELSE 0 END),
                  SUM(CASE WHEN source = 'unavailable' THEN 1 ELSE 0 END),
-                 SUM(COALESCE(input_tokens, 0)),
-                 SUM(COALESCE(output_tokens, 0)),
+                 SUM(CASE WHEN input_tokens IS NOT NULL OR output_tokens IS NOT NULL THEN 1 ELSE 0 END),
+                 SUM(input_tokens),
+                 SUM(output_tokens),
                  SUM(cost_usd),
                  SUM(est_cost_usd),
                  SUM(COALESCE(est_input_tokens, 0)),
@@ -203,25 +222,31 @@ impl UsageMeter {
                 r.get::<_, Option<i64>>(2)?,
                 r.get::<_, Option<i64>>(3)?,
                 r.get::<_, Option<i64>>(4)?,
-                r.get::<_, Option<f64>>(5)?,
+                r.get::<_, Option<i64>>(5)?,
                 r.get::<_, Option<f64>>(6)?,
-                r.get::<_, Option<i64>>(7)?,
+                r.get::<_, Option<f64>>(7)?,
                 r.get::<_, Option<i64>>(8)?,
+                r.get::<_, Option<i64>>(9)?,
             ))
         })?;
         totals.runs = row.0.max(0) as u64;
-        totals.measured_runs = row.1.unwrap_or(0).max(0) as u64;
+        totals.reported_runs = row.1.unwrap_or(0).max(0) as u64;
         totals.unavailable_runs = row.2.unwrap_or(0).max(0) as u64;
-        totals.input_tokens = row.3.unwrap_or(0).max(0) as u64;
-        totals.output_tokens = row.4.unwrap_or(0).max(0) as u64;
-        totals.cost_usd = row.5;
-        totals.est_cost_usd = row.6;
-        totals.est_input_tokens = row.7.unwrap_or(0).max(0) as u64;
-        totals.est_output_tokens = row.8.unwrap_or(0).max(0) as u64;
+        totals.measured_runs = row.3.unwrap_or(0).max(0) as u64;
+        totals.input_tokens = row.4.map(|v| v.max(0) as u64);
+        totals.output_tokens = row.5.map(|v| v.max(0) as u64);
+        totals.cost_usd = row.6;
+        totals.est_cost_usd = row.7;
+        totals.est_input_tokens = row.8.unwrap_or(0).max(0) as u64;
+        totals.est_output_tokens = row.9.unwrap_or(0).max(0) as u64;
         Ok(totals)
     }
 
     /// Totals grouped by tool — the per-tool half of the accounting.
+    ///
+    /// Same nullable rule as [`UsageMeter::totals`]: no `COALESCE` on the
+    /// token sums, so a tool whose runs all reported no count reads
+    /// "unavailable" rather than "0/0".
     pub fn by_tool(&self) -> Result<Vec<ToolUsage>> {
         let conn = self.connect()?;
         let mut stmt = conn.prepare(
@@ -230,8 +255,9 @@ impl UsageMeter {
                  COUNT(*),
                  SUM(CASE WHEN source = 'measured' THEN 1 ELSE 0 END),
                  SUM(CASE WHEN source = 'unavailable' THEN 1 ELSE 0 END),
-                 SUM(COALESCE(input_tokens, 0)),
-                 SUM(COALESCE(output_tokens, 0)),
+                 SUM(CASE WHEN input_tokens IS NOT NULL OR output_tokens IS NOT NULL THEN 1 ELSE 0 END),
+                 SUM(input_tokens),
+                 SUM(output_tokens),
                  SUM(cost_usd),
                  SUM(est_cost_usd)
              FROM usage_runs
@@ -242,12 +268,13 @@ impl UsageMeter {
             Ok(ToolUsage {
                 tool: r.get(0)?,
                 runs: r.get::<_, i64>(1)?.max(0) as u64,
-                measured_runs: r.get::<_, Option<i64>>(2)?.unwrap_or(0).max(0) as u64,
+                reported_runs: r.get::<_, Option<i64>>(2)?.unwrap_or(0).max(0) as u64,
                 unavailable_runs: r.get::<_, Option<i64>>(3)?.unwrap_or(0).max(0) as u64,
-                input_tokens: r.get::<_, Option<i64>>(4)?.unwrap_or(0).max(0) as u64,
-                output_tokens: r.get::<_, Option<i64>>(5)?.unwrap_or(0).max(0) as u64,
-                cost_usd: r.get::<_, Option<f64>>(6)?,
-                est_cost_usd: r.get::<_, Option<f64>>(7)?,
+                measured_runs: r.get::<_, Option<i64>>(4)?.unwrap_or(0).max(0) as u64,
+                input_tokens: r.get::<_, Option<i64>>(5)?.map(|v| v.max(0) as u64),
+                output_tokens: r.get::<_, Option<i64>>(6)?.map(|v| v.max(0) as u64),
+                cost_usd: r.get::<_, Option<f64>>(7)?,
+                est_cost_usd: r.get::<_, Option<f64>>(8)?,
             })
         })?;
         let mut out = Vec::new();
@@ -276,22 +303,12 @@ impl UsageMeter {
                 model: r.get(3)?,
                 source: UsageSource::from_str_lossy(&r.get::<_, String>(4)?),
                 method: r.get(5)?,
-                input_tokens: r
-                    .get::<_, Option<i64>>(6)?
-                    .map(|v| v.max(0) as u64),
-                output_tokens: r
-                    .get::<_, Option<i64>>(7)?
-                    .map(|v| v.max(0) as u64),
-                context_tokens: r
-                    .get::<_, Option<i64>>(8)?
-                    .map(|v| v.max(0) as u64),
+                input_tokens: r.get::<_, Option<i64>>(6)?.map(|v| v.max(0) as u64),
+                output_tokens: r.get::<_, Option<i64>>(7)?.map(|v| v.max(0) as u64),
+                context_tokens: r.get::<_, Option<i64>>(8)?.map(|v| v.max(0) as u64),
                 cost_usd: r.get::<_, Option<f64>>(9)?,
-                est_input_tokens: r
-                    .get::<_, Option<i64>>(10)?
-                    .map(|v| v.max(0) as u64),
-                est_output_tokens: r
-                    .get::<_, Option<i64>>(11)?
-                    .map(|v| v.max(0) as u64),
+                est_input_tokens: r.get::<_, Option<i64>>(10)?.map(|v| v.max(0) as u64),
+                est_output_tokens: r.get::<_, Option<i64>>(11)?.map(|v| v.max(0) as u64),
                 est_cost_usd: r.get::<_, Option<f64>>(12)?,
             })
         })?;
@@ -320,24 +337,28 @@ mod tests {
         rec.cost_usd = Some(0.42);
         meter.record(&rec).unwrap();
         meter
-            .record(&UsageRecord::measured("run-2", "acp", "claude", 800, 100, "provider"))
+            .record(&UsageRecord::measured(
+                "run-2", "acp", "claude", 800, 100, "provider",
+            ))
             .unwrap();
         meter
-            .record(&UsageRecord::measured("run-3", "resume", "gpt-4o", 10, 5, "provider"))
+            .record(&UsageRecord::measured(
+                "run-3", "resume", "gpt-4o", 10, 5, "provider",
+            ))
             .unwrap();
 
         let totals = meter.totals().unwrap();
         assert_eq!(totals.runs, 3);
         assert_eq!(totals.measured_runs, 3);
-        assert_eq!(totals.input_tokens, 2010);
-        assert_eq!(totals.output_tokens, 405);
+        assert_eq!(totals.input_tokens, Some(2010));
+        assert_eq!(totals.output_tokens, Some(405));
         assert!((totals.cost_usd.unwrap() - 0.42).abs() < 1e-9);
 
         let by_tool = meter.by_tool().unwrap();
         assert_eq!(by_tool.len(), 2);
         let acp = by_tool.iter().find(|t| t.tool == "acp").unwrap();
         assert_eq!(acp.runs, 2);
-        assert_eq!(acp.input_tokens, 2000);
+        assert_eq!(acp.input_tokens, Some(2000));
     }
 
     #[test]
@@ -352,8 +373,8 @@ mod tests {
         assert_eq!(totals.unavailable_runs, 1);
         assert_eq!(totals.measured_runs, 0);
         // No count at all — not 1000, not zero.
-        assert_eq!(totals.input_tokens, 0);
-        assert_eq!(totals.output_tokens, 0);
+        assert_eq!(totals.input_tokens, None);
+        assert_eq!(totals.output_tokens, None);
         // And no cost: unknown is not zero.
         assert_eq!(totals.cost_usd, None);
 
@@ -362,6 +383,48 @@ mod tests {
         assert_eq!(rows[0].source, UsageSource::Unavailable);
         assert_eq!(rows[0].input_tokens, None);
         assert_eq!(rows[0].output_tokens, None);
+    }
+
+    /// A run that reported only a context size and a cost did NOT report a
+    /// token count. The aggregate must say so (None), not 0 — a zero reads
+    /// like a measurement of zero tokens.
+    #[test]
+    fn context_and_cost_only_run_leaves_the_token_sum_unavailable() {
+        let (meter, _dir) = meter();
+        let counts = loom_core::UsageCounts {
+            context_tokens: Some(4321),
+            cost_usd: Some(0.0123),
+            ..Default::default()
+        };
+        let rec = loom_core::UsageRecord::from_counts(
+            "run-c",
+            "acp",
+            "claude",
+            counts,
+            "acp:context-usage",
+        );
+        // The source reported something, so the run is "reported"...
+        assert_eq!(rec.source, loom_core::UsageSource::Measured);
+        // ...but no token count was reported.
+        assert!(!rec.reported_token_count());
+        meter.record(&rec).unwrap();
+
+        let totals = meter.totals().unwrap();
+        assert_eq!(totals.runs, 1);
+        assert_eq!(totals.reported_runs, 1);
+        // The token-count bit is separate: this run is not a token measurement.
+        assert_eq!(totals.measured_runs, 0);
+        assert_eq!(totals.input_tokens, None);
+        assert_eq!(totals.output_tokens, None);
+        // The cost is real and survives.
+        assert!((totals.cost_usd.unwrap() - 0.0123).abs() < 1e-9);
+
+        let by_tool = meter.by_tool().unwrap();
+        assert_eq!(by_tool.len(), 1);
+        assert_eq!(by_tool[0].input_tokens, None);
+        assert_eq!(by_tool[0].output_tokens, None);
+        assert_eq!(by_tool[0].measured_runs, 0);
+        assert_eq!(by_tool[0].reported_runs, 1);
     }
 
     #[test]
