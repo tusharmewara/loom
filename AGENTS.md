@@ -347,7 +347,8 @@ The chain format change is versioned. New entries are written under
 `verify_integrity` — an upgrading user never sees their chain as tampered —
 but they cannot be re-derived from the export (their hash covers text the
 export does not carry), so they are covered by the signature instead and
-counted in `checks.entries_unverifiable`.
+counted in `entries_unverifiable`. Without a pinned key there is no
+signature to cover them, and the verdict says so in its notes.
 
 **What a consumer needs.** The machine's public key, pinned out of band:
 
@@ -366,7 +367,7 @@ the vault master key, and producing an export never unlocks the vault.
 |---|---|
 | `intact` | the chain re-derives from the exported fields **and** the signature verified against the pinned key |
 | `tampered` | a check failed — the failing check is named in the output |
-| `unanchored` | the chain re-derives and is consistent, but no public key was pinned: the document is only **self-consistent**, not proven to come from this machine |
+| `unanchored` | the exported fields re-derive the chain where they allow it, but no public key was pinned: the document is only **self-consistent**, not proven to come from this machine |
 
 `unanchored` is not a failure, but it is *not* `intact` either. The
 `export_digest` is an unkeyed checksum: it detects corruption, and an
@@ -380,7 +381,9 @@ proof.
 
 `loom auth verify` with no path verifies the **local chain** instead of an
 export; the export-specific checks (digest, signature, chain head) do not
-apply and are not reported in that mode.
+apply and are not reported in that mode. The JSON output says which of the
+two happened in `verifies` (`"export"` or `"local_chain"`), and carries one
+`verdict` next to the check flags.
 
 ## Known Gotchas
 

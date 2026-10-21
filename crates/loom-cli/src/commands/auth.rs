@@ -256,6 +256,46 @@ fn cmd_export(
     Ok(())
 }
 
+/// Build the JSON payload of `loom auth verify`.
+///
+/// The shape keeps the keys an earlier consumer already read
+/// (`schema_version`, `command`, `path`, `intact`, `entries`, `problems` and
+/// the four check flags) and adds the single `verdict` plus `verifies`, so
+/// nothing breaks silently. The check flags are only present for an export
+/// document — a local-chain verification has no digest, signature or chain
+/// head to report.
+fn verify_payload(
+    path: Option<&str>,
+    verdict: ExportVerdict,
+    entries: usize,
+    checks: Option<&loom_auth::export::ExportChecks>,
+    problems: &[String],
+    notes: &[String],
+) -> anyhow::Result<serde_json::Value> {
+    let mut payload = serde_json::json!({
+        "schema_version": 1,
+        "command": "auth.verify",
+        "path": path,
+        // What was verified: an export document, or the local on-disk chain.
+        "verifies": if checks.is_some() { "export" } else { "local_chain" },
+        "verdict": verdict,
+        "intact": matches!(verdict, ExportVerdict::Intact),
+        "entries": entries,
+        "problems": problems,
+    });
+    if let Some(checks) = checks {
+        if let serde_json::Value::Object(map) = serde_json::to_value(checks)? {
+            for (k, v) in map {
+                payload[k] = v;
+            }
+        }
+    }
+    if !notes.is_empty() {
+        payload["notes"] = serde_json::to_value(notes)?;
+    }
+    Ok(payload)
+}
+
 /// Verify an audit export file, or the local audit chain when no path is given.
 ///
 /// A pinned public key (`--public-key <hex|file>`) is what turns the export
@@ -317,23 +357,7 @@ fn cmd_verify(
     };
 
     if json {
-        let mut payload = serde_json::json!({
-            "schema_version": 1,
-            "command": "auth.verify",
-            "path": path,
-            "verdict": verdict,
-            "intact": matches!(verdict, ExportVerdict::Intact),
-            "entries": entries,
-            "problems": problems,
-        });
-        // The export checks only exist for an export document; a local-chain
-        // verification has no digest, signature or chain-head to report.
-        if let Some(checks) = &checks {
-            payload["checks"] = serde_json::to_value(checks)?;
-        }
-        if !notes.is_empty() {
-            payload["notes"] = serde_json::to_value(&notes)?;
-        }
+        let payload = verify_payload(path, verdict, entries, checks.as_ref(), &problems, &notes)?;
         println!("{}", serde_json::to_string_pretty(&payload)?);
     } else {
         match verdict {
@@ -347,11 +371,15 @@ fn cmd_verify(
             }
             ExportVerdict::Unanchored => {
                 println!("⚠ audit export UNANCHORED ({entries} entries)");
-                println!("  the chain re-derives, so the document is internally consistent —");
-                println!("  but no public key was pinned, so it is NOT proven to come from this machine");
+                println!("  the exported fields re-derive the chain where they allow it —");
+                println!("  but no public key was pinned, so the document is NOT proven to come from this machine");
             }
             ExportVerdict::Tampered => {
-                println!("✗ audit export TAMPERED ({entries} entries)");
+                if checks.is_some() {
+                    println!("✗ audit export TAMPERED ({entries} entries)");
+                } else {
+                    println!("✗ audit chain TAMPERED ({entries} entries)");
+                }
             }
         }
         for problem in &problems {
@@ -658,6 +686,69 @@ mod tests {
         // No pinned key: the document is self-consistent, but not anchored.
         // It must still verify (not be reported as tampered).
         cmd_verify(loom_dir, Some(out.to_str().unwrap()), true, None).unwrap();
+    }
+
+    /// The JSON shape is a contract: an existing consumer reads `intact`,
+    /// `entries`, `problems` and the four check flags. They must survive, and
+    /// the new `verdict` must be there next to them.
+    #[test]
+    fn test_verify_json_keeps_the_old_keys_and_adds_the_verdict() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom_dir = dir.path();
+        seed_chain(loom_dir);
+
+        let out = dir.path().join("out.json");
+        cmd_export(loom_dir, Some(out.to_str().unwrap()), true, false).unwrap();
+
+        let doc: AuditExport =
+            serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        // Verify without a pinned key: the verdict is `unanchored`, but the
+        // document is still consistent.
+        let v = loom_auth::export::verify_export(&doc, None);
+        let payload = verify_payload(
+            Some(out.to_str().unwrap()),
+            v.verdict,
+            v.entries,
+            Some(&v.checks),
+            &v.problems,
+            &v.notes,
+        )
+        .unwrap();
+
+        assert_eq!(payload["schema_version"], 1);
+        assert_eq!(payload["command"], "auth.verify");
+        assert_eq!(payload["verdict"], "unanchored");
+        assert_eq!(payload["intact"], false);
+        assert_eq!(payload["entries"], 3);
+        assert_eq!(payload["verifies"], "export");
+        // The old flags are still there, at the top level.
+        for key_name in [
+            "digest_ok",
+            "chain_linked",
+            "chain_head_ok",
+            "source_chain_intact",
+        ] {
+            assert!(
+                payload.get(key_name).is_some(),
+                "the old key '{key_name}' must survive: {payload}"
+            );
+        }
+        assert!(payload.get("notes").is_some());
+    }
+
+    /// The local-chain mode must not report export-specific checks (review
+    /// F10: four flags that are really one boolean).
+    #[test]
+    fn test_verify_json_local_chain_omits_the_export_checks() {
+        let payload = verify_payload(None, ExportVerdict::Intact, 7, None, &[], &[]).unwrap();
+        assert_eq!(payload["verifies"], "local_chain");
+        assert_eq!(payload["verdict"], "intact");
+        for key_name in ["digest_ok", "chain_linked", "chain_head_ok", "source_chain_intact"] {
+            assert!(
+                payload.get(key_name).is_none(),
+                "the local chain has no '{key_name}': {payload}"
+            );
+        }
     }
 
     #[test]

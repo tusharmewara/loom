@@ -398,6 +398,9 @@ pub fn sign_export(doc: &mut AuditExport, signing_key: &SigningKey) {
 pub fn verify_export(doc: &AuditExport, pinned_key: Option<&VerifyingKey>) -> ExportVerification {
     let mut problems = Vec::new();
     let mut notes = Vec::new();
+    // A pinned public key is what makes the document *anchored* — proven to
+    // come from this machine rather than merely self-consistent.
+    let anchored = pinned_key.is_some();
 
     let digest_ok = compute_export_digest(doc) == doc.export_digest;
     if !digest_ok {
@@ -437,9 +440,15 @@ pub fn verify_export(doc: &AuditExport, pinned_key: Option<&VerifyingKey>) -> Ex
         break;
     }
     if entries_unverifiable > 0 {
-        notes.push(format!(
-            "{entries_unverifiable} entr(ies) use the legacy chain scheme: their hash covers the raw result, so it cannot be re-derived from the export; they are covered by the signature"
-        ));
+        notes.push(if anchored {
+            format!(
+                "{entries_unverifiable} entr(ies) use the legacy chain scheme: their hash covers the raw result, so it cannot be re-derived from the export; they are covered by the signature"
+            )
+        } else {
+            format!(
+                "{entries_unverifiable} entr(ies) use the legacy chain scheme: their hash covers the raw result, so it cannot be re-derived from the export, and with no public key pinned there is no signature covering them either"
+            )
+        });
     }
 
     let mut chain_linked = true;
@@ -491,7 +500,6 @@ pub fn verify_export(doc: &AuditExport, pinned_key: Option<&VerifyingKey>) -> Ex
     }
 
     // Signature: only meaningful against a pinned key.
-    let anchored = pinned_key.is_some();
     let mut signature_ok = false;
     if let Some(key) = pinned_key {
         match &doc.signature {
@@ -534,7 +542,7 @@ pub fn verify_export(doc: &AuditExport, pinned_key: Option<&VerifyingKey>) -> Ex
         }
     } else {
         notes.push(
-            "no public key was pinned: the document is only self-consistent, not proven to come from this machine"
+            "no public key was pinned: the chain re-derives where the exported fields allow it, but the document is only self-consistent, not proven to come from this machine"
                 .to_string(),
         );
     }
