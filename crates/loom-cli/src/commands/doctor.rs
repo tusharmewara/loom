@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use comfy_table::Table;
 use loom_discovery::registry::SnapshotDb;
 use loom_ipc::{client::send_command, IpcRequest};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -274,20 +275,52 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool, verbose: bool) -> Result
     Ok(())
 }
 
-/// The skill validation row: how many skills, how many defects, and which
-/// skills the sync path refuses to link.
+/// The defects of one severity, grouped by the file they belong to and
+/// de-duplicated by defect code: a skill with three identical defects is one
+/// line, not three.
+fn group_by_skill<'a>(
+    defects: impl Iterator<Item = &'a loom_skills::SkillDefect>,
+) -> Vec<(PathBuf, Vec<&'static str>)> {
+    let mut grouped: BTreeMap<PathBuf, BTreeSet<&'static str>> = BTreeMap::new();
+    for d in defects {
+        grouped.entry(d.path.clone()).or_default().insert(d.code);
+    }
+    grouped
+        .into_iter()
+        .map(|(path, codes)| (path, codes.into_iter().collect()))
+        .collect()
+}
+
+/// The offenders of one severity, one line per skill, with the number of
+/// skills left out when the list is cut.
+fn offenders(groups: &[(PathBuf, Vec<&'static str>)]) -> String {
+    const SHOWN: usize = 3;
+    let shown: Vec<String> = groups
+        .iter()
+        .take(SHOWN)
+        .map(|(path, codes)| format!("{} ({})", path.display(), codes.join(", ")))
+        .collect();
+    if groups.len() > SHOWN {
+        format!("{}, +{} more", shown.join(", "), groups.len() - SHOWN)
+    } else {
+        shown.join(", ")
+    }
+}
+
+/// The skill validation row: how many skills, how many of them are refused,
+/// and which skills the sync path refuses to link.
 fn skill_validation_row(skills_dir: &Path) -> CheckRow {
     let scan = loom_skills::scan_skill_tree(skills_dir);
-    let fatal: Vec<_> = scan
-        .defects
-        .iter()
-        .filter(|d| d.severity == loom_skills::Severity::Fatal)
-        .collect();
-    let warn: Vec<_> = scan
-        .defects
-        .iter()
-        .filter(|d| d.severity == loom_skills::Severity::Warn)
-        .collect();
+    let fatal = group_by_skill(
+        scan.defects
+            .iter()
+            .filter(|d| d.severity == loom_skills::Severity::Fatal),
+    );
+    let warn = group_by_skill(
+        scan.defects
+            .iter()
+            .filter(|d| d.severity == loom_skills::Severity::Warn),
+    );
 
     let mut detail = format!(
         "{} skill(s), {} fatal, {} warning",
@@ -296,20 +329,10 @@ fn skill_validation_row(skills_dir: &Path) -> CheckRow {
         warn.len()
     );
     if !fatal.is_empty() {
-        let offenders: Vec<String> = fatal
-            .iter()
-            .take(3)
-            .map(|d| format!("{} ({})", d.path.display(), d.code))
-            .collect();
-        detail.push_str(&format!("; refused: {}", offenders.join(", ")));
+        detail.push_str(&format!("; refused: {}", offenders(&fatal)));
     }
     if !warn.is_empty() {
-        let offenders: Vec<String> = warn
-            .iter()
-            .take(3)
-            .map(|d| format!("{} ({})", d.path.display(), d.code))
-            .collect();
-        detail.push_str(&format!("; warned: {}", offenders.join(", ")));
+        detail.push_str(&format!("; warned: {}", offenders(&warn)));
     }
 
     CheckRow::new(
@@ -324,7 +347,7 @@ fn skill_validation_row(skills_dir: &Path) -> CheckRow {
         detail,
     )
     .with_explanation(
-        "A skill with a fatal defect (no description:, invalid frontmatter, a name that disagrees with its directory, a missing referenced script) is never synced into a native tool directory — the agent would ignore it silently.",
+        "A skill with a fatal defect (no description:, invalid frontmatter, a name that disagrees with its directory) is never synced into a native tool directory — the agent would ignore it silently. A warning (a missing referenced script, a duplicate name, a name that disagrees with a flat file) is reported but the skill is still linked.",
     )
 }
 
