@@ -592,8 +592,10 @@ with a `run_id`.
 
 The registry lives upstream at
 <https://github.com/agentclientprotocol/registry> and is vendored in this
-repository as `acp_registry/` (a git submodule, pinned at
-`2edbfd245997eae3b19c0b6cba46f86826dc5f44`).
+repository as `acp_registry/`, committed as a **gitlink** pinned at
+`2edbfd245997eae3b19c0b6cba46f86826dc5f44` — but with **no `.gitmodules`
+entry**, so a fresh clone does not populate it (see §4 #9). The rules below
+are transcribed from that directory's own schema files.
 
 **Per-agent layout** (`acp_registry/CONTRIBUTING.md:13`): a directory named
 exactly like the agent id, containing `agent.json` and `icon.svg` (16×16,
