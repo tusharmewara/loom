@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use comfy_table::Table;
 use loom_discovery::registry::SnapshotDb;
-use loom_ipc::{client::send_command, IpcRequest};
+use loom_ipc::IpcRequest;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -199,7 +199,9 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool, verbose: bool) -> Result
     let socket_path = agents_path.join(DAEMON_SOCKET);
     if socket_path.exists() {
         let socket = socket_path.display().to_string();
-        match send_command(&socket, IpcRequest::new("health.check")).await {
+        // A doctor probe is single-shot (no backoff, no daemon start) but
+        // names the cause and the remedy like every other command.
+        match crate::ipc_client::probe_daemon(agents_path, IpcRequest::new("health.check")).await {
             Ok(resp) if resp.status == "ok" => {
                 rows.push(CheckRow::new(
                     "Daemon health",
@@ -237,7 +239,10 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool, verbose: bool) -> Result
             Err(e) => rows.push(CheckRow::new(
                 "Daemon health",
                 CheckStatus::Fail,
-                format!("Socket exists but IPC failed: {e}"),
+                format!(
+                    "Socket exists but IPC failed: {}",
+                    crate::ipc_client::stale_socket_advice(&e.to_string())
+                ),
             )),
         }
     } else {

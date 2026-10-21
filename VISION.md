@@ -21,7 +21,7 @@ The codebase is substantial — ~28k lines across 184 files at that point — bu
 
 ### Phase 1 — TUI Foundation (commits 1-10)
 The earliest commits built out the **terminal UI** (`loom-tui` crate):
-- `Dispatcher` trait for launching tools from the TUI (TerminalLaunch, ACPDispatch, EmbeddedPane)
+- `Dispatcher` trait for launching tools from the TUI (TerminalLaunch, ACPDispatch; the embedded pane is no longer a `Dispatcher` — `App::dispatch_embedded_pane` owns it)
 - Keyboard navigation: dispatch menu (`a`), daemon action palette (`D`), help overlay (`?`)
 - Tab-based layout with auto-refresh (Dashboard, Daemon, Discovery, MCP, Skills, Sessions, Logs)
 - Task selection and dispatch flow
@@ -60,7 +60,7 @@ The earliest commits built out the **terminal UI** (`loom-tui` crate):
 
 1. **Two-tier performance**: CLI works standalone (slower) or via daemon (fast, cached). Daemon auto-shuts down after 5 min idle.
 2. **TOML-driven tool adapters**: The `GenericAdapter` derives all 6 Loom traits from a single `{tool}.toml` file. Missing sections = no-op, never errors.
-3. **Non-blocking**: Even partial implementations are functional — `loom-hooks` executes hook scripts for real and checks their exit code, `ACPDispatch` and `EmbeddedPane` are wired to the daemon and the embedded pane respectively.
+3. **Non-blocking**: Even partial implementations are functional — `loom-hooks` executes hook scripts for real and checks their exit code, `ACPDispatch` is wired to the daemon and the embedded-pane dispatch is wired to the embedded pane.
 4. **Security-conscious**: Encrypted credential vault (ChaCha20Poly1305 + Argon2), hook signing (SHA-256), ACL-based access control, command injection hardening in dispatch layer.
 5. **Observable**: Every crate implements a `HealthCheck` trait; daemon aggregates and reports all on startup. Telemetry crate provides 3-sigma anomaly detection for latency regressions.
 
@@ -72,7 +72,7 @@ Earlier drafts of this file listed the following as missing; they are now closed
 - **Tests run in CI** — `cargo test --workspace` plus clippy `-D warnings` and cargo-tarpaulin coverage
 - **Hook execution is real** — `execute_hook_script()` spawns the script and checks its exit code
 - **ACP dispatch is wired** — the TUI sends `acp.dispatch` over the daemon socket
-- **EmbeddedPane dispatch is implemented** — opens the embedded pane and streams dispatch output
+- **Embedded-pane dispatch is real** — the pane spawns `loom workflow dispatch <task> --agent <agent>` and streams the agent's output into the pane; there is no separate `EmbeddedPane` dispatcher, `App::dispatch_embedded_pane` owns the path (covered by a test that asserts the dispatch command is actually spawned — not by running the interactive TUI)
 - **Auth vault export re-encrypts** — fresh random nonce in memory, plaintext never written to disk
 
 Still open:
