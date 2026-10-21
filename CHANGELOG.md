@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - feat(auth): `loom auth export` writes the hash-chained audit log to a portable, verifiable JSON document (`<loom-dir>/auth/audit-export.json` by default) — chain hashes are carried verbatim, the document carries an `export_digest`, and the chain's own `verify_integrity` verdict is embedded. `loom auth verify [path]` verifies an export (or the local chain when no path is given). The free-text `result` field is never exported: it is normalised to `granted` / `denied` / `other` and the entry is flagged `redacted`
-- feat(auth): audit retention is one config knob — `[security] audit_retention_days` (default 365, `0` keeps everything) in the existing merged config. Entries older than the window are dropped from exports; the on-disk chain is never rewritten, so its hash linkage stays verifiable
+- feat(auth): audit retention is one config knob — `[security] audit_retention_days` (default 365, `0` keeps everything) in the existing merged config. The oldest out-of-window prefix is dropped from exports, so the exported chain stays contiguous and its hash linkage stays verifiable; the on-disk chain is never rewritten
 
 ## [0.9.6] - 2026-10-20
 

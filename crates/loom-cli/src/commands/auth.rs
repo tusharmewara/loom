@@ -639,5 +639,8 @@ mod tests {
         assert_eq!(doc.retention.dropped_entries, 1);
         assert_eq!(doc.entries.len(), 1);
         assert_eq!(doc.entries[0].requesting_tool, "new-tool");
+
+        // The truncated export is still a valid artifact: it verifies.
+        cmd_verify(loom_dir, Some(out.to_str().unwrap()), true).unwrap();
     }
 }

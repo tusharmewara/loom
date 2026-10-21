@@ -318,10 +318,12 @@ audit_retention_days = 365   # default; 0 = keep everything
 ```
 
 **Policy: entries older than the window are dropped from an audit
-export.** The on-disk chain is *not* rewritten — dropping entries from the
-head of the chain would break the hash linkage `verify_integrity` checks —
-so the window bounds what leaves the machine via `loom auth export`, and
-the log file itself stays bounded by the logger's size-based rotation
+export.** The drop is a *prefix*: the exported chain starts at the first
+entry inside the window, so the exported entries stay contiguous and the
+hash linkage `verify_integrity` checks is preserved. The on-disk chain is
+*not* rewritten — rewriting it would break that same linkage — so the
+window bounds what leaves the machine via `loom auth export`, and the log
+file itself stays bounded by the logger's size-based rotation
 (`LOOM_AUDIT_MAX_SIZE`, default 10 MB, five rotated files kept).
 
 ## Known Gotchas

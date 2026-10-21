@@ -139,8 +139,9 @@ audit_retention_days = 365   # default; 0 = keep everything
 ```
 
 Entries older than the window are dropped from an audit export
-(`loom auth export`); the on-disk chain is never rewritten, so its hash
-linkage stays verifiable.
+(`loom auth export`); the drop is a prefix, so the exported chain stays
+contiguous and its hash linkage stays verifiable. The on-disk chain is
+never rewritten.
 
 ## Known Issues
 

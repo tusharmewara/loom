@@ -60,6 +60,14 @@
 //! The chain's own hashes are never recomputed here: they are carried
 //! verbatim from the chain and bound into the digest, so the digest is
 //! produced from the same chain the entries came from.
+//!
+//! # Retention
+//!
+//! The retention window bounds where the exported chain *starts*: the
+//! longest prefix of out-of-window entries is dropped and the rest is
+//! exported. The drop is a prefix, never a scattered subset — the chain is
+//! linear, so dropping an entry from the middle would break the linkage
+//! [`verify_export`] checks. See [`build_export`].
 
 use crate::audit::AuditLogger;
 use anyhow::Result;
@@ -114,8 +122,9 @@ pub struct ExportSource {
 pub struct ExportRetention {
     /// Configured window in days (`0` = keep everything).
     pub window_days: u32,
-    /// What happens to entries past the window: `drop` (they are left out of
-    /// this export; the on-disk chain is never rewritten).
+    /// What happens to entries past the window: `drop` (the oldest
+    /// out-of-window prefix is left out of this export; the on-disk chain
+    /// is never rewritten).
     pub policy: String,
     /// Entries left out because they fell outside the window.
     pub dropped_entries: usize,
@@ -176,11 +185,22 @@ pub struct ExportVerification {
 
 /// Build an export of the audit chain, applying the retention window.
 ///
-/// `retention_days` is the configured window: entries older than the window
-/// are **dropped from the export**. The on-disk chain is never rewritten —
-/// dropping entries from the head of the chain would break the hash linkage
-/// that [`AuditLogger::verify_integrity`] checks. Disk is bounded instead by
-/// the logger's existing size-based rotation.
+/// `retention_days` is the configured window. The window defines where the
+/// exported chain *starts*: the longest prefix of entries that are all older
+/// than the window is **dropped**, and everything from the first in-window
+/// entry onwards is exported verbatim.
+///
+/// The drop is a prefix, never a scattered subset. The hash chain is a
+/// linear sequence, so dropping an entry from the middle would break the
+/// linkage [`AuditLogger::verify_integrity`] checks, and dropping the tail
+/// would break the link to the chain head. Keeping the exported entries
+/// contiguous is what makes the export verifiable. An entry that is out of
+/// the window but sits *after* the cut is therefore kept (a clock skew or a
+/// late-written entry) — the window bounds the start of the chain, not each
+/// entry individually.
+///
+/// The on-disk chain is never rewritten. Disk is bounded instead by the
+/// logger's existing size-based rotation.
 pub fn build_export(logger: &AuditLogger, retention_days: u32) -> Result<AuditExport> {
     let report = logger.verify_integrity()?;
     let all = logger.entries_chronological()?;
@@ -194,17 +214,20 @@ pub fn build_export(logger: &AuditLogger, retention_days: u32) -> Result<AuditEx
         Some(loom_core::rfc3339_days_ago(retention_days))
     };
 
+    // The longest prefix of out-of-window entries is dropped.
+    let dropped_entries = cutoff
+        .as_ref()
+        .map(|cutoff| {
+            all.iter()
+                .take_while(|e| is_dated(&e.timestamp) && e.timestamp.as_str() < cutoff.as_str())
+                .count()
+        })
+        .unwrap_or(0);
+
     let mut entries = Vec::new();
-    let mut dropped_entries = 0usize;
     let mut redacted_entries = 0usize;
 
-    for entry in &all {
-        if let Some(cutoff) = &cutoff {
-            if is_dated(&entry.timestamp) && entry.timestamp.as_str() < cutoff.as_str() {
-                dropped_entries += 1;
-                continue;
-            }
-        }
+    for entry in &all[dropped_entries..] {
         let (outcome, redacted) = normalize_outcome(&entry.result);
         if redacted {
             redacted_entries += 1;
@@ -537,6 +560,38 @@ mod tests {
         let v = verify_export(&doc);
         assert!(v.intact, "empty export must still verify: {v:?}");
         assert_eq!(v.entries, 0);
+    }
+
+    #[test]
+    fn test_out_of_window_entry_in_the_middle_is_kept_and_still_verifies() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let logger = AuditLogger::new(dir.path().to_str().unwrap());
+        // A fresh entry, then an entry with a skewed (old) timestamp written
+        // later — the out-of-window entry sits in the middle of the chain.
+        logger
+            .log(&entry(
+                &loom_core::rfc3339_now(),
+                "tool-a",
+                "provider-1",
+                "granted",
+            ))
+            .unwrap();
+        logger
+            .log(&entry(
+                "2020-01-01T00:00:00Z",
+                "tool-b",
+                "provider-2",
+                "granted",
+            ))
+            .unwrap();
+
+        // The window defines where the exported chain starts, so the out-of-
+        // window entry is kept and the chain stays contiguous.
+        let doc = build_export(&logger, 365).unwrap();
+        assert_eq!(doc.retention.dropped_entries, 0);
+        assert_eq!(doc.entries.len(), 2);
+        let v = verify_export(&doc);
+        assert!(v.intact, "export must still verify: {v:?}");
     }
 
     #[test]
