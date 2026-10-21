@@ -23,6 +23,19 @@
 //! The posture is selected per run from the tool's `[launch] network` value
 //! (`none` | `restricted` | `unrestricted`); free-form network names are
 //! rejected — a name is not a posture.
+//!
+//! `restricted` is **fail-closed but not yet an allowlist**: it resolves to the
+//! `none` engine posture, because nothing enforces the host list yet. The
+//! runtime logs that downgrade on every `restricted` run (see
+//! [`NetworkPolicy::diagnostic`]), so an operator asking for
+//! `restricted:api.example.com` is never left thinking the allowlist is in
+//! force.
+//!
+//! Enforcement is per backend: Docker and Podman deny egress in the engine
+//! itself (`--network none`) and are unconditionally fail-closed. Kubernetes
+//! creates a `NetworkPolicy` object, which is only enforced when the
+//! cluster's CNI implements NetworkPolicy — there is no capability check, so
+//! the Kubernetes backend is not guaranteed to be fail-closed.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -85,7 +98,9 @@ pub enum NetworkPolicy {
     /// full egress, so this resolves to the same engine argument as
     /// [`NetworkPolicy::NoNetwork`] until the egress proxy lands. The
     /// allowlist is recorded on the container labels, so it is observable
-    /// (and auditable) before it is enforced.
+    /// (and auditable) before it is enforced — and the runtime logs the
+    /// downgrade (see [`NetworkPolicy::diagnostic`]) so the gap is visible
+    /// at run time, not only in the labels.
     Restricted {
         /// Hosts the run is allowed to reach.
         allowed_hosts: Vec<String>,
@@ -158,6 +173,29 @@ impl NetworkPolicy {
             _ => &[],
         }
     }
+
+    /// The diagnostic this posture needs, if any.
+    ///
+    /// `Restricted` resolves to the `none` engine posture because the
+    /// allowlist is not enforced yet, so the operator asked for one thing
+    /// and got another. That difference has to be visible: a silent
+    /// `restricted:api.example.com` reads like "only that host" while it
+    /// actually means "no egress at all".
+    ///
+    /// `None` for the postures that resolve to themselves.
+    pub fn diagnostic(&self) -> Option<String> {
+        match self {
+            NetworkPolicy::Restricted { allowed_hosts } => {
+                let hosts = if allowed_hosts.is_empty() {
+                    "allowed_hosts empty and not enforced yet".to_string()
+                } else {
+                    format!("allowed_hosts not enforced yet: {}", allowed_hosts.join(","))
+                };
+                Some(format!("restricted (posture=none, {hosts})"))
+            }
+            _ => None,
+        }
+    }
 }
 
 fn parse_host_list(hosts: &str) -> Vec<String> {
@@ -182,10 +220,22 @@ pub fn resolve_network_policy(
     runtime_default: &NetworkPolicy,
     requested: Option<&str>,
 ) -> Result<NetworkPolicy> {
-    match requested {
-        Some(value) => NetworkPolicy::parse(value),
-        None => Ok(runtime_default.clone()),
+    let policy = match requested {
+        Some(value) => NetworkPolicy::parse(value)?,
+        None => runtime_default.clone(),
+    };
+    // The requested posture and the resolved posture can differ — a
+    // `restricted` allowlist is not enforced yet and resolves to the `none`
+    // engine posture. Say so, or the operator believes an allowlist is in
+    // force.
+    if let Some(diagnostic) = policy.diagnostic() {
+        tracing::warn!(
+            posture = policy.name(),
+            requested = requested.unwrap_or("(runtime default)"),
+            "container network posture downgraded: {diagnostic}"
+        );
     }
+    Ok(policy)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -466,6 +516,14 @@ pub mod kubernetes_client {
             self
         }
 
+        /// Build a client against an explicit API server.
+        ///
+        /// Used by the ordering test, which points the client at a local fake
+        /// API server to observe the order of the calls the runtime makes.
+        pub fn with_client(client: kube::Client, namespace: String) -> Self {
+            Self { client, namespace }
+        }
+
         fn jobs(&self) -> Api<Job> {
             Api::namespaced(self.client.clone(), &self.namespace)
         }
@@ -507,6 +565,17 @@ pub mod kubernetes_client {
         /// it again. Returns the created policy's name, or `None` when the
         /// posture is [`NetworkPolicy::Unrestricted`] (no policy object is
         /// needed — the Pod keeps the cluster's default egress).
+        ///
+        /// **This is only as enforced as the cluster's CNI.** A Kubernetes
+        /// `NetworkPolicy` is a declarative object; a Pod is only actually
+        /// denied egress when the cluster's network plugin implements
+        /// NetworkPolicy enforcement. On a cluster whose CNI ignores
+        /// `NetworkPolicy` objects, this policy is silently a no-op and the
+        /// Pod keeps the cluster's default egress. There is no check for
+        /// that here, so the Kubernetes backend is **not** unconditionally
+        /// fail-closed the way the Docker and Podman backends are: those two
+        /// enforce isolation in the engine itself (`--network none`), while
+        /// Kubernetes delegates enforcement to the cluster.
         async fn apply_network_policy(
             &self,
             spec: &ContainerSpec,
@@ -557,9 +626,14 @@ pub mod kubernetes_client {
         }
     }
 
-    #[async_trait]
-    impl ContainerClient for KubernetesClient {
-        async fn create_container(&self, spec: &ContainerSpec) -> Result<String> {
+    impl KubernetesClient {
+        /// Create the Job for this run, with the network posture applied
+        /// before it.
+        ///
+        /// The order matters: the NetworkPolicy is created first, so the
+        /// Job's Pod is already covered by the time the Job controller starts
+        /// it.
+        pub async fn create_job(&self, spec: &ContainerSpec) -> Result<String> {
             let job_name = format!("loom-task-{}", Uuid::new_v4().simple());
 
             let env: Vec<EnvVar> = spec
@@ -628,6 +702,19 @@ pub mod kubernetes_client {
                 labels
             };
 
+            // Network posture — applied BEFORE the Job. A NetworkPolicy
+            // selects Pods by label, not by the Pod existing, so creating the
+            // policy first is what makes the posture effective: the Job's Pod
+            // is already covered by the time the Job controller starts it.
+            // Creating it after the Job leaves a window where the Pod runs
+            // with the cluster's default egress.
+            if let Some(policy_name) = self
+                .apply_network_policy(spec, &job_name, &pod_labels)
+                .await?
+            {
+                tracing::info!(policy = %policy_name, "created Kubernetes NetworkPolicy");
+            }
+
             let job = Job {
                 metadata: ObjectMeta {
                     name: Some(job_name.clone()),
@@ -661,16 +748,14 @@ pub mod kubernetes_client {
             let name = created.metadata.name.unwrap_or(job_name.clone());
             tracing::info!(job = %name, "created Kubernetes Job");
 
-            // Network posture — applied after the Job so the Pod exists to be
-            // selected by the policy.
-            if let Some(policy_name) = self
-                .apply_network_policy(spec, &job_name, &pod_labels)
-                .await?
-            {
-                tracing::info!(policy = %policy_name, "created Kubernetes NetworkPolicy");
-            }
-
             Ok(name)
+        }
+    }
+
+    #[async_trait]
+    impl ContainerClient for KubernetesClient {
+        async fn create_container(&self, spec: &ContainerSpec) -> Result<String> {
+            self.create_job(spec).await
         }
 
         async fn start_container(&self, _id: &str) -> Result<()> {
@@ -900,6 +985,7 @@ impl Runtime for ContainerRuntime {
             .ok_or_else(|| anyhow::anyhow!("Container client not initialized"))?;
 
         // Build container spec from launch config
+        // (`resolve_network_policy` logs the posture-downgrade diagnostic.)
         let policy = resolve_network_policy(&runtime.network_policy, config.network.as_deref())?;
         let spec = build_container_spec(config, task, &runtime.default_image, policy)?;
 

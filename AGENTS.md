@@ -153,6 +153,27 @@ holds the pure-logic policy tests (run everywhere) and
 (gated behind `LOOM_CONTAINER_SMOKE=1`, skipped when no engine is present; the
 `container` CI job runs it with Docker).
 
+**`restricted` is not enforced yet, and says so.** A `restricted` allowlist
+resolves to the same `none` engine posture as `none` — fail-closed, but the
+allowlist is *not* in force. The runtime logs the downgrade on every
+`restricted` run (`container network posture downgraded: restricted
+(posture=none, allowed_hosts not enforced yet: …)`), including the
+empty-allowlist case. Do not read a `restricted` run as "limited to those
+hosts" — it is "no egress at all".
+
+Enforcement differs per backend. Docker and Podman enforce isolation in the
+engine itself (`--network none`) and are unconditionally fail-closed.
+Kubernetes creates a `NetworkPolicy` object, which is only enforced when the
+cluster's CNI implements NetworkPolicy — a cluster whose CNI ignores the
+object leaves the Pod on the cluster's default egress. The Kubernetes backend
+therefore has no guaranteed isolation, and there is no CNI capability check.
+
+The container is removed by the runtime, not by the engine: the engine's
+auto-remove is **off** so the runtime can read the container's logs after the
+process exits. Every dispatch path must therefore call
+`Runtime::cleanup(&result)` — the CLI (`loom exec`) and the workflow dispatcher
+do, and the TUI dispatcher does too. A path that skips it leaks the container.
+
 ## Testing
 
 - **Unit tests**: inline in each crate under `#[cfg(test)] mod tests { ... }`
