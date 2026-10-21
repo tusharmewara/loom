@@ -173,18 +173,22 @@ contradiction case is now pinned by
 The Supplement's keyword weight was 0.25, code uses 0.35 (`scorer.rs:157`).
 *(The review cited `:60` for this divergence, but the weights table at `:60`
 already said 0.35 — the stale 0.25 was in the pseudocode, at `:566` before the
-re-sync and at `:621` after it.)* :71 says the low band is 0.0–0.3, code
-cuts at 0.35. :71 claims "These thresholds are configurable in config.toml" —
-true for tier thresholds only, until Step 3 lands. Fix the two numbers to
-match shipped code (code is the behavioral truth); the configurability claim
-becomes true via Step 3 or gets reworded.
+re-sync and at `:621` after it.)* The low band was 0.3, code cuts at 0.35 —
+again not in the `:71` prose the review cited, which already read 0.35/0.7, but
+in the config example (`:367` before the re-sync, `:378` after it) and in the
+pseudocode (`:578` before, `:633` after). :71 claims "These thresholds are
+configurable in config.toml" — true for tier thresholds only, until Step 3
+lands. Fix the two numbers to match shipped code (code is the behavioral
+truth); the configurability claim becomes true via Step 3 or gets reworded.
 Acceptance: no known Supplement-vs-code contradiction remains.
 
 **Landed:** the Supplement is re-synced to the shipped constants — the
 description-length divisor 2000 (`:619`, was 500), the keyword weight 0.35 in
-the pseudocode (`:621`, was 0.25), the 0.35/0.7 level bands (`:71`, `:633`),
-and the real config key path `[routing.complexity_thresholds]` with PascalCase
-enum values (`:354-382`, with the shipped-config note at `:384-396`).
+the pseudocode (`:621`, was 0.25), the low band 0.35 in the config example
+(`:378`, was 0.3) and in the pseudocode (`:633`, was 0.3), the 0.35/0.7 level
+bands (`:71`), and the real config key path
+`[routing.complexity_thresholds]` with PascalCase enum values
+(`:354-382`, with the shipped-config note at `:384-396`).
 The "configurable" claim is now true, because Step 3 made the level cutoffs
 config-driven. *(The Supplement is under the gitignored `planning/` path and
 was never tracked, so the re-sync lives in the working tree, not in this
