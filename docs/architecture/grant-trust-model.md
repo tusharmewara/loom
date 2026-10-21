@@ -202,6 +202,15 @@ loom auth grant list   [--json]
 The vault password may also come from `LOOM_VAULT_PASSWORD`. `revoke` and `list` do
 not need the master key. There is no `redeem` subcommand — see above.
 
+**The token is a bearer capability.** `loom auth grant issue` prints the grant
+token to stdout, and anyone holding that token can redeem it for the grant's
+tool and run, before expiry, unless it is revoked. When the transcript is not
+trusted — a shared CI log, a recorded terminal session, a chat paste — run the
+command with stdout redirected to a file or a pipe that only the broker reads,
+for example `loom auth grant issue … > grant.txt`. The mitigation is the
+absence of a `redeem` subcommand: redemption returns plaintext and belongs to a
+trusted broker, so the token never has to travel through an agent.
+
 ## Residual risks
 
 1. **A grant is a bearer credential for the broker.** Whoever holds the token can

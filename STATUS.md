@@ -65,6 +65,9 @@ Loom is a multi-agent orchestration framework built in Rust. It provides a unifi
 - Skill registry with hot-reload
 - MCP server registry and health checks
 - Credential vault with encryption
+- Scoped, revocable, expiring per-run grants (`loom auth grant issue|verify|revoke|list`); the agent never holds the stored secret, and there is deliberately no CLI `redeem`
+- Tamper-evident, signed audit export (`loom auth export` / `loom auth verify`): a recomputable chain over the normalised outcome plus an Ed25519 anchor; one verdict — `intact` / `tampered` / `unanchored`
+- Container network posture as a policy enum (`none` / `restricted` / `unrestricted`); a container run defaults to no egress, and `restricted` is fail-closed until the egress proxy lands
 - Session export/import with compression
 - Hook system for pre/post task execution
 - Workflow engine for task orchestration
@@ -149,6 +152,9 @@ never leaves the machine) and the whole document is signed with a per-machine
 Ed25519 key. `loom auth verify <file>` returns one verdict — `intact`,
 `tampered`, or `unanchored` (self-consistent only, because no public key was
 pinned). Pin the key with `loom auth export --print-public-key`.
+
+`loom auth verify` (an audit **export**) and `loom auth grant verify` (a
+**grant**) are different commands and check different things.
 
 ## Known Issues
 
