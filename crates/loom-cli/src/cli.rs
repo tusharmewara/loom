@@ -748,6 +748,33 @@ pub enum AuthAction {
         #[command(subcommand)]
         action: GrantAction,
     },
+    /// Export the audit chain to a portable, verifiable JSON file
+    Export {
+        /// Output path (default: <loom-dir>/auth/audit-export.json)
+        #[arg(short, long)]
+        output: Option<String>,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+        /// Print the machine's export public key and exit (no export written)
+        #[arg(long)]
+        print_public_key: bool,
+    },
+    /// Verify an audit EXPORT (audit chain export, not a grant).
+    ///
+    /// Prints one verdict: `intact`, `tampered` or `unanchored`. Grant
+    /// verification is a different command — `loom auth grant verify`.
+    Verify {
+        /// Export file to verify (default: the local audit chain)
+        path: Option<String>,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+        /// Pinned public key: 64 hex characters, or a path to a file holding them.
+        /// Without it the export is only self-consistent (verdict: unanchored).
+        #[arg(long)]
+        public_key: Option<String>,
+    },
 }
 
 /// Subcommands of `loom auth grant`.
@@ -774,7 +801,10 @@ pub enum GrantAction {
         #[arg(long)]
         json: bool,
     },
-    /// Verify a grant token for a tool in a run
+    /// Verify a grant token for a tool in a run.
+    ///
+    /// This verifies a GRANT. Audit export verification is
+    /// `loom auth verify`.
     Verify {
         /// The grant token
         #[arg(long)]

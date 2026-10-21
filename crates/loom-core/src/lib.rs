@@ -70,6 +70,15 @@ pub fn rfc3339_now() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
+/// The RFC3339 timestamp `days` days before now (UTC, `Z` suffix).
+///
+/// Used as the retention cutoff for the audit chain: entries whose
+/// timestamp is older than this are dropped from an export.
+pub fn rfc3339_days_ago(days: u32) -> String {
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
+    cutoff.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
 /// SQLite bootstrap shared by the ecosystem's stores: open a connection at
 /// `path` with the standard pragmas (WAL journal, NORMAL synchronous — the
 /// durable-but-fast tradeoff all registries want). Foreign keys stay a

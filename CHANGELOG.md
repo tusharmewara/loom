@@ -5,6 +5,13 @@ All notable changes to the Loom project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- feat(auth): `loom auth export` writes the hash-chained audit log to a portable, signed JSON document (`<loom-dir>/auth/audit-export.json` by default). The document is **self-verifying**: every entry hash is re-derivable from the exported fields, and the whole document is signed with a per-machine Ed25519 key (`<loom-dir>/auth/export-signing.key`, mode `0600`, separate from the vault key — producing an export never unlocks the vault). `loom auth verify [path]` now reports ONE verdict — `intact` (chain re-derives **and** the signature verifies against a pinned public key), `tampered` (a named check failed), or `unanchored` (the chain re-derives but no public key was pinned, so the document is only self-consistent, not proven to come from this machine). `loom auth export --print-public-key` prints the public key to pin out of band; `loom auth verify <file> --public-key <hex|file>` verifies against it. The free-text `result` field is never exported: it is normalised to `granted` / `denied` / `other` and the entry is flagged `redacted`. The chain hash now covers the normalised outcome (`chain_scheme: 2`) so a consumer can re-derive it without the raw text; entries written by older Loom (`chain_scheme: 1`, hash over the raw result) still verify locally, and are covered by the signature in an export
+- feat(auth): audit retention is one config knob — `[security] audit_retention_days` (default 365, `0` keeps everything) in the existing merged config. The oldest out-of-window prefix is dropped from exports, so the exported chain stays contiguous and its hash linkage stays verifiable; the on-disk chain is never rewritten
+
 ## [0.9.6] - 2026-10-20
 
 ### Added

@@ -116,10 +116,12 @@ impl AuditLogger {
         }
 
         // Extend the hash chain: entry_hash = H(prev_hash || fields).
+        // New entries use the outcome-normalised scheme, so an export can
+        // re-derive the hash from redacted fields alone.
         let mut entry = entry.clone();
         let prev = inner.last_hash.clone();
         entry.prev_hash = prev.clone();
-        entry.entry_hash = Some(compute_entry_hash(&entry, prev.as_deref()));
+        entry.entry_hash = Some(compute_entry_hash(&entry, prev.as_deref(), CHAIN_SCHEME_OUTCOME));
         inner.last_hash = entry.entry_hash.clone();
 
         let mut file = OpenOptions::new()
@@ -303,14 +305,12 @@ impl AuditLogger {
         Ok(())
     }
 
-    /// Verify the integrity of the audit trail hash chain.
+    /// Read every entry of the chain in chronological order.
     ///
-    /// Walks all entries (rotated logs in chronological order, then the
-    /// current log) and recomputes each entry's hash. Legacy entries
-    /// written before integrity chaining (no `entry_hash`) are skipped.
-    /// The first mismatch is reported; `intact == true` means the chain
-    /// is unbroken and untampered.
-    pub fn verify_integrity(&self) -> Result<IntegrityReport> {
+    /// Rotated logs first (oldest rotation first), then the current log.
+    /// This is the order the hash chain was written in, and the order
+    /// [`AuditLogger::verify_integrity`] checks it in.
+    pub fn entries_chronological(&self) -> Result<Vec<AuditEntry>> {
         let inner = loom_core::lock_ok!(self.inner);
         let base = Path::new(&inner.log_path);
         let dir = base.parent().unwrap_or_else(|| Path::new("."));
@@ -335,7 +335,18 @@ impl AuditLogger {
                 }
             }));
         }
-        drop(inner);
+        Ok(entries)
+    }
+
+    /// Verify the integrity of the audit trail hash chain.
+    ///
+    /// Walks all entries (rotated logs in chronological order, then the
+    /// current log) and recomputes each entry's hash. Legacy entries
+    /// written before integrity chaining (no `entry_hash`) are skipped.
+    /// The first mismatch is reported; `intact == true` means the chain
+    /// is unbroken and untampered.
+    pub fn verify_integrity(&self) -> Result<IntegrityReport> {
+        let entries = self.entries_chronological()?;
 
         let mut report = IntegrityReport {
             total: entries.len(),
@@ -350,9 +361,11 @@ impl AuditLogger {
                 continue; // legacy entry predating the hash chain
             };
             report.chained += 1;
-            let expected = compute_entry_hash(entry, entry.prev_hash.as_deref());
+            // Both chain schemes are accepted: a log written by an older Loom
+            // hashes the raw result, a current one hashes the normalised
+            // outcome. Neither is a tamper signal.
             let chain_ok = entry.prev_hash.as_ref() == prev.as_ref();
-            if !chain_ok || &expected != entry_hash {
+            if !chain_ok || entry_chain_scheme(entry).is_none() {
                 report.intact = false;
                 report.tampered_at = Some(entry.timestamp.clone());
                 return Ok(report);
@@ -377,20 +390,93 @@ pub struct IntegrityReport {
     pub intact: bool,
 }
 
-/// Compute the SHA-256 chain hash for an entry.
+/// Chain hash scheme of the legacy entries: the hash is computed over the
+/// raw `result` string.
 ///
-/// Hashes the canonical entry fields plus the previous entry's hash.
-/// The entry's own `entry_hash` field is intentionally excluded.
-fn compute_entry_hash(entry: &AuditEntry, prev_hash: Option<&str>) -> String {
+/// Legacy entries carry no scheme marker; the scheme is detected by
+/// recomputing the hash (see [`entry_chain_scheme`]).
+pub const CHAIN_SCHEME_RAW: u8 = 1;
+
+/// Chain hash scheme of the current entries: the hash is computed over the
+/// *normalised* outcome, never over the raw free-text `result`.
+///
+/// This is what makes an export independently verifiable: a consumer that
+/// holds only the exported (redacted) fields can re-derive every entry hash.
+/// The raw `result` is the only field a caller can stuff arbitrary content
+/// into, so it must not be part of a hash the export has to reproduce.
+pub const CHAIN_SCHEME_OUTCOME: u8 = 2;
+
+/// Map the chain's free-text `result` to a normalised outcome.
+///
+/// `granted` and `denied` pass through; a denial reason (`denied: <reason>`)
+/// keeps the outcome but drops the reason; any other text becomes `other`.
+/// The raw text never leaves the machine.
+pub fn normalize_outcome(result: &str) -> &'static str {
+    match result {
+        "granted" => "granted",
+        "denied" => "denied",
+        r if r.starts_with("denied:") => "denied",
+        _ => "other",
+    }
+}
+
+/// SHA-256 over the canonical chain fields plus the previous entry's hash.
+///
+/// `hashed_result` is the field's contribution to the hash: the raw result
+/// under [`CHAIN_SCHEME_RAW`], the normalised outcome under
+/// [`CHAIN_SCHEME_OUTCOME`]. The entry's own `entry_hash` is excluded.
+pub fn chain_hash(
+    prev_hash: Option<&str>,
+    timestamp: &str,
+    requesting_tool: &str,
+    provider_id: &str,
+    access_type: &str,
+    hashed_result: &str,
+) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(prev_hash.unwrap_or(""));
-    hasher.update(&entry.timestamp);
-    hasher.update(&entry.requesting_tool);
-    hasher.update(&entry.provider_id);
-    hasher.update(&entry.access_type);
-    hasher.update(&entry.result);
+    hasher.update(timestamp);
+    hasher.update(requesting_tool);
+    hasher.update(provider_id);
+    hasher.update(access_type);
+    hasher.update(hashed_result);
     format!("{:x}", hasher.finalize())
+}
+
+/// Compute the SHA-256 chain hash for an entry under the given scheme.
+///
+/// The entry's own `entry_hash` field is intentionally excluded.
+pub fn compute_entry_hash(entry: &AuditEntry, prev_hash: Option<&str>, scheme: u8) -> String {
+    let hashed_result = match scheme {
+        CHAIN_SCHEME_OUTCOME => normalize_outcome(&entry.result),
+        _ => entry.result.as_str(),
+    };
+    chain_hash(
+        prev_hash,
+        &entry.timestamp,
+        &entry.requesting_tool,
+        &entry.provider_id,
+        &entry.access_type,
+        hashed_result,
+    )
+}
+
+/// The chain hash scheme an entry was written with.
+///
+/// Both schemes are checked, so a log written by an older Loom still
+/// verifies. `None` means neither scheme reproduces the stored hash — the
+/// entry has been tampered with.
+pub fn entry_chain_scheme(entry: &AuditEntry) -> Option<u8> {
+    let prev = entry.prev_hash.as_deref();
+    let stored = entry.entry_hash.as_deref()?;
+    if stored == compute_entry_hash(entry, prev, CHAIN_SCHEME_OUTCOME) {
+        Some(CHAIN_SCHEME_OUTCOME)
+    } else if stored == compute_entry_hash(entry, prev, CHAIN_SCHEME_RAW) {
+        Some(CHAIN_SCHEME_RAW)
+    } else {
+        None
+    }
 }
 
 /// Read the last chained entry's hash from an existing log file.
