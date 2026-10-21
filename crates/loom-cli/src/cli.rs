@@ -751,6 +751,9 @@ pub enum AuthAction {
         /// Output machine-readable JSON
         #[arg(long)]
         json: bool,
+        /// Print the machine's export public key and exit (no export written)
+        #[arg(long)]
+        print_public_key: bool,
     },
     /// Verify an audit export (or the local audit chain)
     Verify {
@@ -759,6 +762,10 @@ pub enum AuthAction {
         /// Output machine-readable JSON
         #[arg(long)]
         json: bool,
+        /// Pinned public key: 64 hex characters, or a path to a file holding them.
+        /// Without it the export is only self-consistent (verdict: unanchored).
+        #[arg(long)]
+        public_key: Option<String>,
     },
 }
 

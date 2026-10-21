@@ -143,6 +143,13 @@ Entries older than the window are dropped from an audit export
 contiguous and its hash linkage stays verifiable. The on-disk chain is
 never rewritten.
 
+The export is tamper-evident: the chain hash covers the normalised outcome
+(so a consumer can re-derive it without the raw free-text `result`, which
+never leaves the machine) and the whole document is signed with a per-machine
+Ed25519 key. `loom auth verify <file>` returns one verdict — `intact`,
+`tampered`, or `unanchored` (self-consistent only, because no public key was
+pinned). Pin the key with `loom auth export --print-public-key`.
+
 ## Known Issues
 
 - Hook scripts execute properly (implementation complete)

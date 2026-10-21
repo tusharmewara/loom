@@ -212,8 +212,8 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 - `loom auth providers [--json]` — List registered providers
 - `loom auth show <provider> [--json]` — Show provider config
 - `loom auth validate <provider>` — Validate credential
-- `loom auth export [-o path] [--json]` — Export the audit chain to a portable, verifiable JSON file (default `<loom-dir>/auth/audit-export.json`)
-- `loom auth verify [path] [--json]` — Verify an audit export, or the local audit chain when no path is given
+- `loom auth export [-o path] [--json] [--print-public-key]` — Export the audit chain to a signed, portable JSON file (default `<loom-dir>/auth/audit-export.json`); `--print-public-key` prints the machine's export-signing public key and writes nothing
+- `loom auth verify [path] [--json] [--public-key <hex|file>]` — Verify an audit export (one verdict: `intact` / `tampered` / `unanchored`), or the local audit chain when no path is given
 
 ### Hooks
 - `loom hooks list [--json]` — List registered hooks
@@ -326,6 +326,62 @@ window bounds what leaves the machine via `loom auth export`, and the log
 file itself stays bounded by the logger's size-based rotation
 (`LOOM_AUDIT_MAX_SIZE`, default 10 MB, five rotated files kept).
 
+### Audit export trust model
+
+`loom auth export` writes a portable JSON document
+(`<loom-dir>/auth/audit-export.json` by default). It proves **two separate
+things**, and `loom auth verify` reports them separately.
+
+**Integrity scheme chosen: a recomputable chain (normalised outcome) plus
+an Ed25519 signature over the whole document.** The chain hash is computed
+over the *normalised outcome* (`granted` / `denied` / `other`) instead of the
+raw free-text `result`. That is what lets the export carry a chain a
+consumer can re-derive while the raw result still never leaves the machine:
+redaction and verification are designed together. The alternative — exporting
+the per-entry hash preimage — was rejected because the preimage contains the
+raw result and would reintroduce the leak the redaction exists to stop.
+
+The chain format change is versioned. New entries are written under
+`chain_scheme: 2` (outcome-normalised). Entries written by an older Loom
+(`chain_scheme: 1`, hash over the raw result) are still accepted by
+`verify_integrity` — an upgrading user never sees their chain as tampered —
+but they cannot be re-derived from the export (their hash covers text the
+export does not carry), so they are covered by the signature instead and
+counted in `checks.entries_unverifiable`.
+
+**What a consumer needs.** The machine's public key, pinned out of band:
+
+```bash
+loom auth export --print-public-key          # 64 hex chars, no export written
+loom auth verify <file> --public-key <hex|file>
+```
+
+The signing key lives at `<loom-dir>/auth/export-signing.key` (mode `0600`,
+generated on first use). It is a *separate* key: it is never derived from
+the vault master key, and producing an export never unlocks the vault.
+
+**The three verdicts** (`loom auth verify <file>`):
+
+| verdict | meaning |
+|---|---|
+| `intact` | the chain re-derives from the exported fields **and** the signature verified against the pinned key |
+| `tampered` | a check failed — the failing check is named in the output |
+| `unanchored` | the chain re-derives and is consistent, but no public key was pinned: the document is only **self-consistent**, not proven to come from this machine |
+
+`unanchored` is not a failure, but it is *not* `intact` either. The
+`export_digest` is an unkeyed checksum: it detects corruption, and an
+attacker who recomputes it gains nothing, because the chain is re-derived
+and the signature verified independently of it.
+
+`source.chain_intact` is a **self-report by the exporter** about the chain
+it read at export time — it is not an attestation the document carries, and
+it sits inside the digest the attacker can recompute. Do not read it as
+proof.
+
+`loom auth verify` with no path verifies the **local chain** instead of an
+export; the export-specific checks (digest, signature, chain head) do not
+apply and are not reported in that mode.
+
 ## Known Gotchas
 
 1. **Auth vault `export_credential()` re-encrypts** — the credential is encrypted in memory with a fresh random nonce (`vault.encrypt_for_export`, ChaCha20Poly1305); plaintext is never written to disk.
@@ -344,7 +400,7 @@ file itself stays bounded by the logger's size-based rotation
 14. **Knowledge graph boosts routing decisions** — when evaluating a prompt with `loom routing evaluate`, if the prompt mentions known entities in the knowledge graph, the complexity score receives a boost (up to +0.25) based on entity degree and type. Entities found are listed in `knowledge_entities` in the signals.
 15. **Knowledge-enhanced session resume** — `loom sessions resume --inject-knowledge` queries the knowledge graph for entities matching the session topic and recent messages, then injects entity definitions and their relationships as a system message before resuming.
 16. **`LOOM_AGENTS_DIR` is the ecosystem directory** — the CLI and the daemon both resolve it through `loom_core::loom_dir()` (env var wins, else `~/.loom`). Never hardcode `~/.loom` in a command: pass the resolved dir down. The TUI's CLI adapter exports it to every child process.
-17. **Audit export redacts the chain's free-text `result`** — `loom auth export` never exports the raw `result` string. It is normalised to `granted` / `denied` / `other` and the entry is flagged `redacted: true` (the export counts these in `redaction.redacted_entries`). The raw field is the only place a caller can put arbitrary content into the chain, so it never leaves the machine.
+17. **Audit export redacts the chain's free-text `result`** — `loom auth export` never exports the raw `result` string. It is normalised to `granted` / `denied` / `other` and the entry is flagged `redacted: true` (the export counts these in `redaction.redacted_entries`). The raw field is the only place a caller can put arbitrary content into the chain, so it never leaves the machine. The chain hash covers the *normalised* outcome for the same reason — that is what makes the exported chain re-derivable by a consumer. An export is signed with a per-machine Ed25519 key (`<loom-dir>/auth/export-signing.key`, separate from the vault key): `loom auth verify <file>` without `--public-key` reports `unanchored` (self-consistent only), with it reports `intact` or `tampered`.
 
 ## TUI Architecture
 
