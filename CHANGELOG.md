@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - docs(protocol): versioned **Loom Public Protocol** spec v1.0.0 — the adapter contract (tool TOML shape, `LoomToolAdapter` trait) and the ACP dispatch protocol, every normative statement anchored to a source line: [`docs/protocol/adapter-and-acp-protocol.md`](docs/protocol/adapter-and-acp-protocol.md)
+- docs(protocol): the spec now also covers the **ACP dispatch server** (the TCP/Ed25519/JSON-line agent-to-agent dispatch surface in `loom-sessions` + `loomd`, §2.9), the `apply_routing_decision` environment-variable convention and its read-back rule (§1.1), the `adapter_for` name aliases, and the `acp_registry` gitlink caveat
+- test(loom-generic-adapter): the tool TOML example published in the protocol spec is parsed by a test, so the document and the schema cannot drift apart
 
 ## [0.9.6] - 2026-10-20
 
