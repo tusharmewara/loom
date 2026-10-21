@@ -34,6 +34,7 @@ loom-rules = { path = "../loom-rules" }
 loom-conflict = { path = "../loom-conflict" }
 loom-ast = { path = "../loom-ast" }
 loom-runtime = { path = "../loom-runtime" }
+loom-telemetry = { path = "../loom-telemetry" }
 loom-tui = { path = "../loom-tui", optional = true }
 clap.workspace = true
 clap_complete.workspace = true

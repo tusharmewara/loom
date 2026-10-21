@@ -588,6 +588,247 @@ pub struct CostEstimate {
     pub output_tokens_estimated: u32,
     pub estimated_cost_usd: f64,
     pub confidence: String,
+    /// Provenance of the numbers above. A routing decision is taken before the
+    /// run, so this is an estimate or unavailable — never a measurement.
+    #[serde(default)]
+    pub source: UsageSource,
+    /// How the estimate was derived ("chars/4"). Empty when unavailable.
+    #[serde(default)]
+    pub method: String,
+}
+
+impl CostEstimate {
+    /// Estimate the tokens and cost of a prompt of `chars` characters.
+    ///
+    /// Method: `chars/4` for the input (about four characters per token) and
+    /// a quarter of that for the output. The result is an ESTIMATE — `source`
+    /// says so, and a measurement is never stored here.
+    pub fn estimated(
+        chars: usize,
+        input_cost_per_1k: f64,
+        output_cost_per_1k: f64,
+        confidence: &str,
+    ) -> Self {
+        let Some(input) = estimate_tokens(chars) else {
+            return Self {
+                confidence: confidence.to_string(),
+                source: UsageSource::Unavailable,
+                method: String::new(),
+                ..Default::default()
+            };
+        };
+        let output = ((input as f64) / 4.0).ceil() as u32;
+        Self {
+            input_tokens_estimated: input.min(u32::MAX as u64) as u32,
+            output_tokens_estimated: output,
+            estimated_cost_usd: (input as f64 / 1000.0) * input_cost_per_1k
+                + (output as f64 / 1000.0) * output_cost_per_1k,
+            confidence: confidence.to_string(),
+            source: UsageSource::Estimated,
+            method: "chars/4".to_string(),
+        }
+    }
+}
+
+// ─── Usage metering ─────────────────────────────────────────────────
+
+/// Where a token or cost number came from.
+///
+/// `Measured` — the provider or protocol reported it.
+/// `Estimated` — a documented heuristic produced it.
+/// `Unavailable` — no count exists. A row that says `Unavailable` never
+/// carries a placeholder count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum UsageSource {
+    Measured,
+    Estimated,
+    #[default]
+    Unavailable,
+}
+
+impl UsageSource {
+    /// The storage/wire form of this provenance.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            UsageSource::Measured => "measured",
+            UsageSource::Estimated => "estimated",
+            UsageSource::Unavailable => "unavailable",
+        }
+    }
+
+    /// Parse the storage/wire form. Anything unknown reads as `Unavailable`.
+    pub fn from_str_lossy(value: &str) -> Self {
+        match value {
+            "measured" => UsageSource::Measured,
+            "estimated" => UsageSource::Estimated,
+            _ => UsageSource::Unavailable,
+        }
+    }
+}
+
+/// Rough token count for a prompt of `chars` characters: about four
+/// characters per token. `None` for an empty prompt — no text means no
+/// estimate, not zero.
+pub fn estimate_tokens(chars: usize) -> Option<u64> {
+    if chars == 0 {
+        return None;
+    }
+    Some(((chars as f64) / 4.0).ceil() as u64)
+}
+
+/// The counts a source reported for one run. `None` = the source reported
+/// no count — never a placeholder, never a silently substituted zero.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct UsageCounts {
+    /// Input tokens consumed.
+    pub input_tokens: Option<u64>,
+    /// Output tokens produced.
+    pub output_tokens: Option<u64>,
+    /// Context-window usage in tokens (ACP `usage_update.used`). Not a turn
+    /// count.
+    pub context_tokens: Option<u64>,
+    /// Cost in USD, as reported by the source.
+    pub cost_usd: Option<f64>,
+}
+
+/// Cost in USD of a measured token count at the given per-1k prices.
+///
+/// `None` when either token count is missing: a cost needs both legs, and a
+/// half-cost is a lie.
+pub fn measured_cost_usd(
+    input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+    input_cost_per_1k: f64,
+    output_cost_per_1k: f64,
+) -> Option<f64> {
+    let input = input_tokens?;
+    let output = output_tokens?;
+    Some(
+        (input as f64 / 1000.0) * input_cost_per_1k + (output as f64 / 1000.0) * output_cost_per_1k,
+    )
+}
+
+/// One metered run: what a run cost, and where the numbers came from.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UsageRecord {
+    /// When the run was recorded (RFC3339, UTC).
+    pub recorded_at: String,
+    /// Identifies the run.
+    pub run_id: String,
+    /// The tool that produced the run ("resume", "acp", ...).
+    pub tool: String,
+    /// The model or agent that served it.
+    pub model: String,
+    /// Provenance of the counts below.
+    pub source: UsageSource,
+    /// Where the numbers came from ("provider", "acp:prompt-usage", ...).
+    pub method: String,
+    /// Input tokens actually consumed. `None` = the source reported no count.
+    pub input_tokens: Option<u64>,
+    /// Output tokens actually consumed. `None` = the source reported no count.
+    pub output_tokens: Option<u64>,
+    /// Context-window size in tokens (ACP `usage_update`). Not a turn count.
+    pub context_tokens: Option<u64>,
+    /// Cost in USD. `None` = neither reported nor computable from a price.
+    pub cost_usd: Option<f64>,
+    /// Forecast input tokens for the same run. Always an estimate.
+    pub est_input_tokens: Option<u64>,
+    /// Forecast output tokens for the same run. Always an estimate.
+    pub est_output_tokens: Option<u64>,
+    /// Forecast cost in USD for the same run. Always an estimate.
+    pub est_cost_usd: Option<f64>,
+}
+
+impl UsageRecord {
+    /// A run whose source reported real token counts.
+    pub fn measured(
+        run_id: &str,
+        tool: &str,
+        model: &str,
+        input: u64,
+        output: u64,
+        method: &str,
+    ) -> Self {
+        Self {
+            recorded_at: crate::rfc3339_now(),
+            run_id: run_id.to_string(),
+            tool: tool.to_string(),
+            model: model.to_string(),
+            source: UsageSource::Measured,
+            method: method.to_string(),
+            input_tokens: Some(input),
+            output_tokens: Some(output),
+            ..Default::default()
+        }
+    }
+
+    /// A run whose source reported no usage at all. No counts are invented.
+    pub fn unavailable(run_id: &str, tool: &str, model: &str) -> Self {
+        Self {
+            recorded_at: crate::rfc3339_now(),
+            run_id: run_id.to_string(),
+            tool: tool.to_string(),
+            model: model.to_string(),
+            source: UsageSource::Unavailable,
+            ..Default::default()
+        }
+    }
+
+    /// A run built from whatever counts the source reported.
+    ///
+    /// `Measured` when the source reported any usage figure at all;
+    /// `Unavailable` when it reported nothing. Legs the source did not
+    /// report stay `None` — a context-window size is not a turn count, so
+    /// it is never promoted to `input_tokens`/`output_tokens`.
+    pub fn from_counts(
+        run_id: &str,
+        tool: &str,
+        model: &str,
+        counts: UsageCounts,
+        method: &str,
+    ) -> Self {
+        let reported = counts.input_tokens.is_some()
+            || counts.output_tokens.is_some()
+            || counts.context_tokens.is_some()
+            || counts.cost_usd.is_some();
+        Self {
+            recorded_at: crate::rfc3339_now(),
+            run_id: run_id.to_string(),
+            tool: tool.to_string(),
+            model: model.to_string(),
+            source: if reported {
+                UsageSource::Measured
+            } else {
+                UsageSource::Unavailable
+            },
+            method: method.to_string(),
+            input_tokens: counts.input_tokens,
+            output_tokens: counts.output_tokens,
+            context_tokens: counts.context_tokens,
+            cost_usd: counts.cost_usd,
+            ..Default::default()
+        }
+    }
+
+    /// Attach the `chars/4` forecast for the prompt this run was given.
+    /// `prices` is (input_cost_per_1k, output_cost_per_1k); without it the
+    /// forecast stays in tokens and no cost is invented.
+    pub fn with_estimate(mut self, prompt_chars: usize, prices: Option<(f64, f64)>) -> Self {
+        let Some(input) = estimate_tokens(prompt_chars) else {
+            return self;
+        };
+        let output = ((input as f64) / 4.0).ceil() as u64;
+        self.est_input_tokens = Some(input);
+        self.est_output_tokens = Some(output);
+        if let Some((input_cost_per_1k, output_cost_per_1k)) = prices {
+            self.est_cost_usd = Some(
+                (input as f64 / 1000.0) * input_cost_per_1k
+                    + (output as f64 / 1000.0) * output_cost_per_1k,
+            );
+        }
+        self
+    }
 }
 
 // ─── Model Catalog ──────────────────────────────────────────────────
@@ -596,6 +837,30 @@ pub struct CostEstimate {
 pub struct ModelCatalog {
     #[serde(default)]
     pub models: Vec<ModelEntry>,
+}
+
+impl ModelCatalog {
+    /// (input_cost_per_1k, output_cost_per_1k) for a model id, if the
+    /// catalog knows it. Used to price a measured token count.
+    ///
+    /// Falls back to a prefix match so a dated model id
+    /// ("claude-sonnet-4-20250514") finds its family entry
+    /// ("claude-sonnet-4").
+    pub fn prices_for(&self, model_id: &str) -> Option<(f64, f64)> {
+        let exact = self
+            .models
+            .iter()
+            .find(|m| m.model_id == model_id)
+            .map(|m| (m.input_cost_per_1k, m.output_cost_per_1k));
+        if exact.is_some() {
+            return exact;
+        }
+        self.models
+            .iter()
+            .filter(|m| model_id.starts_with(m.model_id.as_str()))
+            .max_by_key(|m| m.model_id.len())
+            .map(|m| (m.input_cost_per_1k, m.output_cost_per_1k))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

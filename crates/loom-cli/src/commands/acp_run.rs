@@ -3,6 +3,7 @@
 
 use loom_sessions::acp_launch::{ensure_runnable, resolve};
 use loom_sessions::acp_protocol::{build_acp_session, AcpClientConfig, AcpProtocolClient};
+use loom_telemetry::UsageMeter;
 use std::path::Path;
 
 /// Run one prompt turn against a canonical ACP agent and persist the
@@ -139,6 +140,33 @@ async fn run_acp_prompt_direct(
         }
     }
 
+    // Meter the run. The agent's own report is the only source of truth
+    // here; an agent that reports no usage is recorded as unavailable, not
+    // as a guessed count. No catalog price: the ACP agent name is not a
+    // model id, so a cost is only ever the agent's own number.
+    let usage_record = UsageMeter::new(loom_dir_str)
+        .and_then(|meter| {
+            meter.record_run(
+                &manifest.session_id,
+                "acp",
+                &agent_name,
+                transcript.usage,
+                &transcript.usage_method,
+                prompt.chars().count(),
+                None,
+            )
+        })
+        .ok();
+    if let Some(record) = &usage_record {
+        match (record.input_tokens, record.output_tokens) {
+            (Some(input), Some(output)) => {
+                eprintln!("  Tokens: {input} in / {output} out [measured]");
+            }
+            _ => {
+                eprintln!("  Tokens: not reported by the agent [unavailable]");
+            }        }
+    }
+
     if json_output {
         println!(
             "{}",
@@ -147,6 +175,7 @@ async fn run_acp_prompt_direct(
                 "agent_session_id": transcript.session_id,
                 "stop_reason": transcript.stop_reason,
                 "tool_calls": transcript.tool_calls,
+                "usage": usage_record,
             }))?
         );
         return Ok(());

@@ -209,10 +209,11 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
                 );
                 println!("  Tier: {:?}", decision.recommended_tier);
                 println!(
-                    "  Cost: ${:.4} ({} input, {} output tokens)",
+                    "  Cost: ${:.4} ({} input, {} output tokens) [{}]",
                     decision.cost_estimate.estimated_cost_usd,
                     decision.cost_estimate.input_tokens_estimated,
-                    decision.cost_estimate.output_tokens_estimated
+                    decision.cost_estimate.output_tokens_estimated,
+                    decision.cost_estimate.source.as_str(),
                 );
             }
         }
@@ -291,7 +292,11 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
                 );
                 println!("  Tier: {:?}", decision.recommended_tier);
                 println!("  Reason: {}", decision.reason);
-                println!("  Cost: ${:.4}", decision.cost_estimate.estimated_cost_usd);
+                println!(
+                    "  Cost: ${:.4} [{}]",
+                    decision.cost_estimate.estimated_cost_usd,
+                    decision.cost_estimate.source.as_str(),
+                );
             }
         }
         RoutingAction::Override {
@@ -317,10 +322,14 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
                 .ok_or_else(|| anyhow::anyhow!("No model available for tier {:?}", forced_tier))?;
 
             let now = chrono::Utc::now().to_rfc3339();
-            let input_tokens = 1000u32;
-            let output_tokens = 500u32;
-            let cost = (input_tokens as f64 / 1000.0) * model.input_cost_per_1k
-                + (output_tokens as f64 / 1000.0) * model.output_cost_per_1k;
+            // The override still forecasts from the task's prompt size, so
+            // the estimate is comparable with the decision it replaces.
+            let cost_estimate = loom_core::types::CostEstimate::estimated(
+                task.description.chars().count(),
+                model.input_cost_per_1k,
+                model.output_cost_per_1k,
+                "manual",
+            );
 
             let decision = RoutingDecision {
                 recommended_tier: forced_tier,
@@ -331,12 +340,7 @@ pub async fn run(loom_dir: &Path, action: &RoutingAction) -> anyhow::Result<()> 
                     .unwrap_or_else(|| format!("Manual override to {:?}", forced_tier)),
                 overrides_role_default: true,
                 decided_at: now.clone(),
-                cost_estimate: loom_core::types::CostEstimate {
-                    input_tokens_estimated: input_tokens,
-                    output_tokens_estimated: output_tokens,
-                    estimated_cost_usd: cost,
-                    confidence: "manual".into(),
-                },
+                cost_estimate,
             };
 
             // Tier the heuristic picked, before the override replaces it —

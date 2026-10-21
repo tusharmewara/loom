@@ -229,11 +229,46 @@ pub async fn resume_session(
         let response = send_to_provider(&provider, &model, &api_key, &all_messages).await?;
 
         println!("\n{}", response.text);
-        if response.input_tokens > 0 || response.output_tokens > 0 {
-            println!(
-                "\n[Tokens: {} in / {} out]",
-                response.input_tokens, response.output_tokens
+        match (response.input_tokens, response.output_tokens) {
+            (Some(input), Some(output)) => {
+                println!("\n[Tokens: {input} in / {output} out]");
+            }
+            _ => {
+                // The provider reported no usage. Say so — do not print zeros
+                // that read like a real measurement.
+                println!("\n[Tokens: not reported by provider]");
+            }
+        }
+
+        // Meter the turn. The provider's own report is the only source of
+        // truth; a provider that reports nothing is recorded as
+        // unavailable, not as a guessed count.
+        let usage = loom_core::UsageCounts {
+            input_tokens: response.input_tokens,
+            output_tokens: response.output_tokens,
+            context_tokens: None,
+            cost_usd: None,
+        };
+        let prompt_chars = all_messages
+            .iter()
+            .map(|m| m["content"].as_str().unwrap_or("").chars().count())
+            .sum();
+        let prices = loom_routing::CatalogManager::load(loom_dir_str)
+            .ok()
+            .and_then(|catalog| catalog.prices_for(&model));
+        if let Ok(meter) = loom_telemetry::UsageMeter::new(loom_dir_str) {
+            let recorded = meter.record_run(
+                &format!("{session_id}-turn-{}", all_messages.len()),
+                "resume",
+                &model,
+                usage,
+                "provider",
+                prompt_chars,
+                prices,
             );
+            if let Err(e) = &recorded {
+                eprintln!("  Warning: usage not recorded: {e}");
+            }
         }
 
         all_messages.push(serde_json::json!({
@@ -444,8 +479,11 @@ fn resolve_model(
 
 struct ProviderResponse {
     text: String,
-    input_tokens: u64,
-    output_tokens: u64,
+    /// Input tokens the provider reported. `None` = the provider reported
+    /// no usage — which is not the same as a real zero.
+    input_tokens: Option<u64>,
+    /// Output tokens the provider reported. `None` = not reported.
+    output_tokens: Option<u64>,
 }
 
 fn default_model(provider: &str) -> &'static str {
@@ -549,8 +587,9 @@ async fn send_openai_compatible(
         .to_string();
 
     let usage = &resp["usage"];
-    let input_tokens = usage["prompt_tokens"].as_u64().unwrap_or(0);
-    let output_tokens = usage["completion_tokens"].as_u64().unwrap_or(0);
+    // A provider that omits `usage` reported nothing — `None`, not 0.
+    let input_tokens = usage["prompt_tokens"].as_u64();
+    let output_tokens = usage["completion_tokens"].as_u64();
 
     Ok(ProviderResponse {
         text,
@@ -611,8 +650,8 @@ async fn send_anthropic(
         .to_string();
 
     let usage = &resp["usage"];
-    let input_tokens = usage["input_tokens"].as_u64().unwrap_or(0);
-    let output_tokens = usage["output_tokens"].as_u64().unwrap_or(0);
+    let input_tokens = usage["input_tokens"].as_u64();
+    let output_tokens = usage["output_tokens"].as_u64();
 
     Ok(ProviderResponse {
         text,

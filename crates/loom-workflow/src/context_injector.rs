@@ -26,10 +26,16 @@ pub fn inject_routing_context(task: &ComplexityScore, decision: &RoutingDecision
 
     write!(
         ctx,
-        "Estimated tokens: {} input / {} output\nEstimated cost: ${:.3f}\n",
+        "Estimated tokens: {} input / {} output\nEstimated cost: ${:.3f} ({} estimate, method: {})\n",
         decision.cost_estimate.input_tokens_estimated,
         decision.cost_estimate.output_tokens_estimated,
-        decision.cost_estimate.estimated_cost_usd
+        decision.cost_estimate.estimated_cost_usd,
+        decision.cost_estimate.source.as_str(),
+        if decision.cost_estimate.method.is_empty() {
+            "n/a"
+        } else {
+            &decision.cost_estimate.method
+        }
     )
     .unwrap();
 
@@ -89,6 +95,8 @@ mod tests {
                 output_tokens_estimated: 5000,
                 estimated_cost_usd: 0.60,
                 confidence: "high".to_string(),
+                source: loom_core::UsageSource::Estimated,
+                method: "chars/4".to_string(),
             },
         }
     }
@@ -103,5 +111,8 @@ mod tests {
         assert!(ctx.contains("anthropic"));
         assert!(ctx.contains("$0.600"));
         assert!(ctx.contains("cross-module refactor"));
+        // The number says what it is.
+        assert!(ctx.contains("estimated estimate"));
+        assert!(ctx.contains("chars/4"));
     }
 }

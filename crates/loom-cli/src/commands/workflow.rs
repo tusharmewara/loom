@@ -9,6 +9,43 @@ use loom_workflow::WorkflowEngine;
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Record one workflow dispatch in the usage ledger.
+///
+/// The dispatched agent is an external process: it reports no token count,
+/// so the run is recorded as `unavailable` with the `chars/4` forecast
+/// stored beside it. The forecast is never presented as a measurement.
+fn record_dispatch_usage(
+    loom_dir: &str,
+    task_id: &str,
+    phase_name: &str,
+    agent: &str,
+    task: &loom_core::Task,
+    prompt: &str,
+) {
+    let Ok(meter) = loom_telemetry::UsageMeter::new(loom_dir) else {
+        return;
+    };
+    let model = task
+        .routing_decision
+        .as_ref()
+        .map(|rd| rd.recommended_model.clone())
+        .unwrap_or_else(|| agent.to_string());
+    let prices = loom_routing::CatalogManager::load(loom_dir)
+        .ok()
+        .and_then(|catalog| catalog.prices_for(&model));
+    if let Err(e) = meter.record_run(
+        &format!("{task_id}-{phase_name}"),
+        "workflow",
+        &model,
+        loom_core::UsageCounts::default(),
+        "no-report",
+        prompt.chars().count(),
+        prices,
+    ) {
+        eprintln!("⚠  Could not record usage for dispatch: {e}");
+    }
+}
+
 pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()> {
     let loom_dir_str = loom_dir.to_str().unwrap();
     let engine = WorkflowEngine::new(loom_dir_str);
@@ -577,6 +614,11 @@ async fn run_dispatch(
                 phase_name
             );
         }
+
+        // Meter the dispatch. The agent is an external process that reports
+        // no token count, so the run is recorded as unavailable — the
+        // forecast leg is stored beside it, clearly labelled.
+        record_dispatch_usage(loom_dir_str, task_id, &phase_name, &current_agent, &current_task, &prompt_for_capture);
 
         // Capture this dispatch as a session, unless the user opted
         // out. This is what makes the dispatch loop *visible* to

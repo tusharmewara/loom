@@ -237,6 +237,24 @@ pub fn dispatch_acp_protocol(
         registry.complete_run(&run_id, 0, Some(manifest.session_id.clone()));
     }
 
+    // Meter the run. The agent's own report is the only source of truth;
+    // an agent that reports no usage is recorded as unavailable.
+    // No catalog prices here: loomd does not depend on loom-routing, and the
+    // ACP agent reports its own cost anyway.
+    if let Ok(meter) = loom_telemetry::UsageMeter::new(loom_dir_str) {
+        if let Err(e) = meter.record_run(
+            &manifest.session_id,
+            "acp",
+            agent_id,
+            transcript.usage,
+            &transcript.usage_method,
+            prompt.chars().count(),
+            None,
+        ) {
+            tracing::warn!("ACP dispatch: usage not recorded: {}", e);
+        }
+    }
+
     Ok(serde_json::json!({
         "dispatched": true,
         "session_id": manifest.session_id,
