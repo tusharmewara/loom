@@ -1,6 +1,6 @@
 # Loom Improvement Backlog
 
-*Reconciled 2026-10-10 against [ROADMAP.md](../ROADMAP.md). Direction and sequencing live in the roadmap; this file is the feature-level backlog inventory.*
+*Reconciled 2026-10-10 against [ROADMAP.md](../ROADMAP.md); open items re-verified against the code 2026-10-21. Direction and sequencing live in the roadmap; this file is the feature-level backlog inventory.*
 
 The original June 2026 planning document (phases 1–5, sourced from the Emdash/Kasetto/Trellis/Oh-My-Pi analyses) was executed to completion — scoring tables, week-by-week milestones, and per-item implementation notes are preserved in git history (last full revision: 2026-06-07).
 
@@ -20,10 +20,10 @@ Verification (2026-10-10): stub-marker scan of `loom-lsp`/`loom-debug`/`loom-ast
 ### Pillar 1 — Harden the Core
 
 - Daemon lifecycle: ~~single-instance lock (not socket-file existence)~~, ~~stale-socket recovery~~, ~~CLI↔daemon version handshake~~ — all landed in v0.9.6. Also landed: ~~SIGTERM handling~~ (loomd now handles SIGTERM/SIGHUP and cleans up its socket) and ~~the service unit owning the lifecycle~~ (idle timeout configurable via `LOOM_IDLE_TIMEOUT_MS`, `0` disables it; the unit sets it and restarts only on a crash). And the ownership is enforced end to end: `loom daemon start`/`stop` route through the installed unit instead of spawning a competing daemon, `install-service` stops a manual daemon first so the unit can take the lock, and `daemon status` reports the supervisor.
-- IPC protocol: ~~versioned envelope~~, ~~request timeouts~~ — landed in v0.9.6. Panic isolation is already implemented (`crates/loom-ipc/src/server.rs`).
+- IPC protocol: ~~versioned envelope~~, ~~request timeouts~~ — landed in v0.9.6. Panic isolation is already implemented (`crates/loom-ipc/src/server.rs`). Still open: connection-backoff guidance for the CLI — the IPC client path has no retry or backoff at all (`crates/loom-ipc/src/client.rs` only wraps the request in a timeout).
 - Finish-or-delete sweep: ~~`loomd/src/snapshot_builder.rs` orphan (never declared in lib.rs)~~ — deleted in v0.9.6. Still open: end-to-end runtime verification of the embedded-pane dispatch path.
 - Release automation: ~~one-command release (version → changelog → tag → CI → bottles dispatch with version input)~~ — landed in v0.9.6 as `scripts/release.sh <version>`; the bottles workflow now validates the dispatched version against `Cargo.toml`.
-- Daemon-lifecycle integration tests: restart races, socket contention, version skew.
+- ~~Daemon-lifecycle integration tests: restart races, socket contention, version skew~~ — landed in v0.9.6 as `crates/loomd/tests/daemon_lifecycle.rs`, which drives the real `loomd` binary against a throwaway ecosystem dir: the daemon serves IPC and reports its version, a second daemon refuses to start instead of stealing the live socket, SIGTERM stops the daemon and releases the lock, and a stale socket left by a crashed daemon does not block a new one.
 - Docs coherence: ~~README/STATUS/VISION drift (subcommand counts, clone URLs, stale sections) reconciled into one truth~~ — done in v0.9.6.
 
 ### Pillar 3 — Ecosystem & Protocol
@@ -33,6 +33,8 @@ Verification (2026-10-10): stub-marker scan of `loom-lsp`/`loom-debug`/`loom-ast
 ### Pillar 1 (candidate slice) — Skill inventory + validation + trigger generation (spec: [plan/LOOM_SKILL_VALIDATION_PROPOSAL.md](plan/LOOM_SKILL_VALIDATION_PROPOSAL.md))
 
 Cut from the Harness² analysis after review ([LOOM_HARNESS2_ANALYSIS.md](LOOM_HARNESS2_ANALYSIS.md) §7, §12). Two defects, one slice. *Inventory:* `loom skills list` returns `[]` and `loom lock --generate` writes zero entries while 11 skills are installed — the registry is never populated. *Validation:* a skill with no `description:` frontmatter is installed, synced into every native tool directory, and **silently ignored by the agent** while Loom reports success. The validator is a plain function (upstream's shape), not a schema and not a rules engine.
+
+*Status 2026-10-21: still open on `main` — nothing below has landed. `crates/loom-skills/src/scan.rs` and `trigger.rs` do not exist on `main`; they exist only on the unmerged `phase-a/*` branches. The bullets below are the proposed shape, not shipped code.*
 
 - `crates/loom-skills/src/scan.rs` — one walk over `~/.loom/skills/` handling both layouts (`<name>/SKILL.md` and flat `<name>.md`); parses frontmatter; `validate_skill_tree(dir) -> Vec<SkillDefect>`; rules: missing `description:` (fatal), `name:` mismatch (fatal in dir layout, warn in flat layout), unparseable frontmatter (fatal), missing referenced script (fatal), duplicate flat/dir pair (warn).
 - `crates/loom-skills/src/trigger.rs` — one trigger line per skill, deterministic order, cap enforced by dropping **and reporting** the untriggered skills. The cue is the **parsed** YAML value, not upstream's regex.
@@ -58,9 +60,15 @@ Cut from the Harness² analysis after review ([LOOM_HARNESS2_ANALYSIS.md](LOOM_H
 - More preset adapters / tracker backends — demand-driven; `GenericAdapter` TOML + `IssueTracker` trait are the escape hatches.
 - **Self-evolving shared harness** — Loom editing the *scaffolding* (skills, tool guidance, trigger sets) rather than only the code, using the Harness² propose→probe→compose loop. Analysis in [LOOM_HARNESS2_ANALYSIS.md](LOOM_HARNESS2_ANALYSIS.md) §11. Not a new pillar: it is pillar 5 with the edit target widened from code to the always-on surface, and pillar 5 supplies the outcome signal it needs (so the probe loop is *downstream* of pillar 5, not parallel). Two decisions are open before it can enter a pillar: **(a) shared layer vs one tool's prompt** — shared is the answer Loom's north star gives, and it is the one upstream cannot give; **(b) the security obligation** — who may write a surface, what is signed (Ed25519, as the plugin registry does), and what the audit log records, because a self-modifying surface is a pillar-2 item by nature. Needs an owner and a use case first; the cheap entry point is the contrast experiment in [LOOM_HARNESS2_ANALYSIS.md](LOOM_HARNESS2_ANALYSIS.md) §7 Phase B.
 
-### Code debt — routing (2026-10 review; details in [routing-debt.md](routing-debt.md))
+### Code debt — routing (2026-10 review; **closed 2026-10-21** — record kept in [routing-debt.md](routing-debt.md))
 
-- Six verified routing debts to close: level-vs-tier threshold governance (duplicated derivation), Supplement spec divergences, missing tests (routing_hook.py / user_override / keyword-gaming), CJK byte-vs-char scoring, install-from-URL plain HTTP + optional signatures, outcome telemetry. Includes the decision-model review record (Jev/Laya/Microsoft-Decision-1/Prism: NO for core, flip conditions listed).
+- ~~Six verified routing debts to close~~ — **all six closed.** The review record in [routing-debt.md](routing-debt.md) is now a closed historical record, not live work; the decision-model review (Jev/Laya/Microsoft-Decision-1/Prism: NO for core, with its flip conditions) is unchanged:
+  - ~~level-vs-tier threshold governance (duplicated derivation)~~ — one `derive_level`/`derive_tier` pair in `crates/loom-core/src/types.rs:175,188`, routed through by all four former duplicate sites: `crates/loom-routing/src/router.rs:37`, `crates/loom-workflow/src/task_manager.rs:246,405`, `crates/loom-cli/src/commands/routing.rs:179,230`.
+  - ~~Supplement spec divergences~~ — `planning/Intelligent_Task_Routing_Supplement.md` re-synced to the shipped constants (keyword weight 0.35, description-length divisor 2000, the 0.35/0.7 level bands, `[routing.complexity_thresholds]`).
+  - ~~missing tests (routing_hook.py / user_override / keyword-gaming)~~ — 7 contract tests in `packages/routing-hook/scripts/test_routing_hook.py`; `user_override` pinned at `crates/loom-routing/src/scorer.rs:322`; the keyword-gaming ceiling pinned at `crates/loom-routing/src/scorer.rs:344`.
+  - ~~CJK byte-vs-char scoring~~ — `crates/loom-routing/src/scorer.rs:83` counts chars, with the parity test at `crates/loom-routing/src/scorer.rs:291`.
+  - ~~install-from-URL plain HTTP + optional signatures~~ — `validate_https_url` (`crates/loom-core/src/plugin_registry.rs:9`, tests at `:345,:357`) plus the `require_signature` config flag (`crates/loom-core/src/types.rs:43`) honoured by `crates/loom-cli/src/commands/plugin.rs:112` and `crates/loom-hooks/src/lib.rs:190`.
+  - ~~outcome telemetry~~ — `RoutingOutcomeStore` (`crates/loom-routing/src/outcomes.rs:35`), wired at `crates/loom-workflow/src/task_manager.rs:53,63` and `crates/loom-cli/src/commands/routing.rs:363,386`.
 
 ## Known quirks — deliberate, not bugs
 
