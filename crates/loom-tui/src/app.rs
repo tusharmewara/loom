@@ -2056,8 +2056,7 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755))
-                .expect("chmod");
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).expect("chmod");
         }
         (bin, dir)
     }
@@ -2080,10 +2079,9 @@ mod tests {
 
         let mut rx = app.embedded_log_rx.take().expect("log receiver installed");
         let mut lines = Vec::new();
-        while let Some(line) =
-            tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
-                .await
-                .expect("output line in time")
+        while let Some(line) = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+            .await
+            .expect("output line in time")
         {
             lines.push(line);
             if lines.len() >= 2 {

@@ -21,21 +21,17 @@ pub async fn run(loom_dir: &str, json: bool) -> Result<()> {
     // daemon start — but the same cause-and-remedy advice as every other
     // command.
     let socket_path = format!("{loom_dir}/{DAEMON_SOCKET}");
-    let (daemon_ok, daemon_status, daemon_error, daemon_data) = match crate::ipc_client::probe_daemon(
-        agents_path,
-        IpcRequest::new("health.check"),
-    )
-    .await
-    {
-        Ok(resp) if resp.status == "ok" => (true, resp.status, None, resp.data),
-        Ok(resp) => (false, resp.status, resp.error, resp.data),
-        Err(e) => (
-            false,
-            "unreachable".into(),
-            Some(crate::ipc_client::stale_socket_advice(&e.to_string()).to_string()),
-            None,
-        ),
-    };
+    let (daemon_ok, daemon_status, daemon_error, daemon_data) =
+        match crate::ipc_client::probe_daemon(agents_path, IpcRequest::new("health.check")).await {
+            Ok(resp) if resp.status == "ok" => (true, resp.status, None, resp.data),
+            Ok(resp) => (false, resp.status, resp.error, resp.data),
+            Err(e) => (
+                false,
+                "unreachable".into(),
+                Some(crate::ipc_client::stale_socket_advice(&e.to_string()).to_string()),
+                None,
+            ),
+        };
 
     // ── Live resource counts (source of truth, not snapshot) ─────
     let engine = DiscoveryEngine::new(loom_dir);

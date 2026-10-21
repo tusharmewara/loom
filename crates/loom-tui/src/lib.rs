@@ -178,8 +178,7 @@ async fn run_loop(
                             // Dispatcher: `App::dispatch_embedded_pane` owns
                             // that path, the TUI just shows its result.
                             if app.dispatch_menu_selected == 2 {
-                                app.last_action_result =
-                                    Some(app.dispatch_embedded_pane().await);
+                                app.last_action_result = Some(app.dispatch_embedded_pane().await);
                             } else {
                                 let dispatchers: Vec<Box<dyn crate::dispatch::Dispatcher>> = vec![
                                     Box::new(crate::dispatch::TerminalLaunch),
@@ -208,12 +207,11 @@ async fn run_loop(
                                 };
                                 if let Some(task) = app.selected_task().cloned() {
                                     let result = dispatchers[index].dispatch(&task);
-                                    app.last_action_result =
-                                        Some(crate::adapter::CommandResult {
-                                            action: dispatchers[index].name().to_string(),
-                                            success: result.success,
-                                            message: result.message,
-                                        });
+                                    app.last_action_result = Some(crate::adapter::CommandResult {
+                                        action: dispatchers[index].name().to_string(),
+                                        success: result.success,
+                                        message: result.message,
+                                    });
                                 }
                             }
                             app.close_dispatch_menu();
@@ -260,8 +258,7 @@ async fn run_loop(
                             app.dispatch_menu_selected = 2;
                             // Single owner: `App::dispatch_embedded_pane`
                             // spawns the dispatch and wires the pane state.
-                            app.last_action_result =
-                                Some(app.dispatch_embedded_pane().await);
+                            app.last_action_result = Some(app.dispatch_embedded_pane().await);
                             app.close_dispatch_menu();
                         }
                         KeyCode::Char('r') => {

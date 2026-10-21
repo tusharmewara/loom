@@ -75,9 +75,7 @@ pub async fn connect_with_backoff(
         match timeout(CONNECT_ATTEMPT_TIMEOUT, UnixStream::connect(socket_path)).await {
             Ok(Ok(stream)) => return Ok(stream),
             Ok(Err(e)) => last_error = e.to_string(),
-            Err(_) => {
-                last_error = format!("connect timed out after {:?}", CONNECT_ATTEMPT_TIMEOUT)
-            }
+            Err(_) => last_error = format!("connect timed out after {:?}", CONNECT_ATTEMPT_TIMEOUT),
         }
         if attempt < attempts {
             tokio::time::sleep(delay).await;
