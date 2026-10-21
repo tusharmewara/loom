@@ -241,8 +241,9 @@ pub fn dispatch_acp_protocol(
     // an agent that reports no usage is recorded as unavailable.
     // No catalog prices here: loomd does not depend on loom-routing, and the
     // ACP agent reports its own cost anyway.
+    let mut usage_record = None;
     if let Ok(meter) = loom_telemetry::UsageMeter::new(loom_dir_str) {
-        if let Err(e) = meter.record_run(
+        match meter.record_run(
             &manifest.session_id,
             "acp",
             agent_id,
@@ -251,7 +252,8 @@ pub fn dispatch_acp_protocol(
             prompt.chars().count(),
             None,
         ) {
-            tracing::warn!("ACP dispatch: usage not recorded: {}", e);
+            Ok(record) => usage_record = Some(record),
+            Err(e) => tracing::warn!("ACP dispatch: usage not recorded: {}", e),
         }
     }
 
@@ -262,6 +264,9 @@ pub fn dispatch_acp_protocol(
         "stop_reason": transcript.stop_reason,
         "tool_calls": transcript.tool_calls,
         "run_id": run_id,
+        // Same surface as the CLI path (`loom acp run --json`): the caller
+        // sees the metered usage instead of having to read the ledger.
+        "usage": usage_record,
     }))
 }
 

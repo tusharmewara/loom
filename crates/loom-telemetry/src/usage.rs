@@ -13,6 +13,34 @@
 //! row with `unavailable` carries no counts at all — no placeholder, no
 //! zero standing in for a real zero.
 //!
+//! A row is `measured` when the source reported *something* — a token
+//! count, a context-window size, or a cost. Those are three different
+//! facts, and the ledger keeps them apart: a run that reported only a
+//! cost is `measured` but reported no token count, so the token sums
+//! over it stay `None` ("unavailable"), never `0`. Only a run whose
+//! source reported an input or output count counts toward
+//! `measured_runs`.
+//!
+//! # What is metered today
+//!
+//! Measured now: `resume` (provider usage), `acp` (protocol usage),
+//! `knowledge-extract` (provider usage). `workflow` is recorded with
+//! source `unavailable` — it is in the ledger, but it carries no count.
+//!
+//! **Not** metered yet: `loom exec`, the TUI dispatch path
+//! (`loom-tui/src/dispatch.rs`), the TUI Cost tab
+//! (`loom-tui/src/ui/tabs/cost.rs`), and multi-turn session cost. The
+//! ledger does not pretend to cover them — an absent row is not a
+//! zero-cost run.
+//!
+//! # Estimators
+//!
+//! The forecast leg (`est_*`) uses `loom_core::estimate_tokens` — a
+//! `chars/4` ceiling over the prompt. A second, different `chars/4`
+//! estimator exists in `loom-sessions/src/compression.rs` (per-message
+//! `(len+4)/4`, floored, summed); it sizes context for compression, not
+//! for this ledger, and the two do not agree.
+//!
 //! Storage is SQLite at `{loom_dir}/telemetry/usage.db`, next to the
 //! routing outcome store's database, opened with the ecosystem's shared
 //! pragmas (`loom_core::db::open`).
@@ -401,7 +429,7 @@ mod tests {
             "acp",
             "claude",
             counts,
-            "acp:context-usage",
+            "acp:session-context-cost",
         );
         // The source reported something, so the run is "reported"...
         assert_eq!(rec.source, loom_core::UsageSource::Measured);

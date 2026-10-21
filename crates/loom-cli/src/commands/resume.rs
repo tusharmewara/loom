@@ -369,6 +369,24 @@ async fn launch_agent_with_session_context(
         }
 
         // Apply routing decision through the adapter
+        // The cost estimate the adapter sees must be the same one the user
+        // is shown — a `CostEstimate::default()` claims "unavailable" for a
+        // number this command can actually compute.
+        let resume_chars = messages.iter().map(|m| m.content.chars().count()).sum();
+        let resume_prices = loom_routing::CatalogManager::load(loom_dir)
+            .ok()
+            .and_then(|catalog| catalog.prices_for(model));
+        let cost_estimate = match resume_prices {
+            Some((input_cost_per_1k, output_cost_per_1k)) => loom_core::CostEstimate::estimated(
+                resume_chars,
+                input_cost_per_1k,
+                output_cost_per_1k,
+                "low",
+            ),
+            // The catalog does not price this model: there is no estimate to
+            // make, and "unavailable" is the honest answer.
+            None => loom_core::CostEstimate::default(),
+        };
         let decision = loom_core::RoutingDecision {
             recommended_tier: loom_core::ModelTier::Mid,
             recommended_provider: provider.to_string(),
@@ -376,7 +394,7 @@ async fn launch_agent_with_session_context(
             reason: "Session resume".to_string(),
             overrides_role_default: true,
             decided_at: chrono::Utc::now().to_rfc3339(),
-            cost_estimate: loom_core::CostEstimate::default(),
+            cost_estimate,
         };
         adapter.apply_routing_decision(&decision)?;
 

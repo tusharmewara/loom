@@ -60,8 +60,13 @@ pub struct AcpTranscript {
     pub usage: loom_core::UsageCounts,
     /// Which ACP usage source the counts came from, for the ledger.
     ///
-    /// "acp:turn-usage" — the unstable per-turn `usage` object.
-    /// "acp:context-usage" — the stable `usage_update` notification only.
+    /// "acp:session-usage" — the unstable `usage` object on a
+    /// `session/prompt` response. Upstream defines its `inputTokens` /
+    /// `outputTokens` as CUMULATIVE across the whole session, so the
+    /// label names the session, not a turn.
+    /// "acp:session-context-cost" — the stable `usage_update`
+    /// notification: a context-window size and the session's cumulative
+    /// cost.
     /// Empty — the agent reported no usage.
     pub usage_method: String,
 }
@@ -207,15 +212,20 @@ fn accumulate(transcript: &mut TranscriptAcc, params: &Value) {
                 transcript.usage.cost_usd = cost;
             }
             if (used.is_some() || cost.is_some()) && transcript.usage_method.is_empty() {
-                transcript.usage_method = "acp:context-usage".to_string();
+                transcript.usage_method = "acp:session-context-cost".to_string();
             }
         }
         _ => {}
     }
 }
 
-/// Read the UNSTABLE per-turn `usage` object from a `session/prompt`
-/// response: `{ totalTokens, inputTokens, outputTokens, ... }`.
+/// Read the UNSTABLE `usage` object from a `session/prompt` response:
+/// `{ totalTokens, inputTokens, outputTokens, ... }`.
+///
+/// Upstream ACP defines these as CUMULATIVE across the session ("Total
+/// input tokens across all turns"), so the counts describe the session,
+/// not the turn — hence the `acp:session-usage` label. One Loom run is
+/// one turn today, which makes the two coincide by accident.
 ///
 /// Absent or malformed means "no count" — the caller records the run as
 /// unavailable rather than guessing.
@@ -501,7 +511,7 @@ impl AcpProtocolClient {
         if let Some(counts) = prompt_turn_usage(&prompt_result) {
             usage.input_tokens = counts.input_tokens;
             usage.output_tokens = counts.output_tokens;
-            usage_method = "acp:turn-usage".to_string();
+            usage_method = "acp:session-usage".to_string();
         }
         Ok(AcpTranscript {
             session_id,
@@ -717,7 +727,7 @@ mod tests {
     }
 
     #[test]
-    fn run_prompt_reads_the_unstable_turn_usage_and_the_stable_context_usage() {
+    fn run_prompt_reads_the_unstable_session_usage_and_the_stable_context_usage() {
         let (cfg, _) = config("usage");
         let transcript = AcpProtocolClient::run_prompt(&cfg, "hello agent").unwrap();
         assert_eq!(transcript.usage.input_tokens, Some(1200));
@@ -726,7 +736,7 @@ mod tests {
         // count; `size` (the window limit) is a model property, not usage.
         assert_eq!(transcript.usage.context_tokens, Some(4321));
         assert_eq!(transcript.usage.cost_usd, Some(0.0123));
-        assert_eq!(transcript.usage_method, "acp:turn-usage");
+        assert_eq!(transcript.usage_method, "acp:session-usage");
     }
 
     #[test]

@@ -13,7 +13,10 @@ pub enum TelemetryAction {
         #[arg(long)]
         json: bool,
     },
-    /// Reset all telemetry counters
+    /// Reset the DAEMON's in-memory telemetry counters
+    ///
+    /// This does not touch the usage ledger at {loom_dir}/telemetry/usage.db —
+    /// the metered runs stay. Delete that file to clear the ledger.
     Reset,
     /// Show metered token usage and cost per run and per tool
     Usage {
@@ -52,7 +55,10 @@ pub async fn run(loom_dir: &str, action: &TelemetryAction) -> Result<()> {
         TelemetryAction::Reset => {
             // Reset via daemon
             reset_metrics_in_daemon(loom_dir).await?;
-            println!("Telemetry counters reset");
+            println!(
+                "Telemetry counters reset (daemon counters only — the usage ledger at \
+                 {loom_dir}/telemetry/usage.db is untouched)"
+            );
         }
         TelemetryAction::Usage { json, limit } => {
             show_usage(loom_dir, *json, *limit)?;
@@ -82,8 +88,11 @@ fn render_usage(payload: &serde_json::Value) -> String {
     out.push_str("Usage Ledger\n");
     out.push_str("============\n");
     out.push_str(&format!(
-        "  Runs: {} ({} measured, {} unavailable)\n",
-        totals["runs"], totals["measured_runs"], totals["unavailable_runs"]
+        "  Runs: {} ({} reported, {} with token counts, {} unavailable)\n",
+        totals["runs"],
+        totals["reported_runs"],
+        totals["measured_runs"],
+        totals["unavailable_runs"]
     ));
     // The token sum is absent when NO run reported a token count. That is
     // true even when runs were reported (a run that reported only a cost
@@ -128,9 +137,10 @@ fn render_usage(payload: &serde_json::Value) -> String {
                     None => "n/a".to_string(),
                 };
                 out.push_str(&format!(
-                    "  {:<12} runs={} measured={} unavailable={} tokens={} measured={} est={}\n",
+                    "  {:<12} runs={} reported={} with_tokens={} unavailable={} tokens={} measured={} est={}\n",
                     tool["tool"].as_str().unwrap_or("?"),
                     tool["runs"],
+                    tool["reported_runs"],
                     tool["measured_runs"],
                     tool["unavailable_runs"],
                     // Same rule as the totals line: a tool whose runs all
@@ -294,6 +304,7 @@ mod tests {
         let json = usage_json(loom_dir, 20).unwrap();
         let totals = &json["totals"];
         assert_eq!(totals["runs"], 2);
+        assert_eq!(totals["reported_runs"], 1);
         assert_eq!(totals["measured_runs"], 1);
         assert_eq!(totals["unavailable_runs"], 1);
         assert_eq!(totals["input_tokens"], 1200);
@@ -307,6 +318,7 @@ mod tests {
         assert_eq!(by_tool.len(), 1);
         assert_eq!(by_tool[0]["tool"], "acp");
         assert_eq!(by_tool[0]["runs"], 2);
+        assert_eq!(by_tool[0]["reported_runs"], 1);
         assert_eq!(by_tool[0]["measured_runs"], 1);
 
         let recent = json["recent"].as_array().unwrap();
@@ -341,7 +353,7 @@ mod tests {
                     context_tokens: Some(4321),
                     cost_usd: Some(0.0123),
                 },
-                "acp:context-usage",
+                "acp:session-context-cost",
                 0,
                 None,
             )

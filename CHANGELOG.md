@@ -5,6 +5,20 @@ All notable changes to the Loom project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- feat(telemetry): `loom telemetry usage` — a metered usage ledger (per-run, per-tool, per-token) at `{loom_dir}/telemetry/usage.db`, readable with `loom telemetry usage [--json] [--limit N]`. Every row carries its provenance: a measured count, a documented `chars/4` forecast, or `unavailable` when the source reported nothing. An unreported count stays unreported — the ledger never presents a missing number as a zero. Covered paths today: `resume` (provider usage), `acp` (protocol usage), `knowledge-extract` (provider usage); `workflow` is recorded as unavailable rather than estimated. Not yet metered: `loom exec`, the TUI dispatch path, the TUI Cost tab, and multi-turn session cost
+
+### Fixed
+
+- fix(telemetry): the usage ledger no longer reports "Measured tokens: 0 in / 0 out" for a run that reported no token count. A run that reported only a context-window size and a cost (the stable ACP v1 `usage_update` shape) was counted as measured, and the aggregate turned the absent count into a zero that read like a measurement; the token sums are now nullable end to end and the ledger says "unavailable (no run reported a token count)"
+- fix(acp): the ACP usage method label now names what upstream actually defines — `acp:session-usage` and `acp:session-context-cost` instead of `acp:turn-usage`. ACP defines those counts as cumulative across the session, not per turn
+- fix(daemon): `acp.dispatch` now returns the metered `usage` object in its reply, matching the CLI path — the TUI no longer has to read the ledger to see what a dispatch cost
+- fix(cli): `loom telemetry reset` now says it resets the daemon's in-memory counters only; the usage ledger is untouched
+- fix(cli): `loom sessions resume` hands the adapter a real cost estimate instead of a default one, so the adapter sees what the user is shown
+
 ## [0.9.6] - 2026-10-20
 
 ### Added
