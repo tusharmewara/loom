@@ -278,6 +278,30 @@ fn test_redeem_returns_credential_and_is_audited() {
 }
 
 #[test]
+fn test_acl_denial_after_issuance_blocks_redemption() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().to_str().unwrap();
+    let manager = manager_with_credential(path, "openai", "sk-secret-value");
+
+    let issued = manager
+        .issue_grant("openai", "run-1", "claude-code", 900)
+        .unwrap();
+
+    // A deny rule appears after the grant was issued.
+    manager.acl().add_rule(AclRule {
+        tool: "openai".to_string(),
+        allow: vec![],
+        deny: vec!["claude-code".to_string()],
+    });
+
+    let err = manager
+        .redeem_grant(&issued.token, "claude-code", "run-1")
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("access denied"), "unexpected error: {err}");
+}
+
+#[test]
 fn test_locked_vault_blocks_grants() {
     let dir = tempfile::TempDir::new().unwrap();
     let path = dir.path().to_str().unwrap();

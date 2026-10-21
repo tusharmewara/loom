@@ -317,8 +317,20 @@ impl AuthManager {
     /// This is the broker side of the proxy: the agent holds a grant, a
     /// trusted broker calls this and gets the plaintext. Every redemption
     /// is audited.
+    ///
+    /// The ACL is re-checked here: a rule added after the grant was issued
+    /// must still block the credential from reaching the tool.
     pub fn redeem_grant(&self, token: &str, tool: &str, run_id: &str) -> Result<String> {
         let record = self.verify_grant(token, tool, run_id)?;
+        if !self.acl.check_access(&record.provider_id, tool) {
+            self.audit
+                .log_denied_access(tool, &record.provider_id, "grant redemption denied by ACL");
+            anyhow::bail!(
+                "access denied: tool '{}' not authorized for provider '{}'",
+                tool,
+                record.provider_id
+            );
+        }
         let plaintext = self
             .vault
             .get_credential(&record.provider_id)?

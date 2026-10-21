@@ -170,7 +170,8 @@ Library API in `loom-auth` (`crates/loom-auth/src/lib.rs`, implementation in
 - `AuthManager::verify_grant(token, tool, run_id) -> Result<GrantRecord>` — scope,
   expiry and revocation enforced; audited.
 - `AuthManager::redeem_grant(token, tool, run_id) -> Result<String>` — broker only;
-  returns the plaintext credential; audited.
+  returns the plaintext credential; re-checks the ACL at redemption time (a deny
+  rule added after issuance still blocks it); audited.
 - `AuthManager::revoke_grant(grant_id) -> Result<bool>` — flips the flag, audited.
 - `AuthManager::list_grants() -> Vec<GrantRecord>` — no secret material in the output.
 
