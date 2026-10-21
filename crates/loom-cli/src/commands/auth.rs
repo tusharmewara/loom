@@ -386,6 +386,11 @@ fn cmd_verify(
             println!("  - {problem}");
         }
         for note in &notes {
+            // The unanchored reason is already spelled out above; printing it
+            // twice adds nothing.
+            if note.starts_with("no public key was pinned") {
+                continue;
+            }
             println!("  note: {note}");
         }
     }
