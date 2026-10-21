@@ -32,7 +32,7 @@ Agents execute arbitrary code with your credentials. Trust is the adoption gate 
 - **Sandboxed execution.** `loom-runtime` container isolation becomes a first-class, CI-tested path (not just feature-gated compile), with per-run network policy. Default documented; opt-in until proven.
 - **Scoped credentials.** Vault already does ChaCha20Poly1305 + ACL + hash-chained audit. Next: per-run, per-tool scoped credentials — an agent gets a derived, revocable grant, never the master key. Key rotation.
 - **Supply chain.** Plugin Ed25519 verification moves from opt-in (`--verify`) to the default path; key-continuity pinning for registry installs.
-- **Compliance posture.** Audit chain export + documented retention — the SOC2 groundwork pillar 4 depends on.
+- ~~**Compliance posture.** Audit chain export + documented retention — the SOC2 groundwork pillar 4 depends on.~~ — landed: `loom auth export` writes a verifiable JSON export of the hash-chained audit log (chain hashes carried verbatim, `export_digest` over the document, `verify_integrity` reused), `loom auth verify` checks an export or the local chain, and the retention window is one config knob (`[security] audit_retention_days`, default 365 days, older entries dropped from exports).
 
 ### 3. Ecosystem & Protocol *(v0.11 → v1.0)*
 

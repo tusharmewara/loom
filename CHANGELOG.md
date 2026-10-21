@@ -5,6 +5,13 @@ All notable changes to the Loom project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- feat(auth): `loom auth export` writes the hash-chained audit log to a portable, verifiable JSON document (`<loom-dir>/auth/audit-export.json` by default) — chain hashes are carried verbatim, the document carries an `export_digest`, and the chain's own `verify_integrity` verdict is embedded. `loom auth verify [path]` verifies an export (or the local chain when no path is given). The free-text `result` field is never exported: it is normalised to `granted` / `denied` / `other` and the entry is flagged `redacted`
+- feat(auth): audit retention is one config knob — `[security] audit_retention_days` (default 365, `0` keeps everything) in the existing merged config. Entries older than the window are dropped from exports; the on-disk chain is never rewritten, so its hash linkage stays verifiable
+
 ## [0.9.6] - 2026-10-20
 
 ### Added

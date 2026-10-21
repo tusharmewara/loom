@@ -130,6 +130,18 @@ directory they are talking to:
 LOOM_AGENTS_DIR=/tmp/loom-sandbox loom init
 ```
 
+Audit retention is configured in the `[security]` section of the merged
+config (one knob, same 5-layer merge as everything else):
+
+```toml
+[security]
+audit_retention_days = 365   # default; 0 = keep everything
+```
+
+Entries older than the window are dropped from an audit export
+(`loom auth export`); the on-disk chain is never rewritten, so its hash
+linkage stays verifiable.
+
 ## Known Issues
 
 - Hook scripts execute properly (implementation complete)

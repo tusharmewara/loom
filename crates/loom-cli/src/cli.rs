@@ -743,6 +743,23 @@ pub enum AuthAction {
     },
     /// Validate a provider credential
     Validate { provider_id: String },
+    /// Export the audit chain to a portable, verifiable JSON file
+    Export {
+        /// Output path (default: <loom-dir>/auth/audit-export.json)
+        #[arg(short, long)]
+        output: Option<String>,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Verify an audit export (or the local audit chain)
+    Verify {
+        /// Export file to verify (default: the local audit chain)
+        path: Option<String>,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]

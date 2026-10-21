@@ -1,8 +1,12 @@
 pub mod acl;
 pub mod audit;
+pub mod export;
 pub mod import;
 pub mod providers;
 pub mod vault;
+
+pub use audit::AuditLogger;
+pub use export::{build_export, verify_export, AuditExport, ExportVerification};
 
 use anyhow::Result;
 use loom_core::{AuthProviderTrait, EncryptedCredential, HealthCheck, HealthStatus, ProviderEntry};

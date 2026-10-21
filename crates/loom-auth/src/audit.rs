@@ -303,14 +303,12 @@ impl AuditLogger {
         Ok(())
     }
 
-    /// Verify the integrity of the audit trail hash chain.
+    /// Read every entry of the chain in chronological order.
     ///
-    /// Walks all entries (rotated logs in chronological order, then the
-    /// current log) and recomputes each entry's hash. Legacy entries
-    /// written before integrity chaining (no `entry_hash`) are skipped.
-    /// The first mismatch is reported; `intact == true` means the chain
-    /// is unbroken and untampered.
-    pub fn verify_integrity(&self) -> Result<IntegrityReport> {
+    /// Rotated logs first (oldest rotation first), then the current log.
+    /// This is the order the hash chain was written in, and the order
+    /// [`AuditLogger::verify_integrity`] checks it in.
+    pub fn entries_chronological(&self) -> Result<Vec<AuditEntry>> {
         let inner = loom_core::lock_ok!(self.inner);
         let base = Path::new(&inner.log_path);
         let dir = base.parent().unwrap_or_else(|| Path::new("."));
@@ -335,7 +333,18 @@ impl AuditLogger {
                 }
             }));
         }
-        drop(inner);
+        Ok(entries)
+    }
+
+    /// Verify the integrity of the audit trail hash chain.
+    ///
+    /// Walks all entries (rotated logs in chronological order, then the
+    /// current log) and recomputes each entry's hash. Legacy entries
+    /// written before integrity chaining (no `entry_hash`) are skipped.
+    /// The first mismatch is reported; `intact == true` means the chain
+    /// is unbroken and untampered.
+    pub fn verify_integrity(&self) -> Result<IntegrityReport> {
+        let entries = self.entries_chronological()?;
 
         let mut report = IntegrityReport {
             total: entries.len(),

@@ -212,6 +212,8 @@ Auto-derives 6 Loom traits (`SkillProvider`, `McpConsumer`, `AuthProviderTrait`,
 - `loom auth providers [--json]` — List registered providers
 - `loom auth show <provider> [--json]` — Show provider config
 - `loom auth validate <provider>` — Validate credential
+- `loom auth export [-o path] [--json]` — Export the audit chain to a portable, verifiable JSON file (default `<loom-dir>/auth/audit-export.json`)
+- `loom auth verify [path] [--json]` — Verify an audit export, or the local audit chain when no path is given
 
 ### Hooks
 - `loom hooks list [--json]` — List registered hooks
@@ -304,6 +306,24 @@ Inspect the chain: `loom config show --extends` prints each layer with
 its label, path, and contributed keys. `loom config show --extends --json`
 emits `{ config, extends_chain: [...] }` for tooling.
 
+### Audit retention
+
+One knob, in the `[security]` section of the merged config (any of the
+five layers above can set it — `config.toml`, `config/security.toml`, an
+`extends` file):
+
+```toml
+[security]
+audit_retention_days = 365   # default; 0 = keep everything
+```
+
+**Policy: entries older than the window are dropped from an audit
+export.** The on-disk chain is *not* rewritten — dropping entries from the
+head of the chain would break the hash linkage `verify_integrity` checks —
+so the window bounds what leaves the machine via `loom auth export`, and
+the log file itself stays bounded by the logger's size-based rotation
+(`LOOM_AUDIT_MAX_SIZE`, default 10 MB, five rotated files kept).
+
 ## Known Gotchas
 
 1. **Auth vault `export_credential()` re-encrypts** — the credential is encrypted in memory with a fresh random nonce (`vault.encrypt_for_export`, ChaCha20Poly1305); plaintext is never written to disk.
@@ -322,6 +342,7 @@ emits `{ config, extends_chain: [...] }` for tooling.
 14. **Knowledge graph boosts routing decisions** — when evaluating a prompt with `loom routing evaluate`, if the prompt mentions known entities in the knowledge graph, the complexity score receives a boost (up to +0.25) based on entity degree and type. Entities found are listed in `knowledge_entities` in the signals.
 15. **Knowledge-enhanced session resume** — `loom sessions resume --inject-knowledge` queries the knowledge graph for entities matching the session topic and recent messages, then injects entity definitions and their relationships as a system message before resuming.
 16. **`LOOM_AGENTS_DIR` is the ecosystem directory** — the CLI and the daemon both resolve it through `loom_core::loom_dir()` (env var wins, else `~/.loom`). Never hardcode `~/.loom` in a command: pass the resolved dir down. The TUI's CLI adapter exports it to every child process.
+17. **Audit export redacts the chain's free-text `result`** — `loom auth export` never exports the raw `result` string. It is normalised to `granted` / `denied` / `other` and the entry is flagged `redacted: true` (the export counts these in `redaction.redacted_entries`). The raw field is the only place a caller can put arbitrary content into the chain, so it never leaves the machine.
 
 ## TUI Architecture
 

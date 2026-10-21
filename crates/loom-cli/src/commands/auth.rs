@@ -1,5 +1,8 @@
 use crate::cli::AuthAction;
+use loom_auth::audit::AuditLogger;
+use loom_auth::export::{build_export, verify_export, AuditExport};
 use loom_auth::AuthManager;
+use loom_core::config::ConfigReader;
 use serde::Deserialize;
 use std::path::Path;
 
@@ -133,8 +136,152 @@ pub async fn run(loom_dir: &Path, action: &AuthAction) -> anyhow::Result<()> {
         AuthAction::Validate { provider_id } => {
             cmd_validate(loom_dir, provider_id).await?;
         }
+        AuthAction::Export { output, json } => {
+            cmd_export(loom_dir, output.as_deref(), *json)?;
+        }
+        AuthAction::Verify { path, json } => {
+            cmd_verify(loom_dir, path.as_deref(), *json)?;
+        }
     }
     Ok(())
+}
+
+/// Export the audit chain to a portable, verifiable JSON file.
+///
+/// The retention window comes from the merged config
+/// (`[security] audit_retention_days`); entries older than the window are
+/// dropped from the export. The on-disk chain is never rewritten.
+fn cmd_export(loom_dir: &Path, output: Option<&str>, json: bool) -> anyhow::Result<()> {
+    let retention_days = retention_days(loom_dir);
+    let logger = AuditLogger::new(loom_dir.to_str().unwrap());
+    let doc = build_export(&logger, retention_days)?;
+
+    let out_path = match output {
+        Some(p) => Path::new(p).to_path_buf(),
+        None => loom_dir.join("auth").join("audit-export.json"),
+    };
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let body = serde_json::to_string_pretty(&doc)?;
+    std::fs::write(&out_path, &body)
+        .map_err(|e| anyhow::anyhow!("failed to write audit export: {e}"))?;
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "schema_version": 1,
+                "command": "auth.export",
+                "path": out_path.to_string_lossy(),
+                "entries": doc.entries.len(),
+                "dropped_entries": doc.retention.dropped_entries,
+                "redacted_entries": doc.redaction.redacted_entries,
+                "retention_days": doc.retention.window_days,
+                "chain_intact": doc.source.chain_intact,
+                "export_digest": doc.export_digest,
+            }))?
+        );
+    } else {
+        println!("Audit export written to {}", out_path.display());
+        println!("  entries:         {}", doc.entries.len());
+        println!(
+            "  dropped (older than {retention_days}d): {}",
+            doc.retention.dropped_entries
+        );
+        println!("  redacted:        {}", doc.redaction.redacted_entries);
+        println!("  chain intact:    {}", doc.source.chain_intact);
+        println!("  export digest:   {}", doc.export_digest);
+        if doc.redaction.redacted_entries > 0 {
+            println!(
+                "  note: the free-text result of {} entr(ies) was redacted from the export",
+                doc.redaction.redacted_entries
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Verify an audit export file, or the local audit chain when no path is given.
+fn cmd_verify(loom_dir: &Path, path: Option<&str>, json: bool) -> anyhow::Result<()> {
+    let (result, entries) = match path {
+        Some(p) => {
+            let file = Path::new(p);
+            let raw = std::fs::read_to_string(file).map_err(|e| {
+                anyhow::anyhow!("failed to read audit export {}: {e}", file.display())
+            })?;
+            let doc: AuditExport = serde_json::from_str(&raw).map_err(|e| {
+                anyhow::anyhow!("failed to parse audit export {}: {e}", file.display())
+            })?;
+            let v = verify_export(&doc);
+            (v, doc.entries.len())
+        }
+        None => {
+            // No file: verify the local chain directly.
+            let logger = AuditLogger::new(loom_dir.to_str().unwrap());
+            let report = logger.verify_integrity()?;
+            (
+                loom_auth::export::ExportVerification {
+                    intact: report.intact,
+                    digest_ok: report.intact,
+                    chain_linked: report.intact,
+                    chain_head_ok: report.intact,
+                    source_chain_intact: report.intact,
+                    entries: report.total,
+                    problems: report
+                        .tampered_at
+                        .iter()
+                        .map(|t| format!("chain broken at entry {t}"))
+                        .collect(),
+                },
+                report.total,
+            )
+        }
+    };
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "schema_version": 1,
+                "command": "auth.verify",
+                "path": path,
+                "intact": result.intact,
+                "digest_ok": result.digest_ok,
+                "chain_linked": result.chain_linked,
+                "chain_head_ok": result.chain_head_ok,
+                "source_chain_intact": result.source_chain_intact,
+                "entries": result.entries,
+                "problems": result.problems,
+            }))?
+        );
+    } else {
+        if result.intact {
+            println!("✓ audit chain intact ({entries} entries)");
+        } else {
+            println!("✗ audit chain NOT intact ({entries} entries)");
+            for problem in &result.problems {
+                println!("  - {problem}");
+            }
+        }
+    }
+
+    if !result.intact {
+        anyhow::bail!("audit chain verification failed");
+    }
+    Ok(())
+}
+
+/// The configured audit retention window, in days.
+///
+/// Read from the merged config (`[security] audit_retention_days`) so the
+/// policy lives in exactly one place. A config that cannot be read falls
+/// back to the built-in default.
+fn retention_days(loom_dir: &Path) -> u32 {
+    ConfigReader::new(loom_dir.to_str().unwrap())
+        .load()
+        .map(|c| c.security.audit_retention_days)
+        .unwrap_or(loom_core::types::DEFAULT_AUDIT_RETENTION_DAYS)
 }
 
 async fn cmd_validate(loom_dir: &Path, provider_id: &str) -> anyhow::Result<()> {
@@ -368,4 +515,129 @@ fn resolve_api_key(provider_id: &str) -> Option<String> {
     // Also check LOOM_VAULT_KEY or similar generic fallbacks
     // (handled by vault lookup in the caller)
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use loom_auth::audit::AuditLogger;
+
+    /// Seed an audit chain with one read, one write and one denial.
+    fn seed_chain(loom_dir: &Path) {
+        let logger = AuditLogger::new(loom_dir.to_str().unwrap());
+        logger.log_read("tool-a", "provider-1", true).unwrap();
+        logger.log_write("tool-b", "provider-2", true).unwrap();
+        logger.log_denied_access("tool-c", "provider-3", "acl denied");
+    }
+
+    #[test]
+    fn test_export_writes_file_and_verify_accepts_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom_dir = dir.path();
+        seed_chain(loom_dir);
+
+        let out = dir.path().join("out.json");
+        cmd_export(loom_dir, Some(out.to_str().unwrap()), true).unwrap();
+
+        assert!(out.exists(), "export file must be written");
+        let raw = std::fs::read_to_string(&out).unwrap();
+        let doc: AuditExport = serde_json::from_str(&raw).unwrap();
+        assert_eq!(doc.entries.len(), 3);
+
+        // A re-imported export verifies as intact.
+        cmd_verify(loom_dir, Some(out.to_str().unwrap()), true).unwrap();
+    }
+
+    #[test]
+    fn test_verify_rejects_tampered_export() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom_dir = dir.path();
+        seed_chain(loom_dir);
+
+        let out = dir.path().join("out.json");
+        cmd_export(loom_dir, Some(out.to_str().unwrap()), true).unwrap();
+
+        // Tamper with an exported field.
+        let raw = std::fs::read_to_string(&out).unwrap();
+        let tampered = raw.replace("provider-1", "provider-9");
+        assert_ne!(raw, tampered);
+        std::fs::write(&out, tampered).unwrap();
+
+        let err = cmd_verify(loom_dir, Some(out.to_str().unwrap()), true).unwrap_err();
+        assert!(
+            err.to_string().contains("verification failed"),
+            "tampered export must fail verification: {err}"
+        );
+    }
+
+    #[test]
+    fn test_export_never_writes_secret_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom_dir = dir.path();
+        let logger = AuditLogger::new(loom_dir.to_str().unwrap());
+        let secret = "sk-live-SUPERSECRETVALUE";
+        logger.log_denied_access("tool-a", "provider-1", secret);
+
+        let out = dir.path().join("out.json");
+        cmd_export(loom_dir, Some(out.to_str().unwrap()), true).unwrap();
+        let raw = std::fs::read_to_string(&out).unwrap();
+        assert!(
+            !raw.contains(secret),
+            "secret must never reach the export: {raw}"
+        );
+    }
+
+    #[test]
+    fn test_retention_days_comes_from_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom_dir = dir.path();
+
+        // Default: 365 days.
+        assert_eq!(retention_days(loom_dir), 365);
+
+        // Configured: 30 days.
+        std::fs::write(
+            loom_dir.join("config.toml"),
+            "[security]\naudit_retention_days = 30\n",
+        )
+        .unwrap();
+        assert_eq!(retention_days(loom_dir), 30);
+    }
+
+    #[test]
+    fn test_export_drops_entries_past_the_retention_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom_dir = dir.path();
+
+        // An old entry, then a fresh one.
+        let logger = AuditLogger::new(loom_dir.to_str().unwrap());
+        let old = loom_core::AuditEntry {
+            timestamp: "2020-01-01T00:00:00Z".to_string(),
+            requesting_tool: "old-tool".to_string(),
+            provider_id: "provider-1".to_string(),
+            access_type: "read".to_string(),
+            result: "granted".to_string(),
+            prev_hash: None,
+            entry_hash: None,
+        };
+        logger.log(&old).unwrap();
+        logger.log_read("new-tool", "provider-2", true).unwrap();
+
+        std::fs::write(
+            loom_dir.join("config.toml"),
+            "[security]\naudit_retention_days = 30\n",
+        )
+        .unwrap();
+
+        let out = dir.path().join("out.json");
+        cmd_export(loom_dir, Some(out.to_str().unwrap()), true).unwrap();
+        let raw = std::fs::read_to_string(&out).unwrap();
+        let doc: AuditExport = serde_json::from_str(&raw).unwrap();
+
+        assert_eq!(doc.retention.window_days, 30);
+        assert_eq!(doc.retention.policy, "drop");
+        assert_eq!(doc.retention.dropped_entries, 1);
+        assert_eq!(doc.entries.len(), 1);
+        assert_eq!(doc.entries[0].requesting_tool, "new-tool");
+    }
 }
