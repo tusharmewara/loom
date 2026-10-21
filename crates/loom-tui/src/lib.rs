@@ -174,41 +174,46 @@ async fn run_loop(
                                 })
                                 .unwrap_or_else(|| "process".to_string());
 
-                            let dispatchers: Vec<Box<dyn crate::dispatch::Dispatcher>> = vec![
-                                Box::new(crate::dispatch::TerminalLaunch),
-                                Box::new(crate::dispatch::ACPDispatch::new(
-                                    app.status
-                                        .pointer("/daemon/reachable")
-                                        .and_then(Value::as_bool)
-                                        .unwrap_or(false),
-                                    app.daemon
-                                        .pointer("/socket_path")
-                                        .and_then(Value::as_str)
-                                        .map(String::from),
-                                )),
-                                Box::new(crate::dispatch::EmbeddedPane),
-                                Box::new(crate::dispatch::RuntimeDispatch::new(
-                                    crate::dispatch::default_runtime_registry(),
-                                    default_runtime,
-                                    app.adapter.loom_dir.clone(),
-                                )),
-                            ];
-                            if app.dispatch_menu_selected < dispatchers.len() {
-                                let task = app.selected_task().cloned();
-                                if let Some(task) = task {
-                                    let result =
-                                        dispatchers[app.dispatch_menu_selected].dispatch(&task);
-                                    app.last_action_result = Some(crate::adapter::CommandResult {
-                                        action: dispatchers[app.dispatch_menu_selected]
-                                            .name()
-                                            .to_string(),
-                                        success: result.success,
-                                        message: result.message,
-                                    });
-                                    // EmbeddedPane: store task for inline display
-                                    if app.dispatch_menu_selected == 2 {
-                                        app.embedded_task = Some(task);
-                                    }
+                            // The embedded pane (menu index 2) has no
+                            // Dispatcher: `App::dispatch_embedded_pane` owns
+                            // that path, the TUI just shows its result.
+                            if app.dispatch_menu_selected == 2 {
+                                app.last_action_result =
+                                    Some(app.dispatch_embedded_pane());
+                            } else {
+                                let dispatchers: Vec<Box<dyn crate::dispatch::Dispatcher>> = vec![
+                                    Box::new(crate::dispatch::TerminalLaunch),
+                                    Box::new(crate::dispatch::ACPDispatch::new(
+                                        app.status
+                                            .pointer("/daemon/reachable")
+                                            .and_then(Value::as_bool)
+                                            .unwrap_or(false),
+                                        app.daemon
+                                            .pointer("/socket_path")
+                                            .and_then(Value::as_str)
+                                            .map(String::from),
+                                    )),
+                                    Box::new(crate::dispatch::RuntimeDispatch::new(
+                                        crate::dispatch::default_runtime_registry(),
+                                        default_runtime,
+                                        app.adapter.loom_dir.clone(),
+                                    )),
+                                ];
+                                // Menu index 3 (runtime) is the third dispatcher.
+                                let index = match app.dispatch_menu_selected {
+                                    0 => 0,
+                                    1 => 1,
+                                    3 => 2,
+                                    _ => 0,
+                                };
+                                if let Some(task) = app.selected_task().cloned() {
+                                    let result = dispatchers[index].dispatch(&task);
+                                    app.last_action_result =
+                                        Some(crate::adapter::CommandResult {
+                                            action: dispatchers[index].name().to_string(),
+                                            success: result.success,
+                                            message: result.message,
+                                        });
                                 }
                             }
                             app.close_dispatch_menu();
@@ -253,32 +258,10 @@ async fn run_loop(
                         }
                         KeyCode::Char('e') => {
                             app.dispatch_menu_selected = 2;
-                            let task = app.selected_task().cloned();
-                            if let Some(task) = task {
-                                let dispatcher = crate::dispatch::EmbeddedPane;
-                                let result = dispatcher.dispatch(&task);
-                                app.last_action_result = Some(crate::adapter::CommandResult {
-                                    action: dispatcher.name().to_string(),
-                                    success: result.success,
-                                    message: result.message,
-                                });
-                                app.embedded_task = Some(task.clone());
-
-                                // Spawn the agent in the background and stream output
-                                if let Some(agent) =
-                                    task.pointer("/last_agent").and_then(Value::as_str)
-                                {
-                                    let task_id = task
-                                        .pointer("/task_id")
-                                        .and_then(Value::as_str)
-                                        .unwrap_or("");
-                                    let (child, log_rx, stdin) =
-                                        app.adapter.stream_background(agent, task_id);
-                                    app.embedded_log_rx = Some(log_rx);
-                                    app.embedded_child = child;
-                                    app.embedded_stdin = stdin;
-                                }
-                            }
+                            // Single owner: `App::dispatch_embedded_pane`
+                            // spawns the dispatch and wires the pane state.
+                            app.last_action_result =
+                                Some(app.dispatch_embedded_pane());
                             app.close_dispatch_menu();
                         }
                         KeyCode::Char('r') => {

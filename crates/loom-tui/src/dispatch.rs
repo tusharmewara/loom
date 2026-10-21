@@ -542,33 +542,6 @@ impl Dispatcher for ACPDispatch {
     }
 }
 
-pub struct EmbeddedPane;
-
-impl Dispatcher for EmbeddedPane {
-    fn name(&self) -> &'static str {
-        "Embedded Pane"
-    }
-
-    fn shortcut(&self) -> char {
-        'e'
-    }
-
-    fn available(&self) -> bool {
-        true
-    }
-
-    fn dispatch(&self, task: &serde_json::Value) -> DispatchResult {
-        let task_id = task
-            .pointer("/task_id")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if task_id.is_empty() {
-            return DispatchResult::err("task_id required".to_string());
-        }
-        DispatchResult::ok(format!("Opened task {task_id} in embedded pane"), None)
-    }
-}
-
 /// Runtime-aware dispatcher that uses the runtime registry.
 pub struct RuntimeDispatch {
     pub runtime_registry: RuntimeRegistry,
@@ -739,14 +712,6 @@ mod tests {
         assert!(!dispatch.available());
         assert_eq!(dispatch.name(), "ACP Dispatch");
         assert_eq!(dispatch.shortcut(), 'a');
-    }
-
-    #[test]
-    fn test_embedded_pane_available() {
-        let dispatch = EmbeddedPane;
-        assert!(dispatch.available());
-        assert_eq!(dispatch.name(), "Embedded Pane");
-        assert_eq!(dispatch.shortcut(), 'e');
     }
 
     #[test]

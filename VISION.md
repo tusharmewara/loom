@@ -72,7 +72,7 @@ Earlier drafts of this file listed the following as missing; they are now closed
 - **Tests run in CI** — `cargo test --workspace` plus clippy `-D warnings` and cargo-tarpaulin coverage
 - **Hook execution is real** — `execute_hook_script()` spawns the script and checks its exit code
 - **ACP dispatch is wired** — the TUI sends `acp.dispatch` over the daemon socket
-- **EmbeddedPane dispatch is implemented** — opens the embedded pane and streams dispatch output
+- **Embedded-pane dispatch is real** — the pane spawns `loom workflow dispatch <task> --agent <agent>` and streams its output; there is no separate `EmbeddedPane` dispatcher, `App::dispatch_embedded_pane` owns the path
 - **Auth vault export re-encrypts** — fresh random nonce in memory, plaintext never written to disk
 
 Still open:

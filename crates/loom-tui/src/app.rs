@@ -694,6 +694,54 @@ impl App {
         self.dispatch_menu_open = false;
     }
 
+    /// Dispatch a task into the embedded pane.
+    ///
+    /// This is the single owner of the embedded-pane path: it spawns
+    /// `loom workflow dispatch <task> --agent <agent>` for the task's
+    /// recorded agent and installs the child's output stream into the
+    /// pane. There is no separate embedded-pane dispatcher.
+    pub fn dispatch_embedded_pane(&mut self) -> CommandResult {
+        let Some(task) = self.selected_task().cloned() else {
+            return CommandResult {
+                action: "Embedded Pane".to_string(),
+                success: false,
+                message: "No task selected".to_string(),
+            };
+        };
+        let task_id = task
+            .pointer("/task_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let Some(agent) = task
+            .pointer("/last_agent")
+            .and_then(Value::as_str)
+            .map(String::from)
+        else {
+            return CommandResult {
+                action: "Embedded Pane".to_string(),
+                success: false,
+                message: format!("Task {task_id} has no recorded agent to dispatch"),
+            };
+        };
+
+        let (child, log_rx, stdin) = self.adapter.stream_background(&agent, &task_id);
+        let success = child.is_some();
+        self.embedded_task = Some(task);
+        self.embedded_log_rx = Some(log_rx);
+        self.embedded_child = child;
+        self.embedded_stdin = stdin;
+        CommandResult {
+            action: "Embedded Pane".to_string(),
+            success,
+            message: if success {
+                format!("Dispatching task {task_id} to {agent}")
+            } else {
+                format!("Failed to spawn {agent} for task {task_id}")
+            },
+        }
+    }
+
     pub fn close_embedded_pane(&mut self) {
         self.embedded_task = None;
         self.embedded_log.clear();
@@ -1964,6 +2012,30 @@ mod tests {
             .expect("remove must set a status");
         assert!(!result.success);
         assert!(result.message.contains("No task"));
+    }
+
+    #[tokio::test]
+    async fn embedded_pane_dispatch_attempts_the_workflow_dispatch() {
+        // `/bin/echo` stands in for the loom binary: the assertion is that
+        // the dispatch path actually spawns `workflow dispatch <task> --agent
+        // <agent>`, not that it formats a success string.
+        let mut app = App::new(LoomCliAdapter::new("/bin/echo", crate::loom_dir()));
+        app.workflow = json!({
+            "tasks": [{ "task_id": "task-42", "last_agent": "claude-code" }]
+        });
+
+        let result = app.dispatch_embedded_pane();
+        assert!(result.success, "dispatch should spawn: {}", result.message);
+
+        let mut rx = app.embedded_log_rx.take().expect("log receiver installed");
+        let line = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+            .await
+            .expect("output line in time")
+            .expect("stream open");
+        assert!(
+            line.contains("workflow dispatch task-42 --agent claude-code"),
+            "unexpected dispatch command: {line}"
+        );
     }
 
     #[test]
