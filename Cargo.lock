@@ -2260,6 +2260,7 @@ dependencies = [
  "loom-mcp",
  "loom-skills",
  "serde_json",
+ "tempfile",
  "toml",
  "tracing",
 ]

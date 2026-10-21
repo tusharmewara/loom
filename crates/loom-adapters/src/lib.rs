@@ -32,8 +32,6 @@ use loom_generic_adapter::config::{DebugSection, LspSection, ToolToml};
 use loom_skills::edit::make_replace_edit;
 use loom_skills::{validate_skill_tree, Severity, SkillDefect};
 use std::path::Path;
-#[cfg(test)]
-use std::path::PathBuf;
 
 /// Shared adapter operations for ecosystem-registered tools.
 pub trait LoomToolAdapter: Send + Sync {
@@ -481,33 +479,6 @@ mod tests {
     use super::*;
     use std::fs;
 
-    /// A scratch directory removed when the test ends.
-    ///
-    /// loom-adapters has no dev-dependency on `tempfile`, and its Cargo.toml
-    /// is outside this card's write scope.
-    struct Scratch(PathBuf);
-
-    impl Scratch {
-        fn new() -> Self {
-            static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-            let nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let path = std::env::temp_dir()
-                .join(format!("loom-adapters-test-{}-{nanos}-{seq}", std::process::id()));
-            fs::create_dir_all(&path).unwrap();
-            Self(path)
-        }
-    }
-
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-
     fn write(path: &Path, content: &str) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, content).unwrap();
@@ -522,9 +493,9 @@ mod tests {
 
     #[test]
     fn valid_dir_skill_is_linked() {
-        let scratch = Scratch::new();
-        let loom = scratch.0.join("loom");
-        let native = scratch.0.join("native");
+        let scratch = tempfile::tempdir().unwrap();
+        let loom = scratch.path().join("loom");
+        let native = scratch.path().join("native");
         write(
             &loom.join("skills").join("alpha").join("SKILL.md"),
             &valid_skill("alpha"),
@@ -539,9 +510,9 @@ mod tests {
 
     #[test]
     fn fatal_skill_is_not_linked_and_is_named() {
-        let scratch = Scratch::new();
-        let loom = scratch.0.join("loom");
-        let native = scratch.0.join("native");
+        let scratch = tempfile::tempdir().unwrap();
+        let loom = scratch.path().join("loom");
+        let native = scratch.path().join("native");
         // No description: — the agent drops the skill silently at load.
         write(
             &loom.join("skills").join("gdrive").join("SKILL.md"),
@@ -564,9 +535,9 @@ mod tests {
 
     #[test]
     fn warn_does_not_block_the_link_but_is_reported() {
-        let scratch = Scratch::new();
-        let loom = scratch.0.join("loom");
-        let native = scratch.0.join("native");
+        let scratch = tempfile::tempdir().unwrap();
+        let loom = scratch.path().join("loom");
+        let native = scratch.path().join("native");
         // No `name:` — a Warn, the directory name is used instead.
         write(
             &loom.join("skills").join("beta").join("SKILL.md"),
@@ -587,9 +558,9 @@ mod tests {
 
     #[test]
     fn one_fatal_skill_does_not_abort_the_rest_of_the_sync() {
-        let scratch = Scratch::new();
-        let loom = scratch.0.join("loom");
-        let native = scratch.0.join("native");
+        let scratch = tempfile::tempdir().unwrap();
+        let loom = scratch.path().join("loom");
+        let native = scratch.path().join("native");
         write(
             &loom.join("skills").join("broken").join("SKILL.md"),
             "# No frontmatter\n",
@@ -609,9 +580,9 @@ mod tests {
 
     #[test]
     fn a_stale_link_to_a_refused_skill_is_removed() {
-        let scratch = Scratch::new();
-        let loom = scratch.0.join("loom");
-        let native = scratch.0.join("native");
+        let scratch = tempfile::tempdir().unwrap();
+        let loom = scratch.path().join("loom");
+        let native = scratch.path().join("native");
         let skill_dir = loom.join("skills").join("gdrive");
         write(&skill_dir.join("SKILL.md"), "# Google Drive\n\nNo frontmatter.\n");
 
@@ -638,9 +609,9 @@ mod tests {
 
     #[test]
     fn a_native_skill_the_user_placed_is_never_removed() {
-        let scratch = Scratch::new();
-        let loom = scratch.0.join("loom");
-        let native = scratch.0.join("native");
+        let scratch = tempfile::tempdir().unwrap();
+        let loom = scratch.path().join("loom");
+        let native = scratch.path().join("native");
         write(
             &loom.join("skills").join("gdrive").join("SKILL.md"),
             "# Google Drive\n\nNo frontmatter.\n",
