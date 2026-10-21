@@ -30,7 +30,10 @@ use anyhow::Result;
 use loom_core::{DebugAdapterInfo, LspServerInfo, RoutingDecision};
 use loom_generic_adapter::config::{DebugSection, LspSection, ToolToml};
 use loom_skills::edit::make_replace_edit;
+use loom_skills::{scan_skill_tree, Severity, SkillDefect};
 use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 
 /// Shared adapter operations for ecosystem-registered tools.
 pub trait LoomToolAdapter: Send + Sync {
@@ -70,12 +73,14 @@ pub trait LoomToolAdapter: Send + Sync {
         if let Some(skills) = self.default_toml(home).skills {
             if let Some(ref native_dir) = skills.native_dir {
                 match sync_skills_to_native(loom_dir, native_dir) {
-                    Ok(n) => {
-                        report.skills_synced = n;
-                        if n > 0 {
-                            report
-                                .notes
-                                .push(format!("synced {n} shared skill(s) to {}", native_dir));
+                    Ok(skill_report) => {
+                        report.skills_synced = skill_report.skills_synced;
+                        report.notes.extend(skill_report.notes);
+                        if skill_report.skills_synced > 0 {
+                            report.notes.push(format!(
+                                "synced {} shared skill(s) to {}",
+                                skill_report.skills_synced, native_dir
+                            ));
                         }
                     }
                     Err(e) => report
@@ -224,14 +229,22 @@ pub fn sync_mcp_to_native(loom_dir: &str, native_config_path: &str) -> Result<us
 
 /// Symlink Loom's shared skills directory into a tool-native skills directory.
 /// Existing skill files in the tool's directory are preserved (loom skills are merged in).
-pub fn sync_skills_to_native(loom_dir: &str, native_skills_dir: &str) -> Result<usize> {
+///
+/// A skill with a Fatal defect (missing `description:`, invalid frontmatter, a
+/// name that disagrees with its directory, a missing referenced script) is NOT
+/// linked: the agent would ignore it silently. The skip is named in the
+/// report notes, by path and defect code.
+pub fn sync_skills_to_native(loom_dir: &str, native_skills_dir: &str) -> Result<SyncReport> {
+    let mut report = SyncReport::default();
     let loom_skills = Path::new(loom_dir).join("skills");
     if !loom_skills.exists() {
-        return Ok(0);
+        return Ok(report);
     }
 
     let native_dir = Path::new(native_skills_dir);
     std::fs::create_dir_all(native_dir)?;
+
+    let defects = skill_defects_by_file(&loom_skills);
 
     let mut count = 0;
     for entry in std::fs::read_dir(&loom_skills)? {
@@ -243,7 +256,8 @@ pub fn sync_skills_to_native(loom_dir: &str, native_skills_dir: &str) -> Result<
         if !loom_skill_path.is_dir() {
             continue;
         }
-        if !loom_skill_path.join("SKILL.md").exists() {
+        let skill_file = loom_skill_path.join("SKILL.md");
+        if !skill_file.exists() {
             continue;
         }
 
@@ -251,6 +265,13 @@ pub fn sync_skills_to_native(loom_dir: &str, native_skills_dir: &str) -> Result<
 
         // If the tool already has this skill, skip (native takes precedence)
         if native_skill_path.exists() {
+            continue;
+        }
+
+        // A Fatal defect refuses the skill: do not link it.
+        let (linkable, notes) = skill_link_decision(&defects, &skill_file, &name.to_string_lossy());
+        report.notes.extend(notes);
+        if !linkable {
             continue;
         }
 
@@ -269,7 +290,46 @@ pub fn sync_skills_to_native(loom_dir: &str, native_skills_dir: &str) -> Result<
         }
     }
 
-    Ok(count)
+    report.skills_synced = count;
+    Ok(report)
+}
+
+/// The defects of every skill file in `skills_dir`.
+///
+/// One walk, one rule: both the layout-A path (`sync_skills_to_native`) and the
+/// layout-B path (`inject_shared_skills`) ask this question.
+pub fn skill_defects_by_file(skills_dir: &Path) -> Vec<SkillDefect> {
+    scan_skill_tree(skills_dir).defects
+}
+
+/// Decide whether one skill file may be linked into a native tool directory.
+///
+/// Returns `(linkable, notes)`. A Fatal defect (missing `description:`, invalid
+/// frontmatter, a name that disagrees with its directory, a missing referenced
+/// script) refuses the skill and names the reason; a Warn never blocks the sync
+/// but is still reported.
+pub fn skill_link_decision(
+    defects: &[SkillDefect],
+    file: &Path,
+    name: &str,
+) -> (bool, Vec<String>) {
+    let mut notes = Vec::new();
+    let mut linkable = true;
+
+    for d in defects.iter().filter(|d| d.path == file) {
+        match d.severity {
+            Severity::Fatal => {
+                linkable = false;
+                notes.push(format!(
+                    "skipped skill '{name}': {} — {}",
+                    d.code, d.message
+                ));
+            }
+            Severity::Warn => notes.push(format!("skill '{name}': {} — {}", d.code, d.message)),
+        }
+    }
+
+    (linkable, notes)
 }
 
 #[cfg(not(unix))]
@@ -363,4 +423,134 @@ pub fn sync_tools_dir(loom_dir: &str) -> Result<SyncReport> {
             .push(format!("imported {n} MCP server(s) from tools/"));
     }
     Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    /// A scratch directory removed when the test ends.
+    ///
+    /// loom-adapters has no dev-dependency on `tempfile`, and its Cargo.toml
+    /// is outside this card's write scope.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new() -> Self {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir()
+                .join(format!("loom-adapters-test-{}-{nanos}", std::process::id()));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn write(path: &Path, content: &str) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
+
+    /// A skill with frontmatter the agent can actually load.
+    fn valid_skill(name: &str) -> String {
+        format!(
+            "---\nname: {name}\ndescription: >\n  Does {name} things.\n---\n\n# {name}\n\nBody.\n"
+        )
+    }
+
+    #[test]
+    fn valid_dir_skill_is_linked() {
+        let scratch = Scratch::new();
+        let loom = scratch.0.join("loom");
+        let native = scratch.0.join("native");
+        write(
+            &loom.join("skills").join("alpha").join("SKILL.md"),
+            &valid_skill("alpha"),
+        );
+
+        let report =
+            sync_skills_to_native(loom.to_str().unwrap(), native.to_str().unwrap()).unwrap();
+
+        assert_eq!(report.skills_synced, 1);
+        assert!(native.join("alpha").exists());
+    }
+
+    #[test]
+    fn fatal_skill_is_not_linked_and_is_named() {
+        let scratch = Scratch::new();
+        let loom = scratch.0.join("loom");
+        let native = scratch.0.join("native");
+        // No description: — the agent drops the skill silently at load.
+        write(
+            &loom.join("skills").join("gdrive").join("SKILL.md"),
+            "# Google Drive\n\nUpload and download files.\n",
+        );
+
+        let report =
+            sync_skills_to_native(loom.to_str().unwrap(), native.to_str().unwrap()).unwrap();
+
+        assert_eq!(report.skills_synced, 0);
+        assert!(!native.join("gdrive").exists());
+        let note = report
+            .notes
+            .iter()
+            .find(|n| n.contains("gdrive"))
+            .expect("the skip must be named in the notes");
+        assert!(note.contains("missing_description"), "note: {note}");
+        assert!(note.contains("gdrive/SKILL.md"), "note: {note}");
+    }
+
+    #[test]
+    fn warn_does_not_block_the_link_but_is_reported() {
+        let scratch = Scratch::new();
+        let loom = scratch.0.join("loom");
+        let native = scratch.0.join("native");
+        // No `name:` — a Warn, the directory name is used instead.
+        write(
+            &loom.join("skills").join("beta").join("SKILL.md"),
+            "---\ndescription: Does beta things.\n---\n\n# Beta\n\nBody.\n",
+        );
+
+        let report =
+            sync_skills_to_native(loom.to_str().unwrap(), native.to_str().unwrap()).unwrap();
+
+        assert_eq!(report.skills_synced, 1);
+        assert!(native.join("beta").exists());
+        assert!(
+            report.notes.iter().any(|n| n.contains("missing_name")),
+            "notes: {:?}",
+            report.notes
+        );
+    }
+
+    #[test]
+    fn one_fatal_skill_does_not_abort_the_rest_of_the_sync() {
+        let scratch = Scratch::new();
+        let loom = scratch.0.join("loom");
+        let native = scratch.0.join("native");
+        write(
+            &loom.join("skills").join("broken").join("SKILL.md"),
+            "# No frontmatter\n",
+        );
+        write(
+            &loom.join("skills").join("good").join("SKILL.md"),
+            &valid_skill("good"),
+        );
+
+        let report =
+            sync_skills_to_native(loom.to_str().unwrap(), native.to_str().unwrap()).unwrap();
+
+        assert_eq!(report.skills_synced, 1);
+        assert!(native.join("good").exists());
+        assert!(!native.join("broken").exists());
+    }
 }
