@@ -616,7 +616,9 @@ pub async fn run(loom_dir: &Path, action: &DaemonAction) -> anyhow::Result<()> {
 
             if socket_path.exists() {
                 let req = loom_ipc::IpcRequest::new("health.check");
-                match crate::ipc_client::send_daemon_command(loom_dir, req).await {
+                // A status probe reports the daemon's state: one attempt, no
+                // backoff, and no daemon start.
+                match crate::ipc_client::probe_daemon(loom_dir, req).await {
                     Ok(resp) if resp.status == "ok" => {
                         let data = resp.data.unwrap_or(serde_json::Value::Null);
                         if *json {
@@ -676,7 +678,12 @@ pub async fn run(loom_dir: &Path, action: &DaemonAction) -> anyhow::Result<()> {
                                 }))?
                             );
                         } else {
-                            println!("Socket exists but daemon unreachable: {e}");
+                            // The socket file outlived the daemon that bound
+                            // it: say so, and say what to type next.
+                            println!(
+                                "Socket exists but daemon unreachable: {}",
+                                crate::ipc_client::stale_socket_advice(&e.to_string())
+                            );
                         }
                     }
                 }
