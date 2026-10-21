@@ -5,6 +5,12 @@ All notable changes to the Loom project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- docs(protocol): versioned **Loom Public Protocol** spec v1.0.0 — the adapter contract (tool TOML shape, `LoomToolAdapter` trait) and the ACP dispatch protocol, every normative statement anchored to a source line: [`docs/protocol/adapter-and-acp-protocol.md`](docs/protocol/adapter-and-acp-protocol.md)
+
 ## [0.9.6] - 2026-10-20
 
 ### Added

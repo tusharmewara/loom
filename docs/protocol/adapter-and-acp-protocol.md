@@ -1,7 +1,7 @@
 # Loom Public Protocol — Adapter Contract & ACP Dispatch
 
 **Date:** 2026-10-21
-**Status:** Draft
+**Status:** Published (spec v1.0.0)
 **Spec version:** 1.0.0
 **Describes:** Adapter contract v1, ACP protocol v1
 
@@ -59,7 +59,7 @@ Implementing this trait is the **Rust-native** path: it is how Loom's 12 built-i
 presets are written (`crates/loom-adapters/src/lib.rs:334` lists them: `jcode`,
 `crush`, `claude-code`, `opencode`, `goose`, `codex`, `cursor`, `gemini-cli`,
 `aider`, `kiro`, `juno`, `github-copilot`). A third party that only needs
-configuration, not code, should use the TOML path in [§1.3](#13-registering-a-tool)
+configuration, not code, should use the TOML path in [§1.4](#14-registering-a-tool)
 instead — it needs no Rust.
 
 **Required methods** (no default body):
@@ -69,7 +69,7 @@ instead — it needs no Rust.
 | `tool_name(&self) -> &'static str` | `crates/loom-adapters/src/lib.rs:37` | The registration file stem: `~/.loom/tools/<tool_name>.toml` (`crates/loom-adapters/src/lib.rs:299`). |
 | `default_toml(&self, home: &str) -> ToolToml` | `crates/loom-adapters/src/lib.rs:38` | The full TOML document for this tool. `home` is the tilde-expanded user home (`crates/loom-core/src/lib.rs:15`). |
 | `apply_routing_decision(&self, decision: &RoutingDecision) -> Result<()>` | `crates/loom-adapters/src/lib.rs:39` | Apply a routing decision to the tool's environment. `RoutingDecision` carries `recommended_provider` / `recommended_model` (`crates/loom-core/src/types.rs:575`). |
-| `sync_from_native(&self, loom_dir: &str, home: &str) -> Result<SyncReport>` | `crates/loom-adapters/src/lib.rs:40` | Import the tool's native resources into the Loom ecosystem. `SyncReport` (`crates/loom-adapters/src/lib.rs:306`) reports `skills_imported`, `skills_synced`, `mcp_servers_imported`, `mcp_servers_synced`, `providers_imported`, `notes`. |
+| `sync_from_native(&self, loom_dir: &str, home: &str) -> Result<SyncReport>` | `crates/loom-adapters/src/lib.rs:40` | Import the tool's native resources into the Loom ecosystem. `SyncReport` (`crates/loom-adapters/src/lib.rs:307`) reports `skills_imported`, `skills_synced`, `mcp_servers_imported`, `mcp_servers_synced`, `providers_imported`, `notes`. |
 
 **Defaulted methods** (override only if you need to):
 
@@ -125,8 +125,11 @@ Parsing rules, all verified against the runtime:
 - **Unknown keys and unknown sections are ignored.** `ToolToml` has no
   `deny_unknown_fields` (`crates/loom-generic-adapter/src/config.rs:33`), so a
   forward-compatible TOML with extra keys still parses.
-- Only two fields are hard errors: a missing `[tool]`, and a `[launch]` without
-  `command` (both surface as `toml::de::Error` `missing field …`).
+- Four fields are hard errors, all surfacing as `toml::de::Error`
+  `missing field …`: a missing `[tool]`, a missing `[tool].name`, a missing
+  `[tool].version`, and a missing `command` in a `[launch]`, `[lsp].servers[]`
+  or `[debug].adapters[]` entry. Everything else has a default or is
+  optional.
 
 ### 1.3 The no-op contract
 
@@ -142,11 +145,11 @@ The mechanism is concrete: `TraitBuilder::build_*` returns `Option<…>`, and
 | Section | Trait implemented | Anchor |
 |---|---|---|
 | `[skills]` | `SkillProvider` | `crates/loom-generic-adapter/src/lib.rs:19` |
-| `[mcp]` | `McpConsumer` | `crates/loom-generic-adapter/src/lib.rs:21` |
-| `[auth]` | `AuthProviderTrait` | `crates/loom-generic-adapter/src/lib.rs:23` |
-| `[hooks]` | `HookExecutor` | `crates/loom-generic-adapter/src/lib.rs:25` |
-| `[routing]` | `RoutingTarget` | `crates/loom-generic-adapter/src/lib.rs:27` |
-| `[sessions]` | `SessionExportable` | `crates/loom-generic-adapter/src/lib.rs:29` |
+| `[mcp]` | `McpConsumer` | `crates/loom-generic-adapter/src/lib.rs:20` |
+| `[auth]` | `AuthProviderTrait` | `crates/loom-generic-adapter/src/lib.rs:21` |
+| `[hooks]` | `HookExecutor` | `crates/loom-generic-adapter/src/lib.rs:22` |
+| `[routing]` | `RoutingTarget` | `crates/loom-generic-adapter/src/lib.rs:23` |
+| `[sessions]` | `SessionExportable` | `crates/loom-generic-adapter/src/lib.rs:24` |
 
 When the section *is* present, the generic implementation is still deliberately
 thin: `GenericMcpConsumer::add_mcp_server` / `remove_mcp_server` are no-ops
@@ -167,7 +170,7 @@ daemon's `register_tool` handler
 and `[launch]` sections are **not** traits and never appear in those lists.
 
 `[skills]` with no `native_dir` falls back to `{loom_dir}/skills`
-(`crates/loom-generic-adapter/src/traits.rs:180`).
+(`crates/loom-generic-adapter/src/traits.rs:184`).
 
 `[routing].default_tier` maps `"flagship"` → `ModelTier::Flagship`,
 `"slm"` → `ModelTier::Slm`, and **anything else** → `ModelTier::Mid`
@@ -198,8 +201,14 @@ files live in `{loom_dir}/tools/` (`TOOLS_DIR`, `crates/loom-core/src/constants.
 - For an **unknown** tool name, Loom writes a minimal registration with
   `[tool]` only and all nine optional sections absent
   (`crates/loom-cli/src/commands/thread.rs:39`) — you then edit that file.
+  **This overwrites an existing file of the same name**
+  (`crates/loom-cli/src/commands/thread.rs:54`), so for a hand-written tool,
+  write the TOML *first* and do not re-run `loom thread` for that name.
 - Either way it notifies a running daemon over the `register_tool` IPC command
-  (`crates/loom-cli/src/commands/thread.rs:60`).
+  (`crates/loom-cli/src/commands/thread.rs:60`). The daemon's own
+  `register_tool` handler writes a registration file **only for preset
+  tools**; for a non-preset name it reports an empty feature list
+  (`crates/loomd/src/ipc_handler.rs:373`, `:397`).
 
 **Option B — write the file yourself.** Create
 `{loom_dir}/tools/<tool>.toml` with the shape in [§1.2](#12-the-tool-toml-shape).
@@ -222,10 +231,10 @@ warnings are emitted for an empty `tool.name`, an empty `tool.version`, and a
 **One more reader to know about.** `loom-auth` scans the same directory with a
 *different* schema: it looks for a top-level `[auth]` or `[provider]` section
 whose `provider_id` is set (`crates/loom-auth/src/import.rs:42`, `:73`,
-`:127`, `:155`). That schema accepts keys such as `provider_id`, `name`,
+`:127`, `:145`). That schema accepts keys such as `provider_id`, `name`,
 `auth_method`, `api_base`, `models_endpoint`, `credential`, `credential_file`,
 `auth_store`, `supported_tools`
-(`crates/loom-auth/src/import.rs:11`). The `ToolToml` `[auth]` section is a
+(`crates/loom-auth/src/import.rs:13`). The `ToolToml` `[auth]` section is a
 *different* shape (`store_path` / `providers` / `import_on_register`,
 `crates/loom-generic-adapter/src/config.rs:112`) — the two do not overlap.
 Use the `loom-auth` keys in a tool file if you want credential auto-import.
@@ -277,12 +286,28 @@ command = "acme"
 args = ["--acp"]
 ```
 
-Register it with Loom:
+That file **is** the registration — there is no separate command to run. Copy
+it into place and Loom picks it up on the next read.
 
 ```bash
-loom thread acme          # writes the file and notifies the daemon
-loom acp run acme --prompt "hello"   # if `acme` also speaks ACP
+mkdir -p ~/.loom/tools
+cp acme.toml ~/.loom/tools/acme.toml
 ```
+
+Do **not** run `loom thread acme` for a hand-written tool: for a name that is
+not one of the 12 presets it rewrites the file with a minimal `[tool]`-only
+version and drops every section above
+(`crates/loom-cli/src/commands/thread.rs:39`, `:54`). See §4 #18.
+
+To tell a *running daemon* about a non-preset tool, send the `register_tool`
+IPC command; it reports the adapter's features without writing anything
+(`crates/loomd/src/ipc_handler.rs:373`, `:397`). In practice the file alone
+is enough: `GenericAdapter::new` reads it on demand
+(`crates/loom-generic-adapter/src/lib.rs:38`), and the daemon's ACP
+launcher prefers a tool's `[launch]` section over everything else
+(`crates/loomd/src/capture.rs:94`). The CLI's `loom acp run` does **not**
+consult the tool TOML — it resolves the agent through `config/agents.toml`
+instead (see [§2.6](#26-registering-an-acp-agent)).
 
 ---
 
@@ -310,11 +335,12 @@ the launch/registration logic in `crates/loom-sessions/src/acp_launch.rs`.
   The request ids Loom uses are `0`, `1`, `2` (and `3` for cancel). A response
   with `"id": "0"` (string) does **not** match request `0` and the request will
   time out.
-- **stdout must be JSON only.** Non-JSON lines are silently dropped
-  (`crates/loom-sessions/src/acp_protocol.rs:71`, `:300`); blank lines are
+- **stdout must be JSON only.** A line that is not a JSON object classifies as
+  `Invalid` and is silently dropped
+  (`crates/loom-sessions/src/acp_protocol.rs:73`, `:300`); blank lines are
   skipped (`crates/loom-sessions/src/acp_protocol.rs:268`).
 - **stderr is free-form.** It is drained on a dedicated thread and echoed to
-  Loom's stderr as `[STDERR] {line}` (`crates/loom-sessions/src/acp_protocol.rs:243`).
+  Loom's stderr as `[STDERR] {line}` (`crates/loom-sessions/src/acp_protocol.rs:248`).
   stderr never enters the transcript.
 - **Exit code is irrelevant.** The child is killed unconditionally after the
   turn (`crates/loom-sessions/src/acp_protocol.rs:222`); the daemon records exit
@@ -326,7 +352,7 @@ the launch/registration logic in `crates/loom-sessions/src/acp_launch.rs`.
 `AcpProtocolClient::run_prompt` (`crates/loom-sessions/src/acp_protocol.rs:206`)
 runs exactly three requests.
 
-**① `initialize`** (id `0`) — `crates/loom-sessions/src/acp_protocol.rs:350`
+**① `initialize`** (id `0`) — `crates/loom-sessions/src/acp_protocol.rs:352`
 
 ```json
 {"jsonrpc":"2.0","id":0,"method":"initialize","params":{
@@ -348,7 +374,7 @@ Loom advertises `fs.readTextFile: false`, `fs.writeTextFile: false` and
 `terminal: false` (`crates/loom-sessions/src/acp_protocol.rs:356`). An agent
 that depends on the client for filesystem or terminal access will hang.
 
-**② `session/new`** (id `1`) — `crates/loom-sessions/src/acp_protocol.rs:386`
+**② `session/new`** (id `1`) — `crates/loom-sessions/src/acp_protocol.rs:388`
 
 ```json
 {"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"<dir>","mcpServers":[]}}
@@ -357,12 +383,12 @@ that depends on the client for filesystem or terminal access will hang.
 `mcpServers` is **always empty** — Loom offers no MCP servers over ACP. The
 agent must answer with a string `result.sessionId`, otherwise the run fails with
 *"session/new response missing sessionId"*
-(`crates/loom-sessions/src/acp_protocol.rs:392`).
+(`crates/loom-sessions/src/acp_protocol.rs:393`).
 
 `cwd` is the CLI's `--cwd` value, or Loom's own current directory when unset
 (`crates/loom-sessions/src/acp_protocol.rs:379`).
 
-**③ `session/prompt`** (id `2`) — `crates/loom-sessions/src/acp_protocol.rs:400`
+**③ `session/prompt`** (id `2`) — `crates/loom-sessions/src/acp_protocol.rs:402`
 
 ```json
 {"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{
@@ -373,11 +399,11 @@ agent must answer with a string `result.sessionId`, otherwise the run fails with
 
 The prompt is always exactly one text block. The agent must answer with a
 string `result.stopReason`, otherwise the run fails with *"prompt response
-missing stopReason"* (`crates/loom-sessions/src/acp_protocol.rs:426`).
+missing stopReason"* (`crates/loom-sessions/src/acp_protocol.rs:427`).
 
 **Cancel on timeout.** If `session/prompt` times out, Loom sends
 `session/cancel` with id `3` and `{"sessionId": …}`
-(`crates/loom-sessions/src/acp_protocol.rs:411`) and then waits a further 2
+(`crates/loom-sessions/src/acp_protocol.rs:413`) and then waits a further 2
 seconds for the original response before reporting the original error
 (`crates/loom-sessions/src/acp_protocol.rs:420`).
 
@@ -390,7 +416,7 @@ CLI default is 120 seconds (`crates/loom-cli/src/cli.rs:1816`); the daemon's
 ### 2.3 Agent → Loom notifications
 
 `session/update` notifications carry the agent's output
-(`crates/loom-sessions/src/acp_protocol.rs:280`). The update object is at
+(`crates/loom-sessions/src/acp_protocol.rs:281`). The update object is at
 `params.update`, and `params.update.sessionUpdate` selects the kind
 (`crates/loom-sessions/src/acp_protocol.rs:127`):
 
@@ -702,9 +728,9 @@ truth and a maintainer can fix it separately.
 | 1 | `crates/loom-sessions/src/acp_protocol.rs:9` | The file header still says *"NOTE (TDD RED step): tests only — `AcpProtocolClient` and friends do not exist yet."* The implementation exists at `:201`. |
 | 2 | `crates/loom-sessions/src/acp_protocol.rs:416` | The comment says `session/cancel` is a notification, but it is built by `build_request` (`:99`) which always emits an `id` — it is a request. |
 | 3 | `crates/loom-sessions/src/acp_launch.rs:3` | The module doc says *"Three sources"*; there are four (the explicit-path branch at `:345` is not mentioned). |
-| 4 | `crates/loom-sessions/src/acp_launch.rs:334` | The doc says the local entry keeps the common case *"offline"*, but `:355` always performs a registry fetch. `reqwest::Client::new()` (`crates/loom-sessions/src/acp_client.rs:38`) sets no timeout, so a hung CDN stalls the launch. |
+| 4 | `crates/loom-sessions/src/acp_launch.rs:335` | The doc says the local entry keeps the common case *"stays offline"*, but `:355` always performs a registry fetch. `reqwest::Client::new()` (`crates/loom-sessions/src/acp_client.rs:38`) sets no timeout, so a hung CDN stalls the launch. |
 | 5 | `crates/loom-sessions/src/acp_protocol.rs:30` | `cwd` is documented as the *"Session working directory (absolute)"* but is only echoed into `session/new`; the child process is never chdir'd (no `Command::current_dir()` in the file). The persisted `working_directory` is Loom's cwd, not the agent's (`:519`). |
-| 6 | `crates/loom-sessions/src/acp_launch.rs:213` | `to_toml_entry` documents itself as rendering *the* `agents.toml` entry, but renders a partial one — `source` is added separately (`crates/loom-cli/src/commands/tools_acp.rs:56`). |
+| 6 | `crates/loom-sessions/src/acp_launch.rs:214` | `to_toml_entry` documents itself as rendering *the* `agents.toml` entry, but renders a partial one — `source` is added separately (`crates/loom-cli/src/commands/tools_acp.rs:56`). |
 | 7 | `crates/loom-cli/src/commands/tools_acp.rs:56` | `source = "acp-registry"` is written but never read by any Loom code path. |
 | 8 | `crates/loom-sessions/src/acp_client.rs:10` | `AgentMetadata` has no `version` field, although the registry schema requires one (`acp_registry/agent.schema.json:7`); `repository`, `website`, `authors`, `license`, `icon` are dropped too. `auth_methods` / `platforms` / `tags` are parsed and never used, so the registry's authentication guarantee (`acp_registry/AUTHENTICATION.md:7`) is not surfaced by Loom. |
 | 9 | `acp_registry/` | The directory is committed as a gitlink with **no `.gitmodules` entry**: `git submodule status` fails with *"fatal: no submodule mapping found in .gitmodules for path 'acp_registry'"*. A fresh clone cannot populate it, so the registry schemas are unavailable to contributors. |
@@ -716,6 +742,9 @@ truth and a maintainer can fix it separately.
 | 15 | `crates/loom-auth/src/import.rs:42` | `loom-auth` reads tool TOMLs with a *different* schema (`[auth]`/`[provider]` with `provider_id`, `credential`, …) than `ToolToml`'s `[auth]` section (`store_path` / `providers` / `import_on_register`). The two coexist in one file and neither documents the other. |
 | 16 | `AGENTS.md` | The agent guide omits `config/agents.toml` and `config/security.toml` from the filesystem layout, omits `--runtime` from the ACP command list, does not say `loom add-acp-agent` needs network, and does not distinguish the daemon resolver (`crates/loomd/src/capture.rs:51`) from the CLI resolver (`crates/loom-sessions/src/acp_launch.rs:344`). |
 | 17 | `ROADMAP.md:41` | The pillar-3 promise — *"publish the `acp_registry` schemas"* — cannot be satisfied from this repository alone, because of #9: the schema directory is an unpopulatable gitlink. This document restates the schema rules inline (§2.7) so the promise is at least satisfiable in prose. |
+| 18 | `crates/loom-cli/src/commands/thread.rs:39` | `loom thread <tool>` for a tool name that is not one of the 12 presets **overwrites** `{loom_dir}/tools/<tool>.toml` with a minimal `[tool]`-only file (`:54`), destroying any hand-written sections. The CLI reports *"✓ Updated tool"*, not *"replaced"*. A third-party tool therefore must not be registered with `loom thread` after its TOML is written — but nothing in the CLI or `AGENTS.md` says so. |
+| 19 | `crates/loomd/src/ipc_handler.rs:381` | The daemon's `register_tool` handler writes a registration file **only for preset tools** (`:382`). For a third-party tool it returns `{"tool": …, "features": []}` (`:397`) and writes nothing, so notifying the daemon about a hand-written tool has no effect on disk. The CLI's `loom thread` path behaves the opposite way (it writes, then notifies), so the two registration paths disagree. |
+| 20 | `crates/loom-generic-adapter/src/config.rs:200` | `command` is a required field in three places — `[launch].command` (`:247`), `[lsp].servers[].command` (`:200`) and `[debug].adapters[].command` (`:228`) — so an LSP or debug server entry without a command makes the **whole tool TOML unparseable**, and the scanner then skips the file entirely (`crates/loom-generic-adapter/src/scanner.rs:53`). A tool author who only wanted a `[launch]` section cannot ship a half-filled `[lsp]` block. |
 
 ---
 
@@ -725,7 +754,7 @@ Every `file:line` anchor in this document, grouped by file.
 
 **`crates/loom-adapters/src/lib.rs`** — trait: `:36`; required: `:37`, `:38`,
 `:39`, `:40`; defaulted: `:46`, `:92`, `:97`, `:114`, `:121`, `:126`, `:143`,
-`:151`; `SyncReport`: `:306`; `write_tool_registration`: `:292`;
+`:151`; `SyncReport`: `:307`; `write_tool_registration`: `:292`;
 `adapter_for`: `:316`; `supported_tools`: `:334`; `sync_tools_dir`: `:351`;
 `sync_mcp_to_native`: `:169`; `sync_skills_to_native`: `:227`.
 
@@ -739,13 +768,15 @@ Every `file:line` anchor in this document, grouped by file.
 `LaunchSection`: `:240`; defaults: `:90`, `:136`, `:153`, `:157`, `:174`,
 `:263`, `:267`.
 
-**`crates/loom-generic-adapter/src/lib.rs`** — trait table: `:12`; no-op rule:
-`:26`; `GenericAdapter::new`: `:38`; `from_toml`: `:52`; `builder`: `:62`;
+**`crates/loom-generic-adapter/src/lib.rs`** — trait table: `:12`; section rows:
+`:19`, `:20`, `:21`, `:22`, `:23`, `:24`; no-op rule: `:26`;
+`GenericAdapter::new`: `:38`; `from_toml`: `:52`; `builder`: `:62`;
 `present_features`: `:102`; `absent_features`: `:126`; `launch_config`: `:156`.
 
 **`crates/loom-generic-adapter/src/traits.rs`** — `build_skill_provider`: `:178`;
-`build_mcp_consumer`: `:190`; `build_auth_provider`: `:199`;
-`build_hook_executor`: `:208`; `build_routing_target`: `:217`;
+skills fallback: `:184`; `build_mcp_consumer`: `:190`;
+`build_auth_provider`: `:199`; `build_hook_executor`: `:208`;
+`build_routing_target`: `:217`; tier match: `:219`;
 `build_session_exportable`: `:229`; `build_all`: `:239`.
 
 **`crates/loom-generic-adapter/src/scanner.rs`** — `scan`: `:27`; skip-invalid:
@@ -757,13 +788,13 @@ Every `file:line` anchor in this document, grouped by file.
 `id_key`: `:109`; `accumulate`: `:127`; `agent_message_chunk`: `:134`;
 `tool_call`: `:143`; `tool_call_update`: `:161`; `permission_outcome`: `:176`;
 cancelled: `:196`; `run_prompt`: `:206`; timeout clamp: `:207`; kill: `:222`;
-`drive`: `:227`; stderr thread: `:243`; blank-line skip: `:268`; response
-dispatch: `:272`; `session/update`: `:280`; request dispatch: `:287`; permission
-reply: `:289`; invalid: `:300`; send: `:310`; response key: `:323`; timeout
-error: `:344`; `initialize`: `:350`; `protocolVersion`: `:354`;
-capabilities: `:356`; version check: `:368`; `session/new`: `:386`; `cwd`:
-`:379`; `sessionId`: `:392`; `session/prompt`: `:400`; prompt block: `:405`;
-`session/cancel`: `:411`; cancel grace: `:420`; `stopReason`: `:426`;
+`drive`: `:227`; stderr thread: `:243`; stderr echo: `:248`; blank-line skip:
+`:268`; response dispatch: `:272`; `session/update`: `:281`; request dispatch:
+`:287`; permission reply: `:289`; invalid: `:300`; send: `:310`; response key:
+`:323`; timeout error: `:344`; `initialize`: `:352`; `protocolVersion`: `:354`;
+capabilities: `:356`; version check: `:368`; `session/new`: `:388`; `cwd`:
+`:379`; `sessionId`: `:393`; `session/prompt`: `:402`; prompt block: `:405`;
+`session/cancel`: `:413`; cancel grace: `:420`; `stopReason`: `:427`;
 `build_acp_session`: `:451`; session id: `:463`; topic: `:464`; assistant
 text: `:467`; messages: `:480`; `source_tool`: `:512`; `working_directory`:
 `:519`; tags: `:529`.
@@ -772,9 +803,9 @@ text: `:467`; messages: `:480`; `source_tool`: `:512`; `working_directory`:
 `AcpLaunch`: `:27`; `Runner`: `:38`; `Distribution`: `:59`; `platform_key`:
 `:72`; `exe_name`: `:85`; `pick_distribution`: `:142`; `to_launch`: `:181`;
 `to_toml_entry`: `:214`; `from_agents_toml`: `:262`; `launch_from_entry`: `:271`;
-`registry_entry`: `:316`; `from_registry`: `:326`; `resolve`: `:344`; explicit
-path: `:345`; local: `:354`; registry fetch: `:355`; merge: `:358`; PATH:
-`:367`; `ensure_runnable`: `:382`.
+`registry_entry`: `:316`; `from_registry`: `:326`; `resolve` doc: `:334`;
+`resolve`: `:344`; explicit path: `:345`; local: `:354`; registry fetch: `:355`;
+merge: `:358`; PATH: `:367`; `ensure_runnable`: `:382`.
 
 **`crates/loom-sessions/src/acp_client.rs`** — `AgentMetadata`: `:10`;
 `RegistryResponse`: `:24`; client construction: `:38`; registry URL: `:58`,
@@ -792,25 +823,28 @@ path: `:345`; local: `:354`; registry fetch: `:355`; merge: `:358`; PATH:
 plugin actions: `:262`, `:275`; `AcpAction::Run`: `:1806`; `--timeout-secs`
 default: `:1816`; `--runtime` help: `:1818`; dispatch: `:1856`, `:1902`,
 `:1924`; `thread.rs` run: `src/commands/thread.rs:7`; preset branch: `:22`;
-minimal TOML: `:39`; daemon notify: `:60`; `tools_acp.rs` handle: `:13`;
-registry fetch: `:14`; id filter: `:22`; `write_agent_entry`: `:42`; agents
-path: `:46`; `source` key: `:56`; distribution: `:62`; `acp_run.rs`:
-`src/commands/acp_run.rs:86`; resolve: `:104`; CLI args override: `:105`;
-`ensure_runnable`: `:110`; `--runtime` warn: `:63`; JSON output: `:142`;
-`acp.rs` agents: `src/commands/acp.rs:231`; agents path: `:233`; registry:
-`:304`; local ids: `:387`; `exec.rs` launch config: `src/commands/exec.rs:714`;
-adapter_for: `:57`, `:295`; `lsp.rs` adapter: `src/commands/lsp.rs:89`;
-`config.rs` registry_url display: `src/commands/config.rs:110`;
-`init.rs` overlays: `src/commands/init.rs:201`.
+minimal TOML: `:39`; TOML write: `:54`; daemon notify: `:60`; `tools_acp.rs`
+handle: `:13`; registry fetch: `:14`; id filter: `:22`; `write_agent_entry`:
+`:42`; agents path: `:46`; `source` key: `:56`; distribution: `:62`;
+`acp_run.rs`: `src/commands/acp_run.rs:86`; resolve: `:104`; CLI args
+override: `:105`; `ensure_runnable`: `:110`; `--runtime` warn: `:63`; JSON
+output: `:142`; `acp.rs` agents: `src/commands/acp.rs:231`; agents path:
+`:233`; registry: `:304`; local ids: `:387`; `exec.rs` launch config:
+`src/commands/exec.rs:714`; adapter_for: `:57`, `:295`; `lsp.rs` adapter:
+`src/commands/lsp.rs:89`; `config.rs` registry_url display:
+`src/commands/config.rs:110`; `init.rs` overlays:
+`src/commands/init.rs:201`.
 
 **`crates/loomd/`** — `capture.rs` daemon resolver: `src/capture.rs:51`;
 `agents.toml` precedence: `:60`; PATH scan: `:66`; adapter launch:
 `:88`, `:94`; dispatch: `:151`; exit code: `:237`; `ipc_handler.rs`
-`register_tool`: `src/ipc_handler.rs:388`; `acp.dispatch`: `:550`.
+`register_tool`: `src/ipc_handler.rs:373`; preset write: `:382`;
+`GenericAdapter::new`: `:388`; features response: `:397`; `acp.dispatch`:
+`:550`.
 
-**`crates/loom-auth/`** — `ToolAuthConfig`: `src/import.rs:11`;
-`ToolConfig`: `:42`; `scan_tools`: `:73`; `scan_tool_file`: `:117`;
-`[auth]` branch: `:127`; `[provider]` branch: `:155`.
+**`crates/loom-auth/`** — `ToolAuthConfig`: `src/import.rs:10`;
+`provider_id` field: `:13`; `ToolConfig`: `:42`; `scan_tools`: `:73`;
+`scan_tool_file`: `:117`; `[auth]` branch: `:127`; `[provider]` branch: `:145`.
 
 **`crates/loom-sessions/tests/fixtures/fake_acp_server.py`** — reference agent:
 `:1`; modes: `:4`; permission flow: `:71`.
