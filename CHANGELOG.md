@@ -9,9 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- TODO: describe this release. Either fill in the "## Notes" section of
-  `RELEASE_NOTES.md` (its content is copied here verbatim) or edit this section
-  before tagging.
+- docs: added review record links to ROADMAP/STATUS
+- docs: gated acp_live test behind LOOM_ACP_LIVE=1
+- docs: replaced documentation cards
+
+### Changed
+
+- documentation: updated review process and test gating notes
 
 ## [Unreleased]
 
