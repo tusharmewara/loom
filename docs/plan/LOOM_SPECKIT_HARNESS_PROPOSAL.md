@@ -126,13 +126,34 @@ Findings from simulating this proposal against the repo:
 - `infeasible` — none found.
 - `spec-gap` — none open after this section.
 
-## 6. Next steps
+## 6. Card convention (Stage 0)
+
+A problem card that enters the loop carries exactly these fields:
+
+```
+PROBLEM:    one paragraph
+SPEC:       path to spec.md            (created by speckit-specify)
+SIMULATE:   budget cap, default ~20 min agent time
+HARDEN:     —                          (runs on findings.md)
+IMPLEMENT:  worktree name              (grading commands = the spec's acceptance)
+VERDICT:    verified | partial | failed — only verified closes the card
+```
+
+Order is mandatory: specify → simulate → harden → implement. A card may
+die at any stage; a kill is recorded verbatim and ends the card —
+stopping with a documented reason is a successful outcome. The kill rule
+in §3 governs the whole programme, not a single card. The four skills
+live in `skills/speckit-{specify,simulate,harden,implement}.md` in this
+repo and install into the shared skill registry via
+`loom skills install <file>`.
+
+## 7. Next steps
 
 1. Adopt Stage 0 as cards (the four skills + the card convention).
 2. Pick ≥5 real multi-step trial problems (ComplexityScore-gated).
 3. Apply the kill rule at Stage 1; Stage 2 only on signal.
 
-## 7. Prior art and provenance
+## 8. Prior art and provenance
 
 - github/spec-kit 1.0 — MIT, Python CLI, processes above
   (github.com/github/spec-kit; docs at github.github.io/spec-kit).
