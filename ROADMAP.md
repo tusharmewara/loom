@@ -8,7 +8,7 @@ Loom is the **shared agentic ecosystem** — the interoperability fabric that ma
 
 ## Where We Are (v0.9.6)
 
-A 31-crate Rust workspace: daemon (`loomd`) + CLI + TUI, Unix-socket IPC, working ACP dispatch with tracked runs, encrypted vault with hash-chained audit, MCP registry with health checks, session export/branch/merge/search, git-worktree parallel execution, GitHub/Linear trackers, SSH remote capture, TOML generic adapters, honest CI (clippy `-D warnings`, 4-job matrix in `.github/workflows/ci.yml`: a 3-entry test matrix, integration, benchmarks, security), Homebrew distribution with bottles.
+A 31-crate Rust workspace: daemon (`loomd`) + CLI + TUI, Unix-socket IPC, working ACP dispatch with tracked runs, encrypted vault with hash-chained audit, MCP registry with health checks, session export/branch/merge/search, git-worktree parallel execution, GitHub/Linear trackers, SSH remote capture, TOML generic adapters, honest CI (clippy `-D warnings`, 5-job matrix in `.github/workflows/ci.yml`: a 3-entry test matrix, container smoke, integration, benchmarks, security), Homebrew distribution with bottles.
 
 ## Pillars
 
