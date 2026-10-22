@@ -452,11 +452,17 @@ Run this **before** writing any probe-loop code. It is the whole of Harness²'s 
 > same root cause and made the same one-line fix in both variants. Real spend: **$0.00**
 > and ~41 min of wall clock against the $10–20 cap (a free model, not a cheap one).
 >
-> The experiment also found the *second* defect: the surface was **found, not injected** —
-> in 4 of 5 candidate runs the agent quoted the hint, and in 1 it never mentioned the file.
-> Loom writes nothing into an agent's standing context (`crates/loom-cli/src/commands/exec.rs:263`
-> sets only `LOOM_AGENTS_DIR`, `LOOM_ENABLED`, `LOOM_PROJECT_NAME`), so the `AGENTS.md` the
-> runs read was an experiment scaffold. **Phase D's precondition is therefore false.**
+> The experiment also found the *second* defect — in the measurement harness, not the
+> signal: a shared `CARGO_TARGET_DIR` across run trees let stale build artefacts pose as
+> fresh results (mid-run for the t1/t2/t4 candidate agents, and again in the first
+> re-grade until a forced-recompile re-grade confirmed 10/10). The surface edit itself
+> was genuinely in play: the *harness* (dsh) auto-loads the workspace `AGENTS.md` into the
+> agent's standing context, and the hint was seen in 5 of 5 candidate runs — with the
+> outcome still identical in 5 of 5. What Loom-the-product lacks is any surface of its
+> own to perturb: nothing in `crates/` writes standing instructions into a dispatched
+> tool's context (`crates/loom-cli/src/commands/exec.rs:263` sets only
+> `LOOM_AGENTS_DIR`, `LOOM_ENABLED`, `LOOM_PROJECT_NAME`). **Phase D's precondition is
+> therefore false.**
 >
 > Full result, spend, per-run data and the verbatim surface patches:
 > [plan/LOOM_PHASE_B_RESULT.md](plan/LOOM_PHASE_B_RESULT.md). The negative result is
