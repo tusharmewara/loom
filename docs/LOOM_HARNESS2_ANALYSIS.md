@@ -203,7 +203,7 @@ The three missing pieces therefore need to be built *in* Loom, in Rust, on Loom'
 |---|---|---|---|---|
 | **Skill inventory + validator + trigger generator** | `loom-skills` (`loader.rs`, `registry.rs`) | `loader.rs:44-104` indexes flat `*.md` by size+mtime and has **zero callers**; `registry.rs` is the tree's declared source of truth (`crates/loom-discovery/src/lib.rs:128`) but is **empty** — the only writer is the MCP import path (`crates/loom-adapters/src/lib.rs:356`); `neutral_renderer.rs` is the tree's only frontmatter parser and it **does not compile** (§6.2.1) | three live defects: `loom skills list` → `[]` with 11 skills installed, `loom skills install <dir>` fails, and a missing `description:` is a silent drop (§6.2.1) | **build now** (Phase A) — one new module in `loom-skills`, plus deleting one dead file; no new crate, no new CLI group |
 | Per-tool editable-surface schema | `loom-adapters` (`LoomToolAdapter`) | the trait carries *paths*, not *editable rules* — but no adapter needs editable rules yet, because Loom injects nothing into prompts | the schema is a per-tool declaration and the adapter trait is the per-tool declaration point — true, but a declaration with no author | **defer** (Phase D) with three named preconditions (§7) |
-| Probe/composition engine | none | — | — | **does not build** — Phase B measured a zero signal (5 of 5 identical suites), so the engine has no measurable substrate; and Loom has no always-on surface to perturb |
+| Probe/composition engine | none | — | — | **does not build** — Phase B measured a zero signal (5 of 5 identical suites), so the engine has no measurable substrate; and Loom-the-product has no always-on surface of its own to describe |
 | Experience library (cue/lesson/evidence) | `loom-hindsight` (typed facts), `loom-knowledge` (graph) | hindsight stores flat facts with a free-text body — no cue/lesson/evidence contract, no per-domain scoping | pillar 5 already promises "outcome-gated lessons via loom-knowledge + loom-hindsight" — and owns the only lesson store ([plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md](plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md) §3.6) — but it is **written by the selection loop**, so it is Phase C output, not a pre-loop store | **does not build** — Phase C (its only writer) does not ship. The one lesson this work produces — the negative result — is recorded as a document in `docs/plan/`, not as a new store beside pillar 5 |
 | New crate `loom-harness` | — | — | the engine spans adapters + sessions + parallel + hindsight; a crate boundary is justified only if it survives Phase B | **does not build** — Phase B did not survive, so there is no engine to house |
 
@@ -476,7 +476,8 @@ Run this **before** writing any probe-loop code. It is the whole of Harness²'s 
 > **CLOSED NEGATIVE.** Phase B measured a zero signal (5 of 5 identical), so Phase C is
 > **not built**. The sections below are kept as the plan of record for the record — they
 > describe what the slice *would* have been, and why it is not worth building on a
-> zero-signal workload with no always-on surface to perturb.
+> zero-signal workload — where even an injected, read-in-5-of-5 surface edit moves
+> nothing.
 
 - Probe runner over `loom-parallel`: one worktree per candidate surface, one `AgentPool` batch, each probe captured as a Loom session tagged `harness-probe`.
 - Outcome signal: repo-local test/suite command, executed by `loom-runtime` in the candidate worktree.
