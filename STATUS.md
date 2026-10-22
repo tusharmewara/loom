@@ -170,6 +170,17 @@ pinned). Pin the key with `loom auth export --print-public-key`.
 
 Direction and pillars: [ROADMAP.md](ROADMAP.md). Open backlog: [docs/loom-improvements.md](docs/loom-improvements.md).
 
+## Review Records
+
+The following independent review reports are on `main` and document the findings, evidence, and resolutions for each major merge:
+
+- [Phase A — Skill Inventory, Validation & Trigger Generation](docs/plan/LOOM_PHASE_A_REVIEW.md) — merge `fa29056`
+- [Pillar 1 — Harden the Core](docs/plan/LOOM_PILLAR1_REVIEW.md) — merge `7457c72`
+- [Pillar 2 — Security & Trust](docs/plan/LOOM_PILLAR2_REVIEW.md) — merge `e0edb50`
+- [Pillars 3+4 — Protocol Spec & Usage Metering](docs/plan/LOOM_PILLAR34_REVIEW.md) — merges `d8eb9db`, `a31740d`
+
+Each report carries a RESOLVED banner mapping every finding to its resolution (code change, test addition, or documentation fix).
+
 ## Contributors
 
 See README for contribution guidelines.

@@ -61,6 +61,17 @@ Market proof exists: Conductor at $50–60/mo/user sells orchestration with clou
 
 When a session ends, agents that did not write the change re-do the important part blind; a sandbox labels every finding with what it established (`proven` / `suite_green` / `unverified` / `could_not_run` / `refuted`); one fix PR carries only verified patches; a lesson is written from each proven finding and injected into the next session touching that file; a scoreboard tracks which agent is right on which kind of task, at what cost. Conifer Parallax proved this loop is the thing people pay a gateway for. Loom already owns every stage's substrate — capture (`loom-sessions`), seating and outcomes (`loom-routing`), blind dispatch (`loom acp run`), worktree isolation (`loom-parallel`), test execution (`loom-runtime`), PR creation (`loom-trackers`), lessons (`loom-knowledge` + `loom-hindsight`). The two missing pieces are the review orchestration itself (a new `loom-review` crate) and the CI-tested container sandbox, which is pillar 2. Reviewers are existing registered agents dispatched over ACP — Loom does not build a reviewer model. Full build spec, MVP→V2 sequencing, and commercial framing: [docs/plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md](docs/plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md).
 
+## Review Records
+
+All independent review reports are on `main` with RESOLVED banners:
+
+- [Phase A — Skill Inventory, Validation & Trigger Generation](docs/plan/LOOM_PHASE_A_REVIEW.md) — merge `fa29056`
+- [Pillar 1 — Harden the Core](docs/plan/LOOM_PILLAR1_REVIEW.md) — merge `7457c72`
+- [Pillar 2 — Security & Trust](docs/plan/LOOM_PILLAR2_REVIEW.md) — merge `e0edb50`
+- [Pillars 3+4 — Protocol Spec & Usage Metering](docs/plan/LOOM_PILLAR34_REVIEW.md) — merges `d8eb9db`, `a31740d`
+
+Each report maps every finding to its resolution (code change, test addition, or documentation fix).
+
 ## Non-Goals
 
 - **Horizontal daemon scaling.** Investigated; local-first is the design. Don't revisit without new evidence.

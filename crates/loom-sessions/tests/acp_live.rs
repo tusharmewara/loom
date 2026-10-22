@@ -1,8 +1,17 @@
 use loom_sessions::SessionManager;
 use reqwest::Client;
 
+/// Live ACP registry discovery test.
+///
+/// This test hits the public ACP registry CDN, so it is **skipped by default**:
+/// - It only runs when `LOOM_ACP_LIVE=1` is set.
+/// - It prints `skipped: ...` and returns successfully when not requested.
 #[tokio::test]
 async fn test_acp_registry_live_discovery() {
+    if std::env::var("LOOM_ACP_LIVE").as_deref() != Ok("1") {
+        println!("skipped: LOOM_ACP_LIVE != 1 (live ACP registry test not requested)");
+        return;
+    }
     // First, dump the raw registry JSON to understand its structure
     let client = Client::new();
     let url = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
