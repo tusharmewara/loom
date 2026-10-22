@@ -1,0 +1,13 @@
+diff --git a/crates/loom-rules/src/lib.rs b/crates/loom-rules/src/lib.rs
+index b07a444..c7e9769 100644
+--- a/crates/loom-rules/src/lib.rs
++++ b/crates/loom-rules/src/lib.rs
+@@ -395,7 +395,7 @@ fn apply_comparison(op: &ComparisonOp, actual: &str, expected: &str) -> RuleResu
+     match op {
+         ComparisonOp::Equals => Ok(actual == expected),
+         ComparisonOp::NotEquals => Ok(actual != expected),
+-        ComparisonOp::Contains => Ok(actual.contains(expected)),
++        ComparisonOp::Contains => Ok(expected.contains(actual)),
+         ComparisonOp::StartsWith => Ok(actual.starts_with(expected)),
+         ComparisonOp::EndsWith => Ok(actual.ends_with(expected)),
+         ComparisonOp::GreaterThan | ComparisonOp::LessThan => {

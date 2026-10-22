@@ -1,0 +1,13 @@
+diff --git a/crates/loom-knowledge/src/lib.rs b/crates/loom-knowledge/src/lib.rs
+index 830cc4b..83a20e0 100644
+--- a/crates/loom-knowledge/src/lib.rs
++++ b/crates/loom-knowledge/src/lib.rs
+@@ -135,7 +135,7 @@ impl KnowledgeGraph {
+         let conn = self.conn()?;
+         let mut stmt = conn.prepare(
+             "SELECT id, name, entity_type, canonical_name, metadata, created_at
+-             FROM entities WHERE LOWER(name) = LOWER(?1)
++             FROM entities WHERE name = LOWER(?1)
+              LIMIT 1",
+         )?;
+ 

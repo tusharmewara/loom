@@ -1,0 +1,13 @@
+diff --git a/crates/loom-hindsight/src/lib.rs b/crates/loom-hindsight/src/lib.rs
+index fe134d7..6e8031c 100644
+--- a/crates/loom-hindsight/src/lib.rs
++++ b/crates/loom-hindsight/src/lib.rs
+@@ -142,7 +142,7 @@ impl Hindsight {
+     ) -> Result<String> {
+         let id = uuid::Uuid::new_v4().to_string();
+         let now = Utc::now().to_rfc3339();
+-        let importance = importance.clamp(0.0, 1.0);
++        let importance = importance.min(1.0);
+ 
+         let db = lock_ok!(self.db);
+         db.execute(

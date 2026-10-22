@@ -33,8 +33,8 @@ The review that follows §6 changed the ordering. The obvious plan ("schema firs
 What is actually worth doing is smaller and more urgent:
 
 1. **A skill inventory that works, plus a validator and a trigger generator** (3–4 days, `loom-skills`). Two separate defects, found by a later review (§12). *A0 — the inventory is off:* `loom skills list` returns `[]`, `loom skills show` finds nothing, and `loom lock --generate` writes zero entries, while 11 skills are installed on this machine — the registry (`~/.loom/skills/skills.db`) is **empty**, because the only code that writes it is the MCP import path, not the skills path. *A1 — the validator:* Loom can install a skill with no `description:` frontmatter, sync it into every native tool directory, and report success — while the agent silently ignores it. Upstream treats exactly this as a hard error. A0 is what a user notices; A1 is what prevents the next silent drop.
-2. **A pre-registered contrast experiment** (2–3 days, $10–20) that measures whether editing a surface changes a test outcome at all. It gates the expensive part; if the signal is zero, the probe loop does not ship and the cost was $20.
-3. **Only then**, the probe loop, the experience library, and the surface schema — the last as a Phase-D option with three named preconditions.
+2. **A pre-registered contrast experiment** (2–3 days, $10–20) that measures whether editing a surface changes a test outcome at all. It gates the expensive part; if the signal is zero, the probe loop does not ship and the cost was $20. **It ran on 2026-10-22 and the signal was zero** — the candidate suite was identical to the base suite in 5 of 5 tasks, so **Phase C does not ship** and Phase D's precondition is false. Result: [plan/LOOM_PHASE_B_RESULT.md](plan/LOOM_PHASE_B_RESULT.md).
+3. **Only then**, the probe loop, the experience library, and the surface schema — the last as a Phase-D option with three named preconditions. **This step is now closed negative**: the probe loop and the experience library are not built, and the surface schema stays deferred because Phase B showed Loom has no always-on surface to describe.
 
 The re-scoped plan is §7; the cut list is §7.1; the Rust-native design sketch is §6; the strategic direction (a self-evolving *shared* harness, and the one decision upstream does not make) is §11; the first-principles review that reshaped Phase A — and the live defects it found — is §12.
 
@@ -203,11 +203,11 @@ The three missing pieces therefore need to be built *in* Loom, in Rust, on Loom'
 |---|---|---|---|---|
 | **Skill inventory + validator + trigger generator** | `loom-skills` (`loader.rs`, `registry.rs`) | `loader.rs:44-104` indexes flat `*.md` by size+mtime and has **zero callers**; `registry.rs` is the tree's declared source of truth (`crates/loom-discovery/src/lib.rs:128`) but is **empty** — the only writer is the MCP import path (`crates/loom-adapters/src/lib.rs:356`); `neutral_renderer.rs` is the tree's only frontmatter parser and it **does not compile** (§6.2.1) | three live defects: `loom skills list` → `[]` with 11 skills installed, `loom skills install <dir>` fails, and a missing `description:` is a silent drop (§6.2.1) | **build now** (Phase A) — one new module in `loom-skills`, plus deleting one dead file; no new crate, no new CLI group |
 | Per-tool editable-surface schema | `loom-adapters` (`LoomToolAdapter`) | the trait carries *paths*, not *editable rules* — but no adapter needs editable rules yet, because Loom injects nothing into prompts | the schema is a per-tool declaration and the adapter trait is the per-tool declaration point — true, but a declaration with no author | **defer** (Phase D) with three named preconditions (§7) |
-| Probe/composition engine | none | — | — | **defer** behind the Phase B contrast experiment, then gated on pillars 1 and 4 |
-| Experience library (cue/lesson/evidence) | `loom-hindsight` (typed facts), `loom-knowledge` (graph) | hindsight stores flat facts with a free-text body — no cue/lesson/evidence contract, no per-domain scoping | pillar 5 already promises "outcome-gated lessons via loom-knowledge + loom-hindsight" — and owns the only lesson store ([plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md](plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md) §3.6) — but it is **written by the selection loop**, so it is Phase C output, not a pre-loop store | **defer to Phase C**, and land in `loom-hindsight` as one `lesson` entity — not a second owner beside pillar 5 |
-| New crate `loom-harness` | — | — | the engine spans adapters + sessions + parallel + hindsight; a crate boundary is justified only if it survives Phase B | **defer** — a crate is created only if the engine grows out of `loom-adapters` + `loom-hindsight` + `loom-parallel` hosting |
+| Probe/composition engine | none | — | — | **does not build** — Phase B measured a zero signal (5 of 5 identical suites), so the engine has no measurable substrate; and Loom has no always-on surface to perturb |
+| Experience library (cue/lesson/evidence) | `loom-hindsight` (typed facts), `loom-knowledge` (graph) | hindsight stores flat facts with a free-text body — no cue/lesson/evidence contract, no per-domain scoping | pillar 5 already promises "outcome-gated lessons via loom-knowledge + loom-hindsight" — and owns the only lesson store ([plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md](plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md) §3.6) — but it is **written by the selection loop**, so it is Phase C output, not a pre-loop store | **does not build** — Phase C (its only writer) does not ship. The one lesson this work produces — the negative result — is recorded as a document in `docs/plan/`, not as a new store beside pillar 5 |
+| New crate `loom-harness` | — | — | the engine spans adapters + sessions + parallel + hindsight; a crate boundary is justified only if it survives Phase B | **does not build** — Phase B did not survive, so there is no engine to house |
 
-**Net: one new module in `loom-skills` (the walk + validator + trigger generator), one dead file deleted, no new crate, no new CLI group, and no LLM spend in the recommended path.** Everything else is conditional on a measurement that has not been made yet.
+**Net: one new module in `loom-skills` (the walk + validator + trigger generator), one dead file deleted, no new crate, no new CLI group, and no LLM spend in the recommended path.** Everything else is conditional on a measurement that has not been made yet — **and that measurement (Phase B) has now been made, and it was negative**, so everything else is closed rather than pending.
 
 ---
 
@@ -370,7 +370,7 @@ The loop, expressed in Loom's primitives:
 | choice parse | new: fenced `` ```choice `` block; `<why>` / `<experience>` / `<edits>` extraction from the same reply |
 | compose | new: merge the chosen candidate's edits into the candidate surface tree, then validate against the surface before it is allowed to ship (where the tree lives is a Phase-D decision — see §6.3) |
 | ledger | new: `R = 4k` / `P = 3k` identity check mirroring `ledger.py:26,31`, backed by `loom-telemetry` counters; `BudgetError` on mismatch |
-| behavioural contrast | **the open question — measured by Phase B (§7)** |
+| behavioural contrast | **closed negative** — Phase B measured it (§7): the candidate suite was identical to the base suite in 5 of 5 tasks, so this row is not built |
 
 ### 6.6 The behavioural-contrast problem (honest gap)
 
@@ -399,7 +399,7 @@ What follows is therefore ordered by *value per day*, and gated by cheap experim
 
 ### Phase A — Skill inventory + validation + trigger generation (**recommended now**, 3–4 days, owner `loom-skills`) — **SHIPPED 2026-10-21**
 
-> **Status: landed.** Phase A shipped on `main` in merge `37baf41` (branch `phase-a/integrate`): the one walk in `crates/loom-skills/src/scan.rs` with one validator and one real YAML parser, the trigger generator in `crates/loom-skills/src/trigger.rs`, the registry populated from that walk, install/remove fixed for both layouts, `neutral_renderer.rs` deleted, the validator wired into both sync paths through one shared predicate, and the `loom doctor` row. All 23 acceptance criteria of the spec re-verified against the merged tree on a copy of the live corpus. The bullets below are kept as the plan of record — the shipped shape matches them, with two deliberate differences the brief corrected: `missing_script` is a **warning**, not fatal; and a defecting skill is still **listed** with its defect attached, never dropped from the inventory. Phase B is unaffected and remains the gate for everything after it. Spec: [plan/LOOM_SKILL_VALIDATION_PROPOSAL.md](plan/LOOM_SKILL_VALIDATION_PROPOSAL.md) §4; review: [plan/LOOM_PHASE_A_REVIEW.md](plan/LOOM_PHASE_A_REVIEW.md).
+> **Status: landed.** Phase A shipped on `main` in merge `37baf41` (branch `phase-a/integrate`): the one walk in `crates/loom-skills/src/scan.rs` with one validator and one real YAML parser, the trigger generator in `crates/loom-skills/src/trigger.rs`, the registry populated from that walk, install/remove fixed for both layouts, `neutral_renderer.rs` deleted, the validator wired into both sync paths through one shared predicate, and the `loom doctor` row. All 23 acceptance criteria of the spec re-verified against the merged tree on a copy of the live corpus. The bullets below are kept as the plan of record — the shipped shape matches them, with two deliberate differences the brief corrected: `missing_script` is a **warning**, not fatal; and a defecting skill is still **listed** with its defect attached, never dropped from the inventory. Phase B is unaffected and remains the gate for everything after it — **and it has since run and closed negative** ([plan/LOOM_PHASE_B_RESULT.md](plan/LOOM_PHASE_B_RESULT.md)). Spec: [plan/LOOM_SKILL_VALIDATION_PROPOSAL.md](plan/LOOM_SKILL_VALIDATION_PROPOSAL.md) §4; review: [plan/LOOM_PHASE_A_REVIEW.md](plan/LOOM_PHASE_A_REVIEW.md).
 
 Fixes three live defects. *A0 (inventory):* `loom skills list` returns `[]`, `loom skills show` finds nothing, and `loom lock --generate` writes zero entries — while 11 skills are installed on this machine, because the registry is never populated. *A1 (validation):* a skill with no `description:` frontmatter is installed, synced into every native tool directory, and then **silently ignored by the agent** — while Loom reports success everywhere.
 
@@ -445,9 +445,32 @@ Run this **before** writing any probe-loop code. It is the whole of Harness²'s 
 
 **Cost:** 2–3 days, $10–20. **Note:** this experiment spends more than Phase A. That is deliberate — it is the cheapest way to kill a 38–59 day plan.
 
+> **RESULT (2026-10-22): the signal is ZERO. The probe loop does not ship.**
+>
+> 10 runs (5 base + 5 candidate), 5 planted defects, graded by each crate's own test
+> command. **Candidate suite identical to base in 5 of 5 tasks** — every agent found the
+> same root cause and made the same one-line fix in both variants. Real spend: **$0.00**
+> and ~41 min of wall clock against the $10–20 cap (a free model, not a cheap one).
+>
+> The experiment also found the *second* defect: the surface was **found, not injected** —
+> in 4 of 5 candidate runs the agent quoted the hint, and in 1 it never mentioned the file.
+> Loom writes nothing into an agent's standing context (`crates/loom-cli/src/commands/exec.rs:263`
+> sets only `LOOM_AGENTS_DIR`, `LOOM_ENABLED`, `LOOM_PROJECT_NAME`), so the `AGENTS.md` the
+> runs read was an experiment scaffold. **Phase D's precondition is therefore false.**
+>
+> Full result, spend, per-run data and the verbatim surface patches:
+> [plan/LOOM_PHASE_B_RESULT.md](plan/LOOM_PHASE_B_RESULT.md). The negative result is
+> recorded there — not in a new store (pillar 5 owns lessons,
+> [plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md](plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md) §3.6).
+
 ### Phase C — probe + contrast + selection (conditional on Phase B)
 
 **Only if Phase B shows a real signal.** This is where upstream's mechanisms land, and where the expensive part lives.
+
+> **CLOSED NEGATIVE.** Phase B measured a zero signal (5 of 5 identical), so Phase C is
+> **not built**. The sections below are kept as the plan of record for the record — they
+> describe what the slice *would* have been, and why it is not worth building on a
+> zero-signal workload with no always-on surface to perturb.
 
 - Probe runner over `loom-parallel`: one worktree per candidate surface, one `AgentPool` batch, each probe captured as a Loom session tagged `harness-probe`.
 - Outcome signal: repo-local test/suite command, executed by `loom-runtime` in the candidate worktree.
@@ -509,7 +532,7 @@ If it happens, the cheap form is: a plain `fn validate_skill_tree(...)` (Phase A
 |---|---|---|
 | **Unmetered LLM spend.** `R=4k`/`P=3k` per task is expensive; Loom's metering is pillar 4. Upstream has no cost cap at all (§2.6). | High | Phase C is gated on metering, plus a hard budget cap from `loom-telemetry` |
 | **A prompt-injection surface is new behaviour for every tool.** Loom currently injects nothing into prompts except at `loom sessions resume` (`resume.rs:33`). Adding always-on prompt text changes every agent's behaviour. | High | Phase D only, opt-in per tool, char cap enforced, every change diffable — and Phase D has three named preconditions (§7) |
-| **The behavioural-contrast signal may be too weak.** Without a grader, "different output" is not "better output". | High | Phase B measures it for $10–20 *before* any probe code exists; the decision rule is pre-registered so the result cannot be reinterpreted afterwards |
+| **The behavioural-contrast signal may be too weak.** Without a grader, "different output" is not "better output". | High | **Measured.** Phase B ran it for $0.00 / 41 min *before* any probe code existed; the signal was zero (5 of 5 identical suites), so the probe loop does not ship |
 | **Benchmark results do not transfer.** Harness²'s gains are Vertex-AI + LAB/JobBench/WorkBuddy numbers. | Medium | the doc claims no transfer; the local signal (tests) is the only claim made |
 | **Terminology collision** ("harness" = tool vs surface) | Medium | §6.1 resolves it before any code |
 | **Scope creep into a second orchestrator.** Harness² is close to "another orchestration UI", which is an explicit ROADMAP non-goal. | Medium | Phases A and B add *no* orchestration: no scheduler, no fan-out, no UI, no new CLI group |
@@ -534,21 +557,23 @@ If it happens, the cheap form is: a plain `fn validate_skill_tree(...)` (Phase A
 
 **Harness² is a source of four specific mechanisms, and only those.** It is not a dependency, not a competitor, and not a template for Loom's architecture.
 
-| Phase | Value | Cost | Gate |
-|---|---|---|---|
-| **A — skill inventory + validation + trigger** | **high and immediate** — fixes a live silent-drop bug *and* a live blind inventory (`loom skills list` → `[]` with 11 skills installed); upstream treats the same defect as a hard error | 3–4 d, no LLM, no new crate | none |
-| **B — contrast experiment** | high — it is the *only* thing that can prove the rest is worth building, and it costs $20 | 2–3 d, $10–20 | none (this *is* the gate) |
-| C — probe + contrast + selection | unknown until B is measured | **high** | B shows a signal **and** pillar 4 metering exists |
-| D — surface schema | medium — a real interoperability primitive, but with no author today | 8–12 d, no LLM | one of three named preconditions (§7) |
-| E — integration + reporting | medium | low | C running |
+| Phase | Value | Cost | Gate | Outcome |
+|---|---|---|---|---|
+| **A — skill inventory + validation + trigger** | **high and immediate** — fixes a live silent-drop bug *and* a live blind inventory (`loom skills list` → `[]` with 11 skills installed); upstream treats the same defect as a hard error | 3–4 d, no LLM, no new crate | none | **shipped** on `main` |
+| **B — contrast experiment** | high — it is the *only* thing that can prove the rest is worth building, and it costs $20 | 2–3 d, $10–20 | none (this *is* the gate) | **ran 2026-10-22 — signal zero** |
+| C — probe + contrast + selection | unknown until B is measured | **high** | B shows a signal **and** pillar 4 metering exists | **does not ship** (B measured zero) |
+| D — surface schema | medium — a real interoperability primitive, but with no author today | 8–12 d, no LLM | one of three named preconditions (§7) | **deferred** — B showed Loom has no always-on surface, so the first precondition is false |
+| E — integration + reporting | medium | low | C running | **does not ship** (C does not ship) |
 
 **Recommended: approve Phase A now and Phase B next; hold C, D, and E behind the measurements they depend on.**
 
-Phase A is worth doing on its own merits even if the entire rest of this document is never implemented: Loom today installs a skill the agent will silently ignore and reports success, and its own skill registry has never been populated — so three of its commands cannot see a single skill. Phase B is worth doing because it is the cheapest possible test of Harness²'s core claim, and it can only *save* money — if the signal is zero, the probe loop never ships.
+**Status now: Phase A shipped, Phase B ran and returned a zero signal, so C, D and E do not ship.** The recommended path of this document is therefore *finished* — and it finished by saving the 38–59 days it was going to spend. What Loom keeps is Phase A, which was worth doing on its own merits: Loom used to install a skill the agent would silently ignore and report success, and its own skill registry had never been populated — so three of its commands could not see a single skill. Both are fixed.
+
+Phase B was worth doing because it is the cheapest possible test of Harness²'s core claim, and it could only *save* money. It did exactly that: the probe loop never ships, and the cost was $0 and 41 minutes. The remaining question — "does editing a surface change the outcome?" — is still open *in general*; what is closed is that **Loom cannot answer it today**, because Loom has no always-on surface to edit. That is Phase D's precondition, and it is false.
 
 The cost of doing nothing is small and should be stated honestly: Loom keeps working, and the two concrete defects Phase A fixes keep costing users one silently-ignored skill and one blind skill list at a time. Nothing in this document is on a critical path.
 
-**Total recommended spend: 5–7 days and $10–20**, against 38–59 days for the plan this document originally proposed.
+**Total recommended spend: 5–7 days and $10–20**, against 38–59 days for the plan this document originally proposed. **Actual spend: Phase A shipped; Phase B ran at $0.00 / ~41 min and closed the gate negative.**
 
 ---
 
@@ -593,7 +618,7 @@ A self-modifying surface is a **security-pillar** item, and it must be designed 
 
 ### 11.3 What this section does not do
 
-It does not commit Loom to self-evolution, and it does not open a pillar. The phases in §7 stand unchanged: **Phase A now, Phase B next, then pillar 5 supplies the outcome signal, then the proposer.** What is deferred is spending 38–59 days *before* the $20 measurement — not the destination. This section exists so the destination is on paper, and so the per-tool-vs-shared choice and the security obligation are decided deliberately rather than by whoever writes the first proposer.
+It does not commit Loom to self-evolution, and it does not open a pillar. The phases in §7 stand unchanged in intent, and their outcome is now known: **Phase A shipped, Phase B ran and closed the gate negative, so the proposer never becomes a proposal.** What the measurement saved is spending 38–59 days *before* the $20 measurement — and the measurement cost $0 and 41 minutes. This section exists so the destination is on paper, and so the per-tool-vs-shared choice and the security obligation are decided deliberately rather than by whoever writes the first proposer.
 
 ---
 

@@ -1,0 +1,13 @@
+diff --git a/crates/loom-conflict/src/lib.rs b/crates/loom-conflict/src/lib.rs
+index 3732821..76ae312 100644
+--- a/crates/loom-conflict/src/lib.rs
++++ b/crates/loom-conflict/src/lib.rs
+@@ -98,7 +98,7 @@ pub fn scan_content(file_path: &str, content: &str) -> Vec<Conflict> {
+                 } else if l.starts_with(">>>>>>> ") {
+                     depth -= 1;
+                     if depth == 0 {
+-                        let their_ref = l[7..].trim().to_string();
++                        let their_ref = l[6..].trim().to_string();
+                         conflicts.push(Conflict {
+                             file: file_path.to_string(),
+                             start_line,

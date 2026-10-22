@@ -1,0 +1,12 @@
+diff --git a/crates/loom-parallel/src/worktree.rs b/crates/loom-parallel/src/worktree.rs
+index 430b17f..f2fe04c 100644
+--- a/crates/loom-parallel/src/worktree.rs
++++ b/crates/loom-parallel/src/worktree.rs
+@@ -190,7 +190,6 @@ fn sanitise_name(name: &str) -> String {
+             }
+         })
+         .collect::<String>()
+-        .trim_matches('-')
+         .to_string()
+ }
+ 
