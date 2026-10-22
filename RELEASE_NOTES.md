@@ -17,12 +17,12 @@ Only the content under "## Notes" is used; this comment block is ignored.
 
 ## Notes
 
-<!-- Write the release notes here. Example:
 ### Added
 
-- feat(cli): a new subcommand
+- docs: added review record links to ROADMAP/STATUS
+- docs: gated acp_live test behind LOOM_ACP_LIVE=1
+- docs: replaced documentation cards
 
-### Fixed
+### Changed
 
-- fix(tui): the Kanban tab no longer traps Tab navigation
--->
+- documentation: updated review process and test gating notes

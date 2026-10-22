@@ -210,6 +210,7 @@ MIT (declared in [`Cargo.toml`](Cargo.toml)).
 
 | Version | Highlights |
 |---------|-----------|
+| **0.10.0** (2026‑10‑22) | Documentation updates: added review record links to ROADMAP/STATUS, gated acp_live test behind LOOM_ACP_LIVE=1, replaced documentation cards. |
 | **0.9.6** (2026‑10‑20) | ACP launch resolution from the registry (`loom acp registry`, 42 agents, deterministic `npx`/`uvx`/`binary` pick) and real agent errors no longer masked as timeouts; Kanban and Orchestrator tabs no longer trap tab navigation. |
 | **0.9.5** (2026‑10‑19) | Docs release: rewritten README with architecture diagrams, Orca competitive analysis, full man-page rewrite (`loom.1`/`loomd.1`); TUI tab-bar shortcuts + scrolling, Kanban board phases; worktree fallback for commit-less repos. |
 | **0.9.4** (2026‑10‑18) | Routing outcome telemetry (`loom routing outcomes`), `require_signature` security flag, unified level/tier derivation, CJK-aware routing signals, HTTPS-only plugin URLs. |
