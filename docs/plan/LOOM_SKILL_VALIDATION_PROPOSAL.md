@@ -1,6 +1,6 @@
 # Loom Skill Validation + Trigger Generation — build proposal
 
-> Status: **SHIPPED 2026-10-21** (proposal 2026-10-20, revised 2026-10-20 after a first-principles review of the two documents — see the parent analysis §12). This document is kept as the spec of record; the code it describes was written on branch `phase-a/integrate` and landed on `main` by merge `37baf41`. §4 carries the per-criterion shipped state.
+> Status: **SHIPPED 2026-10-21** (proposal 2026-10-20, revised 2026-10-20 after a first-principles review of the two documents — see the parent analysis §12). This document is kept as the spec of record; the code it describes was written on branch `phase-a/integrate` and landed on `main` by merge `fa29056`. §4 carries the per-criterion shipped state.
 > Owner crate: `loom-skills`. Cost: **3–4 days**, no LLM spend, no new crate, no new CLI group, no new command.
 > Parent analysis: [LOOM_HARNESS2_ANALYSIS.md](../LOOM_HARNESS2_ANALYSIS.md) §6.2.1, §7 Phase A, and §12 (the review that reshaped this proposal). This is the *only* slice that analysis recommends building.
 > Upstream reference: `google-research/harness2` v0.1.0 `harness2/core/tree.py:265-300` (`_check_skills`), `:192-213` (`autotrigger`), Apache-2.0. **The rules are copied; the extraction is not** — upstream's trigger-text regex is broken for folded YAML (§2).
@@ -332,7 +332,7 @@ Design rules, each traceable to upstream or to a real failure mode:
 
 ## 4. Acceptance criteria
 
-**Status (2026-10-21): all 23 shipped.** Implemented on branch `phase-a/integrate`, landed on `main` by merge `37baf41`. The per-criterion commit below is the commit that shipped it; the card commits are the A1–A5 merges, the rest are the PA-FIX commits that closed the review's findings. Every criterion was re-run against the merged tree in a `LOOM_AGENTS_DIR` sandbox holding a **copy** of the live corpus (11 distinct skills, 6 flat/dir duplicate pairs, 1 skill with no frontmatter). The review record is `docs/plan/LOOM_PHASE_A_REVIEW.md`.
+**Status (2026-10-21): all 23 shipped.** Implemented on branch `phase-a/integrate`, landed on `main` by merge `fa29056`. The per-criterion commit below is the commit that shipped it; the card commits are the A1–A5 merges, the rest are the PA-FIX commits that closed the review's findings. Every criterion was re-run against the merged tree in a `LOOM_AGENTS_DIR` sandbox holding a **copy** of the live corpus (11 distinct skills, 6 flat/dir duplicate pairs, 1 skill with no frontmatter). The review record is `docs/plan/LOOM_PHASE_A_REVIEW.md`.
 
 **A0 — the inventory becomes real**
 

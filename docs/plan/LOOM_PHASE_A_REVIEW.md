@@ -5,7 +5,7 @@
 **Base:** `main` @ `b77b5cf` ("docs: harness2 analysis + skill validation proposal")
 **Verdict: FIX FIRST** — 5 of the 23 acceptance criteria fail, and the five branches do not merge as delivered.
 
-> **Resolution (2026-10-21): FIXED.** All 5 BLOCKERs, 5 MAJORs and 7 MINORs below were closed by the PA-FIX work, which was integrated on branch `phase-a/integrate` and landed on `main` by merge `37baf41`. The findings are kept verbatim as the record of what the five branches got wrong; the branches themselves were **not** merged as delivered — only the integrated branch was. All 23 acceptance criteria of §3 were re-run against the merged tree and pass. The shipped criterion-by-criterion state is in [LOOM_SKILL_VALIDATION_PROPOSAL.md](LOOM_SKILL_VALIDATION_PROPOSAL.md) §4.
+> **Resolution (2026-10-21): FIXED.** All 5 BLOCKERs, 5 MAJORs and 7 MINORs below were closed by the PA-FIX work, which was integrated on branch `phase-a/integrate` and landed on `main` by merge `fa29056`. The findings are kept verbatim as the record of what the five branches got wrong; the branches themselves were **not** merged as delivered — only the integrated branch was. All 23 acceptance criteria of §3 were re-run against the merged tree and pass. The shipped criterion-by-criterion state is in [LOOM_SKILL_VALIDATION_PROPOSAL.md](LOOM_SKILL_VALIDATION_PROPOSAL.md) §4.
 
 ---
 

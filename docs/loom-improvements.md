@@ -34,7 +34,7 @@ Verification (2026-10-10): stub-marker scan of `loom-lsp`/`loom-debug`/`loom-ast
 
 Cut from the Harness² analysis after review ([LOOM_HARNESS2_ANALYSIS.md](LOOM_HARNESS2_ANALYSIS.md) §7, §12). Two defects, one slice. ~~*Inventory:* `loom skills list` returns `[]` and `loom lock --generate` writes zero entries while 11 skills are installed — the registry is never populated. *Validation:* a skill with no `description:` frontmatter is installed, synced into every native tool directory, and **silently ignored by the agent** while Loom reports success.~~ Both are fixed.
 
-**Shipped** in merge `37baf41` (branch `phase-a/integrate`; five cards A1–A5 plus ten PA-FIX commits closing 5 BLOCKERs, 5 MAJORs and 7 MINORs from the review):
+**Shipped** in merge `fa29056` (branch `phase-a/integrate`; five cards A1–A5 plus ten PA-FIX commits closing 5 BLOCKERs, 5 MAJORs and 7 MINORs from the review):
 
 - `crates/loom-skills/src/scan.rs` — one walk over `~/.loom/skills/` handling both layouts (`<name>/SKILL.md` and flat `<name>.md`); one validator, one real YAML parser (`serde_yaml`); `validate_skill_tree(dir) -> Vec<SkillDefect>`; rules: missing `description:` (fatal), `name:` mismatch (fatal in dir layout, warn in flat layout), unparseable frontmatter (fatal), missing referenced script (**warn** — the proposal said fatal; the brief corrected it), duplicate flat/dir pair (warn). Validation **annotates** a skill, it never removes it from the inventory.
 - `crates/loom-skills/src/trigger.rs` — one trigger line per valid skill, deterministic order, cap enforced by dropping **and reporting** the untriggered skills in `not_triggered`. The cue is the **parsed** YAML value, not upstream's regex. Printed by `loom skills list`.
