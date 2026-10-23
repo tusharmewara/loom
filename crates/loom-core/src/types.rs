@@ -1024,9 +1024,32 @@ pub struct Task {
     /// Runtime backend to use for this task (process, docker, etc.).
     #[serde(default)]
     pub runtime: Option<String>,
+    /// Outcome of the most recent daemon-tracked dispatch run, stamped
+    /// when the run completes so `loom workflow list/show`, the TUI and
+    /// event subscribers can see async agent outcomes. Only the
+    /// daemon's ACP dispatch path writes this; the CLI workflow loop
+    /// records richer `phase_results` instead.
+    #[serde(default)]
+    pub last_run: Option<TaskLastRun>,
     pub created_at: String,
     pub updated_at: String,
     pub status: TaskStatus,
+}
+
+/// Outcome of the most recent daemon-tracked dispatch run for a task
+/// (see `Task::last_run`). Mirrors the daemon's run registry entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskLastRun {
+    pub run_id: String,
+    pub agent: String,
+    /// `succeeded` or `failed` — matches the run registry's `RunStatus`.
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// RFC3339 timestamp when the run completed.
+    pub ended_at: String,
 }
 
 /// Output captured from a dispatched agent after a phase completes.
@@ -1191,6 +1214,15 @@ pub enum LoomEvent {
     HooksRegistered { hook_id: String },
     TaskPhaseChanged { task_id: String, phase: TaskPhase },
     TaskCreated { task_id: String },
+    /// A daemon-tracked dispatch run finished and its outcome was
+    /// stamped onto the task manifest. `status` is `succeeded`/`failed`
+    /// (see `TaskLastRun::status`).
+    TaskRunCompleted {
+        task_id: String,
+        run_id: String,
+        status: String,
+        session_id: Option<String>,
+    },
 }
 
 // ─── Adapter Traits ─────────────────────────────────────────────────

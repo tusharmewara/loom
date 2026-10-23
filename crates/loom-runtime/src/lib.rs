@@ -1537,6 +1537,7 @@ mod tests {
             updated_at: "2024-01-01T00:00:00Z".to_string(),
             status: loom_core::TaskStatus::Pending,
             runtime: None,
+            last_run: None,
         };
 
         let spec = build_container_spec(&config, &task, "default:latest", NetworkPolicy::default())

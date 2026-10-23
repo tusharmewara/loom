@@ -309,6 +309,7 @@ impl TaskManager {
             tags: Vec::new(),
             worktree_path: worktree_path.map(|p| p.to_string_lossy().to_string()),
             runtime,
+            last_run: None,
             created_at: now.clone(),
             updated_at: now,
             status: TaskStatus::Pending,
@@ -535,12 +536,23 @@ impl TaskManager {
         Ok(task)
     }
 
-    /// Link an issue to a task.
+    /// Set the linked issue on a task.
     pub fn set_linked_issue(&self, task_id: &str, issue_ref: &str) -> Result<Task> {
         let mut task = self
             .get(task_id)?
             .with_context(|| format!("task '{task_id}' not found"))?;
         task.linked_issue = Some(issue_ref.to_string());
+        task.updated_at = loom_core::rfc3339_now();
+        self.write_task(&task)?;
+        Ok(task)
+    }
+
+    /// Stamp the outcome of a daemon-tracked dispatch run onto the task.
+    pub fn set_last_run(&self, task_id: &str, run: &loom_core::TaskLastRun) -> Result<Task> {
+        let mut task = self
+            .get(task_id)?
+            .with_context(|| format!("task '{task_id}' not found"))?;
+        task.last_run = Some(run.clone());
         task.updated_at = loom_core::rfc3339_now();
         self.write_task(&task)?;
         Ok(task)

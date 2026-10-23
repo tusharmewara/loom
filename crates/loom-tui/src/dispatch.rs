@@ -664,6 +664,7 @@ impl Dispatcher for RuntimeDispatch {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
             runtime: None,
+            last_run: None,
             created_at: chrono::Utc::now().to_rfc3339(),
             updated_at: chrono::Utc::now().to_rfc3339(),
             status: loom_core::TaskStatus::Pending,

@@ -432,6 +432,10 @@ impl LoomService for LoomGrpcService {
                         "TaskCreated".to_string(),
                         serde_json::to_string(&serde_json::json!({ "task_id": task_id })).unwrap_or_default(),
                     ),
+                    LoomEvent::TaskRunCompleted { task_id, run_id, status, session_id } => (
+                        "TaskRunCompleted".to_string(),
+                        serde_json::to_string(&serde_json::json!({ "task_id": task_id, "run_id": run_id, "status": status, "session_id": session_id })).unwrap_or_default(),
+                    ),
                 };
                 yield Ok(Event {
                     event_type,

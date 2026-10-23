@@ -22,6 +22,7 @@ pub struct LoomdIpcHandler {
     run_manager: Arc<std::sync::Mutex<crate::run_manager::RunManager>>,
     runtime_registry: Arc<loom_runtime::RuntimeRegistry>,
     telemetry: Arc<loom_telemetry::TelemetryCollector>,
+    event_bus: Arc<loom_event_bus::EventBus>,
 }
 
 impl LoomdIpcHandler {
@@ -40,6 +41,7 @@ impl LoomdIpcHandler {
             run_manager: loomd.run_manager().clone(),
             runtime_registry: loomd.runtime_registry().clone(),
             telemetry: loomd.telemetry().clone(),
+            event_bus: loomd.event_bus().clone(),
         }
     }
 }
@@ -581,6 +583,7 @@ impl IpcHandler for LoomdIpcHandler {
                     task_id,
                     prompt,
                     timeout_secs,
+                    Some(&self.event_bus),
                 ) {
                     Ok(data) => IpcResponse::ok(req.request_id, data),
                     Err(e) => {

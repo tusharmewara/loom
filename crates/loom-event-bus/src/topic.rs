@@ -29,6 +29,7 @@ impl Topic {
             LoomEvent::HooksRegistered { .. } => Self("hooks:registered".into()),
             LoomEvent::TaskPhaseChanged { .. } => Self("task:phase-changed".into()),
             LoomEvent::TaskCreated { .. } => Self("task:created".into()),
+            LoomEvent::TaskRunCompleted { .. } => Self("task:run-completed".into()),
         }
     }
 
@@ -46,7 +47,8 @@ impl Topic {
             | "auth:provider-added"
             | "hooks:registered"
             | "task:phase-changed"
-            | "task:created" => Some(Self(s.to_string())),
+            | "task:created"
+            | "task:run-completed" => Some(Self(s.to_string())),
             _ => None,
         }
     }

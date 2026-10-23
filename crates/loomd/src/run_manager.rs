@@ -97,6 +97,12 @@ impl RunManager {
         self.runs.get(run_id).cloned()
     }
 
+    /// Count runs still awaiting an outcome (status `Dispatched`).
+    /// The idle shutdown loop should not exit while any run is active.
+    pub fn active_run_count(&self) -> usize {
+        self.runs.values().filter(|r| r.status == RunStatus::Dispatched).count()
+    }
+
     /// Record the outcome of a run. Unknown ids are ignored.
     pub fn complete_run(&mut self, run_id: &str, exit_code: i32, session_id: Option<String>) {
         if let Some(run) = self.runs.get_mut(run_id) {

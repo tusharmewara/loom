@@ -455,6 +455,7 @@ impl LoomEventExt for LoomEvent {
             LoomEvent::HooksRegistered { .. } => "HooksRegistered",
             LoomEvent::TaskPhaseChanged { .. } => "TaskPhaseChanged",
             LoomEvent::TaskCreated { .. } => "TaskCreated",
+            LoomEvent::TaskRunCompleted { .. } => "TaskRunCompleted",
         }
     }
 
@@ -499,6 +500,13 @@ impl LoomEventExt for LoomEvent {
             },
             LoomEvent::TaskCreated { task_id } => match field {
                 "task_id" => Some(task_id.clone()),
+                _ => None,
+            },
+            LoomEvent::TaskRunCompleted { task_id, run_id, status, session_id } => match field {
+                "task_id" => Some(task_id.clone()),
+                "run_id" => Some(run_id.clone()),
+                "status" => Some(status.clone()),
+                "session_id" => session_id.clone(),
                 _ => None,
             },
         }

@@ -140,6 +140,10 @@ impl Loomd {
         &self.telemetry
     }
 
+    pub fn event_bus(&self) -> &Arc<loom_event_bus::EventBus> {
+        &self.event_bus
+    }
+
     pub async fn run(&self) -> anyhow::Result<()> {
         use loom_ipc::serve;
         use std::path::Path;
@@ -249,6 +253,7 @@ impl Loomd {
                 // the transcript as a Loom session.
                 let loom_dir = self.loom_dir.clone();
                 let run_manager = self.run_manager.clone();
+                let event_bus = self.event_bus.clone();
                 let default_handler: loom_sessions::DispatchFn =
                     Arc::new(move |req: &loom_sessions::DispatchRequest| {
                         let prompt = req
@@ -268,6 +273,7 @@ impl Loomd {
                             &req.task_id,
                             prompt,
                             timeout_secs,
+                            Some(&event_bus),
                         )
                         .map_err(|e| anyhow::anyhow!("Dispatch failed: {e}"))
                     });
@@ -339,10 +345,16 @@ impl Loomd {
         // restarts it immediately -> an infinite respawn loop.
         let idle_timeout = idle_timeout_ms();
         if let Some(timeout_ms) = idle_timeout {
+            let run_manager = self.run_manager.clone();
             tokio::spawn(async move {
                 let interval = Duration::from_secs(30);
                 loop {
                     tokio::time::sleep(interval).await;
+                    // Don't shut down while any dispatch run is still awaiting
+                    // its outcome — that would kill the daemon mid-run.
+                    if run_manager.lock().unwrap().active_run_count() > 0 {
+                        continue;
+                    }
                     let idle_ms = now_ms().saturating_sub(idle_activity.load(Ordering::Relaxed));
                     if idle_ms >= timeout_ms {
                         tracing::info!(

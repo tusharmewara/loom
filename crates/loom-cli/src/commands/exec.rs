@@ -801,6 +801,7 @@ async fn execute_via_runtime(
         created_at: chrono::Utc::now().to_rfc3339(),
         updated_at: chrono::Utc::now().to_rfc3339(),
         status: loom_core::TaskStatus::Pending,
+        last_run: None,
     };
 
     // Prepare, run, cleanup
