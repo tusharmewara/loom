@@ -6,10 +6,12 @@
 //! cross-session memory and the knowledge graph — the same visibility
 //! the CLI `workflow dispatch` path provides.
 
+use loom_core::types::TaskLastRun;
 use loom_generic_adapter::GenericAdapter;
 use loom_sessions::acp_launch::{from_agents_toml, AcpLaunch};
 use loom_sessions::acp_protocol::{build_acp_session, AcpClientConfig, AcpProtocolClient};
 use loom_sessions::store::SessionStore;
+use loom_workflow::TaskManager;
 use std::path::{Path, PathBuf};
 
 /// A resolved headless agent launch: program + args.
@@ -155,6 +157,7 @@ pub fn dispatch_acp_protocol(
     task_id: &str,
     prompt: &str,
     timeout_secs: u64,
+    event_bus: Option<&loom_event_bus::EventBus>,
 ) -> anyhow::Result<serde_json::Value> {
     if task_id.is_empty() || agent_id.is_empty() {
         anyhow::bail!("task_id and agent_id required");
@@ -233,8 +236,46 @@ pub fn dispatch_acp_protocol(
     }
 
     // Update run registry with completion
+    let exit_code = if transcript.stop_reason == "success" { 0 } else { 1 };
     if let Ok(mut registry) = manager.lock() {
-        registry.complete_run(&run_id, 0, Some(manifest.session_id.clone()));
+        registry.complete_run(&run_id, exit_code, Some(manifest.session_id.clone()));
+    }
+
+    // Stamp run outcome onto the workflow task
+    if !task_id.is_empty() {
+        let task_manager = TaskManager::new(loom_dir);
+        let last_run = TaskLastRun {
+            run_id: run_id.clone(),
+            agent: agent_id.to_string(),
+            status: if exit_code == 0 { "succeeded" } else { "failed" }.to_string(),
+            exit_code: Some(exit_code),
+            session_id: Some(manifest.session_id.clone()),
+            ended_at: loom_core::rfc3339_now(),
+        };
+        if let Err(e) = task_manager.set_last_run(task_id, &last_run) {
+            tracing::warn!(
+                "ACP dispatch: failed to stamp task '{}' with run outcome: {}",
+                task_id,
+                e
+            );
+        }
+    }
+
+    // Publish run completion event
+    if let Some(bus) = event_bus {
+        let event = loom_core::LoomEvent::TaskRunCompleted {
+            task_id: task_id.to_string(),
+            run_id: run_id.clone(),
+            status: if exit_code == 0 { "succeeded" } else { "failed" }.to_string(),
+            session_id: Some(manifest.session_id.clone()),
+        };
+        if let Err(e) = bus.publish(event) {
+            tracing::warn!(
+                "ACP dispatch: failed to publish run completion event for '{}': {}",
+                run_id,
+                e
+            );
+        }
     }
 
     // Meter the run. The agent's own report is the only source of truth;

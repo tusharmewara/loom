@@ -105,10 +105,28 @@ pub fn draw_kanban(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, th
                     Style::default().fg(theme.text_dim)
                 };
 
+                // Last-run outcome badge: ✓ succeeded, ✗ failed, nothing if not yet dispatched.
+                let run_icon = task
+                    .get("last_run")
+                    .and_then(Value::as_object)
+                    .and_then(|o| o.get("status").and_then(Value::as_str))
+                    .map(|s| match s {
+                        "succeeded" => "✓",
+                        "failed" => "✗",
+                        _ => "",
+                    })
+                    .unwrap_or("");
+                let run_style = match run_icon {
+                    "✓" => theme.success,
+                    "✗" => theme.error,
+                    _ => theme.text_dim,
+                };
+
                 lines.push(Line::from(vec![
                     Span::styled(format!("  {marker} "), theme.primary),
                     Span::styled(display_title, title_style),
                     Span::styled(format!(" [{}]", status), theme.text_dim),
+                    Span::styled(format!(" {}", run_icon), run_style),
                     Span::styled(format!(" {}", worktree), theme.success),
                 ]));
                 lines.push(Line::from(vec![
