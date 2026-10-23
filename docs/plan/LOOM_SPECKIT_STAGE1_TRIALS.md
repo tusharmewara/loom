@@ -103,3 +103,104 @@ neither is advantaged):
   arm with verdict "killed" and the implement run is skipped.
 - Tokens are free-tier ($0 API cost); the cost comparison is in tokens,
   not dollars.
+
+## 6. Results (executed 2026-10-23, all 10 arms)
+
+Model: `nvidia/nemotron-3-ultra-550b-a55b:free` via the kilo gateway, both
+arms. Base tree 1fc96f4. Full logs, grades, specs and findings under
+`/tmp/stage1/results/` (ephemeral — the durable record is this section).
+
+### 6.1 The 10-run table
+
+| # | Problem grade (per-problem command) | Direct wider / clippy | Loop wider / clippy | Direct tokens (in/out) | Loop tokens (in/out) | In-ratio | Blocking-caught |
+|---|---|---|---|---|---|---|---|
+| T1 loom-review slice | PASS / PASS | keychain / **101** | keychain / **0** | 832,948 / 17,839 | 994,651 / 18,749 | 1.19× | **YES** |
+| T2 perf budgets | 0/0 vacuous (both) | keychain / **101** | keychain / **0** | 1,169,342 / 27,118 | 1,789,525 / 33,812 | 1.53× | **YES** |
+| T3 ACP lifecycle | **FAIL / PASS** | keychain / **101** | keychain / **0** | 731,248 / 23,048 | 1,672,854 / 23,022 | 2.29× | **YES** |
+| T4 resume inject | PASS (6 tests) / PASS (3) | keychain / 0 | keychain / 0 | 692,372 / 23,959 | 1,357,597 / 30,491 | 1.96× | no |
+| T5 HealthCheck audit | PASS / PASS | keychain / 0 | keychain / 0 | 1,017,548 / 14,303 | 1,197,484 / 24,388 | 1.18× | **YES** |
+
+("keychain" = wider grade fails only the 2 pre-existing k8s keychain tests —
+the recorded host base condition, identical on both arms. T3 loop diff was
++5 tracked lines plus the untracked test file; T1/T4/T5 test/crate sources
+are likewise untracked — patches under-capture untracked files, grades are
+unaffected.)
+
+**Totals:** direct in 4,443,458 / out 106,267; loop in 7,012,111 / out
+130,462. **Aggregate cost ratio 1.58× (input), 1.57× (input+output)** —
+cache reads reported for completeness: direct 18,187,200, loop 23,798,880.
+Clippy (`-D warnings`, the CI gate): **direct 2/5 clean, loop 5/5 clean.**
+Direct completed inside its 25-min cap 2/5 (T2, T3, T4 capped mid-work and
+were graded as partials per protocol); loop completed all stages except
+T2-s4 (capped).
+
+### 6.2 What the loop caught (the four catches)
+
+- **T1:** loop findings #2/#3 (loom-review must be wired into loomd and
+  loom-cli deps) and the clippy criterion — direct's tree trips both: no
+  loomd/loom-cli wiring, clippy 101. Loop shipped clippy-clean and wired.
+- **T2:** simulate catalogued the existing bench landscape
+  (`already-exists` on `event_bus_bench.rs` with its four bench names;
+  spec-gaps naming the crates needing criterion wiring). Direct created
+  `skill_bench` and `knowledge_bench` that **fail to compile** — clippy
+  `--all-targets` 101 — the exact terrain the findings mapped.
+- **T3 (sharpest):** findings tagged `already-exists` on
+  `crates/loomd/src/run_manager.rs:334` ("RunManager unit tests already
+  cover start_run, complete_run, serialization, disk round-trip…") and
+  spec-gap on the missing integration test. Direct **deleted 391 lines of
+  run_manager.rs** (+10/−398) and still FAILED the problem grade; the loop
+  passed it with a minimal, clippy-clean change.
+- **T5:** the spec counted precisely (15 impls across 13 crates,
+  loom-mcp/loom-discovery doubled; hooks has `health()` but no trait impl;
+  event-bus and runtime unaggregated) and ruled internal components out of
+  scope. Direct claimed "14 of 31" against its own 18-impl tree and added
+  impls to exactly the internal components (AgentMemoryManager,
+  AcpDispatchServer) the loop scoped out.
+
+T4 is the honest negative: both arms solved it cleanly; the loop's yield
+there was catching the problem statement's false premise (resume
+`--inject-memory` uses `CrossSessionMemory`, not loom-hindsight) — but
+direct never tripped on the premise, so it does not score as a catch.
+
+### 6.3 Kill rule, stated literally
+
+- ≥1 blocking-caught: **4 of 5 problems** (T1, T2, T3, T5).
+- Aggregate loop cost ≤ 2× direct: **1.58×** — satisfied.
+- Zero blocking-catches across ≥3 problems: not the case.
+- Fewer than 5 completable: no — all 5 ran and graded.
+
+**→ The kill rule says SHIP. Stage 2 scoping may proceed** (smallest delta
+per the proposal §4: spec/simulate awareness riding the existing workflow
++ task manifest, ComplexityScore gate, no new crate/dependency/CLI group).
+
+### 6.4 Execution notes and lessons (the honest record)
+
+1. **Vacuous grading commands (T2):** both arms passed `cargo test …
+   --release perf_budget` with zero matching tests — both wired criterion
+   *benches* named `perf_budget_*`, which `cargo test` does not run. Exit 0
+   measured nothing. Lesson: a grading command must assert ≥1 matching
+   test (e.g. grep the result line for a nonzero pass count) — this applies
+   to any future card written by speckit-specify.
+2. **Loop-side self-consistency miss (T5):** the loop's AGENTS.md claim
+   ("15 implementations across 13 of 31 crates") describes the
+   pre-implementation state; its own s4 added the hooks impl, making the
+   final tree 16 impls across 14 crates. A perfect spec predicts its own
+   delta. Recorded as a loop imperfection, not a direct-catch.
+3. **Harness reliability:** the host DNS config died mid-trial; the route
+   was recovered without root by pinning `api.kilo.ai` to its resolved IP
+   via a Node `dns.lookup` preload (`NODE_OPTIONS=--require pin-dns.js`).
+   Same endpoint, key and model as pre-registered — only transport pinned.
+   The host keychain daemon is also degraded (the 2 k8s failures above);
+   a reboot would clear it.
+4. **Driver bug, fixed mid-run:** the kill-detection `grep -c … || echo 0`
+   produced "0\n0" on no-match and wrongly skipped T1's s4; fixed to
+   `grep -q`, T1's s4 was re-run as a continuation against the intact
+   spec/findings and graded normally. No other arm touched.
+5. **Cap discipline:** direct's single 25-min run completed 2/5; the
+   loop's staged runs (same model) completed 7/8. Splitting the same work
+   across staged, purpose-scoped runs is itself part of the observed
+   advantage, not a confound — the caps were pre-registered identically
+   for both designs.
+6. **Scope of the claim:** one free-tier model, five problems on this repo,
+   2026-10-23. The rule was pre-registered; the verdict is for Stage 2
+   scoping, not a general law that spec-first beats direct everywhere.
