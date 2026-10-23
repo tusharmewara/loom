@@ -1008,8 +1008,14 @@ pub struct Task {
     /// Per-phase sub-agent configuration for multi-agent dispatch.
     #[serde(default)]
     pub sub_agents: Option<SubAgentConfig>,
+    /// Path to the spec.md file for this task (spec-kit loop).
+    #[serde(default)]
+    pub spec_path: Option<String>,
+    /// Path to the findings.md file for this task (spec-kit loop).
+    #[serde(default)]
+    pub findings_path: Option<String>,
     /// Results captured after each phase completes. Keyed by phase name
-    /// (e.g. "Plan", "Implement", "Verify", "Finish"). The most recent
+    /// (e.g. "Spec", "Simulate", "Plan", "Implement", "Verify", "Finish"). The most recent
     /// completed phase's result is injected as `LOOM_PRIOR_PHASE_RESULT`
     /// when the next phase is dispatched.
     #[serde(default)]
@@ -1070,8 +1076,10 @@ pub struct PhaseResult {
     pub completed_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TaskPhase {
+    Spec,
+    Simulate,
     Plan,
     Implement,
     Verify,
@@ -1084,6 +1092,8 @@ impl TaskPhase {
     /// compatibility with previously-written task JSON files.
     pub fn name(&self) -> &'static str {
         match self {
+            TaskPhase::Spec => "Spec",
+            TaskPhase::Simulate => "Simulate",
             TaskPhase::Plan => "Plan",
             TaskPhase::Implement => "Implement",
             TaskPhase::Verify => "Verify",
@@ -1152,6 +1162,8 @@ impl SubAgentConfig {
     /// Get the agent for a given phase, falling back to `default_agent`.
     pub fn agent_for(&self, phase: &TaskPhase, default_agent: Option<&str>) -> Option<String> {
         let specific = match phase {
+            TaskPhase::Spec => self.plan.as_ref(), // Spec maps to plan slot
+            TaskPhase::Simulate => self.plan.as_ref(), // Simulate maps to plan slot
             TaskPhase::Plan => self.plan.as_ref(),
             TaskPhase::Implement => self.implement.as_ref(),
             TaskPhase::Verify => self.verify.as_ref(),
@@ -1480,5 +1492,65 @@ mod derive_tests {
         assert_eq!(derive_tier(ComplexityLevel::Low), ModelTier::Slm);
         assert_eq!(derive_tier(ComplexityLevel::Medium), ModelTier::Mid);
         assert_eq!(derive_tier(ComplexityLevel::High), ModelTier::Flagship);
+    }
+
+    #[test]
+    fn old_task_json_without_spec_fields_still_loads() {
+        // A task JSON written before the spec-kit fields existed:
+        // "phase": "Plan", no spec_path/findings_path keys.
+        let old = r#"{
+            "task_id": "t1",
+            "title": "T",
+            "description": "D",
+            "phase": "Plan",
+            "prd_path": null,
+            "routed_provider": null,
+            "complexity_score": null,
+            "routing_decision": null,
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "status": "Pending"
+        }"#;
+        let task: Task = serde_json::from_str(old).expect("old task JSON must load");
+        assert_eq!(task.phase, TaskPhase::Plan);
+        assert_eq!(task.phase.name(), "Plan");
+        assert!(task.spec_path.is_none());
+        assert!(task.findings_path.is_none());
+    }
+
+    #[test]
+    fn new_task_phases_round_trip() {
+        for phase in [TaskPhase::Spec, TaskPhase::Simulate] {
+            let task = Task {
+                task_id: "t2".into(),
+                title: "T".into(),
+                description: "D".into(),
+                phase: phase.clone(),
+                phase_history: vec![],
+                prd_path: None,
+                context_files: vec![],
+                routed_provider: None,
+                files_modified: vec![],
+                complexity_score: None,
+                routing_decision: None,
+                last_agent: None,
+                linked_issue: None,
+                sub_agents: None,
+                spec_path: None,
+                findings_path: None,
+                phase_results: vec![],
+                tags: vec![],
+                worktree_path: None,
+                runtime: None,
+                created_at: "2026-01-01T00:00:00Z".into(),
+                updated_at: "2026-01-01T00:00:00Z".into(),
+                status: TaskStatus::Pending,
+            };
+            let json = serde_json::to_string(&task).expect("serialize");
+            let back: Task = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(back.phase, phase);
+        }
+        assert_eq!(TaskPhase::Spec.name(), "Spec");
+        assert_eq!(TaskPhase::Simulate.name(), "Simulate");
     }
 }

@@ -8,6 +8,23 @@ use loom_core::{
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+/// Determine the next phase from Spec, applying the ComplexityScore gate.
+/// Returns the next phase (Simulate or Plan) and the agent role to use.
+fn spec_gate_next_phase(task: &Task, classifier: &Classifier) -> (TaskPhase, Option<&'static str>) {
+    // Read stored complexity_score (computed at create_task), else classify description
+    let score = match &task.complexity_score {
+        Some(score) => score.clone(),
+        None => classifier.classify_with_role(&task.description, Some("trellis-brainstorm")),
+    };
+    // Check if tier is at least Mid
+    let next_phase = if score.model_tier as u8 >= ModelTier::Mid as u8 {
+        TaskPhase::Simulate
+    } else {
+        TaskPhase::Plan
+    };
+    (next_phase, Some("trellis-brainstorm"))
+}
+
 pub struct TaskManager {
     tasks_dir: PathBuf,
     classifier: Classifier,
@@ -305,6 +322,8 @@ impl TaskManager {
             last_agent: None,
             linked_issue: None,
             sub_agents: None,
+            spec_path: None,
+            findings_path: None,
             phase_results: Vec::new(),
             tags: Vec::new(),
             worktree_path: worktree_path.map(|p| p.to_string_lossy().to_string()),
@@ -324,8 +343,23 @@ impl TaskManager {
             .get(task_id)?
             .with_context(|| format!("task '{task_id}' not found"))?;
 
-        let next = next_phase(&task.phase)
-            .with_context(|| format!("task '{task_id}' is already in Finish phase"))?;
+        // Handle Spec gate: when advancing from Spec, apply ComplexityScore gate
+        let (next, agent_role) = if matches!(task.phase, TaskPhase::Spec) {
+            spec_gate_next_phase(&task, &self.classifier)
+        } else {
+            let next = next_phase(&task.phase)
+                .with_context(|| format!("task '{task_id}' is already in Finish phase"))?;
+            // Determine agent role based on phase (could be overridden by explicit agent assignment)
+            let agent_role = match next {
+                TaskPhase::Spec => Some("trellis-brainstorm"),
+                TaskPhase::Simulate => Some("trellis-brainstorm"),
+                TaskPhase::Plan => Some("trellis-brainstorm"), // default, may be overridden
+                TaskPhase::Implement => Some("trellis-implement"),
+                TaskPhase::Verify => Some("trellis-check"),
+                TaskPhase::Finish => Some("trellis-update-spec"),
+            };
+            (next, agent_role)
+        };
 
         let now = loom_core::rfc3339_now();
         if let Some(last) = task.phase_history.last_mut() {
@@ -386,14 +420,6 @@ impl TaskManager {
             phase_iteration_count,
             error_rate,
             ..Default::default()
-        };
-
-        // Determine agent role based on phase (could be overridden by explicit agent assignment)
-        let agent_role = match next {
-            TaskPhase::Plan => Some("trellis-brainstorm"), // default, may be overridden
-            TaskPhase::Implement => Some("trellis-implement"),
-            TaskPhase::Verify => Some("trellis-check"),
-            TaskPhase::Finish => Some("trellis-update-spec"),
         };
 
         // Re-score with dynamic signals
@@ -641,6 +667,7 @@ impl TaskManager {
 #[cfg(test)]
 mod tests {
     use super::TaskManager;
+    use loom_core::TaskPhase;
 
     fn manager() -> (tempfile::TempDir, TaskManager) {
         let dir = tempfile::tempdir().unwrap();
@@ -760,5 +787,80 @@ mod tests {
         assert!(task.worktree_path.is_none());
         // The task must be fully usable despite the skipped worktree.
         assert!(manager.get(&task.task_id).unwrap().is_some());
+    }
+
+    #[test]
+    fn test_spec_gate_low_score_advances_to_plan() {
+        let (_tmp, manager) = manager();
+        // Create a task directly in Spec phase with low complexity (short description)
+        let mut task = manager
+            .create_task("Spec Gate Low", "Fix typo", true, None)
+            .unwrap();
+        task.phase = TaskPhase::Spec;
+        // Override complexity score to Low (Slm tier)
+        use loom_core::{ComplexityLevel, ComplexityScore, ModelTier};
+        task.complexity_score = Some(ComplexityScore {
+            level: ComplexityLevel::Low,
+            numeric: 0.1,
+            model_tier: ModelTier::Slm,
+            scored_at: loom_core::rfc3339_now(),
+            signals: Default::default(),
+        });
+        manager.write_task(&task).unwrap();
+
+        let advanced = manager.advance_phase(&task.task_id).unwrap();
+        // Low score should skip Simulate and go directly to Plan
+        assert_eq!(advanced.phase, TaskPhase::Plan);
+    }
+
+    #[test]
+    fn test_spec_gate_mid_score_advances_to_simulate() {
+        let (_tmp, manager) = manager();
+        // Create a task directly in Spec phase with mid complexity
+        let mut task = manager
+            .create_task("Spec Gate Mid", "Refactor authentication middleware across modules", true, None)
+            .unwrap();
+        task.phase = TaskPhase::Spec;
+        // Override complexity score to Medium (Mid tier)
+        use loom_core::{ComplexityLevel, ComplexityScore, ModelTier};
+        task.complexity_score = Some(ComplexityScore {
+            level: ComplexityLevel::Medium,
+            numeric: 0.5,
+            model_tier: ModelTier::Mid,
+            scored_at: loom_core::rfc3339_now(),
+            signals: Default::default(),
+        });
+        manager.write_task(&task).unwrap();
+
+        let advanced = manager.advance_phase(&task.task_id).unwrap();
+        // Mid score should advance to Simulate normally
+        assert_eq!(advanced.phase, TaskPhase::Simulate);
+    }
+
+    #[test]
+    fn test_spec_gate_absent_score_classifies_description() {
+        let (_tmp, manager) = manager();
+        // Create a task in Spec phase without a stored complexity score
+        // The classifier should run on the description
+        // Use a complex description that will definitely trigger Mid tier
+        let complex_desc = "Design and implement a distributed consensus protocol with leader election, log replication, \
+            cluster membership changes, and crash recovery across multiple data centers. \
+            This requires cross-module coordination, persistent state machines, network \
+            partition handling, and extensive integration testing with fault injection.";
+        let mut task = manager
+            .create_task("Spec Gate Absent", complex_desc, true, None)
+            .unwrap();
+        task.phase = TaskPhase::Spec;
+        task.complexity_score = None; // Force absent score
+        manager.write_task(&task).unwrap();
+
+        let advanced = manager.advance_phase(&task.task_id).unwrap();
+        // The description is complex enough to be Mid or above, so it should go to Simulate
+        // (The exact tier depends on the classifier, but it should not be Plan for this complex description)
+        // We just verify it advances to either Simulate or Plan based on classification
+        assert!(matches!(advanced.phase, TaskPhase::Simulate | TaskPhase::Plan));
+        // But the key thing: it should NOT panic and should use the classifier
+        // For this complex description, it should advance to Simulate
+        assert_eq!(advanced.phase, TaskPhase::Simulate);
     }
 }
