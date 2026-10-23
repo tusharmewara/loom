@@ -165,3 +165,17 @@ repo and install into the shared skill registry via
   non-composition and 5/23 acceptance failures pre-merge; R2-P2 caught
   F1/F2 audit forgery pre-ship; Phase B demonstrated the value of
   pre-registering the measurement before building.
+
+## §9 Stage 2 — shipped (2026-10-23)
+
+Commit `104b6a2` on `speckit/stage-2` (never merged without the user):
+`TaskPhase` gained `Spec`+`Simulate` with `name()` arms; `next_phase`
+walks `Spec → Simulate → Plan → Implement → Verify → Finish → None`;
+the new phases tier to Flagship; `Task` gained `spec_path`/
+`findings_path` (`#[serde(default)]`); `advance_phase` gates on the
+stored `ComplexityScore` — below Mid skips the loop straight to Plan,
+absent score classifies the description; old task JSON back-compat is
+test-enforced. The change itself went through the four skills
+(spec → 23-finding simulate → harden with closure notes → implement →
+independent re-grade): all six acceptance commands pass. Artifacts:
+`docs/plan/stage2/{spec,findings}.md`.
