@@ -3,6 +3,8 @@ use loom_core::{ModelTier, TaskPhase};
 /// Default model tier for each workflow phase.
 pub fn default_model_tier(phase: &TaskPhase) -> ModelTier {
     match phase {
+        TaskPhase::Spec => ModelTier::Flagship,
+        TaskPhase::Simulate => ModelTier::Flagship,
         TaskPhase::Plan => ModelTier::Flagship,
         TaskPhase::Implement => ModelTier::Mid,
         TaskPhase::Verify => ModelTier::Mid,
@@ -13,6 +15,8 @@ pub fn default_model_tier(phase: &TaskPhase) -> ModelTier {
 /// Advance to the next phase in the workflow pipeline.
 pub fn next_phase(current: &TaskPhase) -> Option<TaskPhase> {
     match current {
+        TaskPhase::Spec => Some(TaskPhase::Simulate),
+        TaskPhase::Simulate => Some(TaskPhase::Plan),
         TaskPhase::Plan => Some(TaskPhase::Implement),
         TaskPhase::Implement => Some(TaskPhase::Verify),
         TaskPhase::Verify => Some(TaskPhase::Finish),

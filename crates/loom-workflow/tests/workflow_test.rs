@@ -152,8 +152,34 @@ fn test_phase_result_capture_and_replace() {
 
 #[test]
 fn test_task_phase_name_helper() {
+    assert_eq!(TaskPhase::Spec.name(), "Spec");
+    assert_eq!(TaskPhase::Simulate.name(), "Simulate");
     assert_eq!(TaskPhase::Plan.name(), "Plan");
     assert_eq!(TaskPhase::Implement.name(), "Implement");
     assert_eq!(TaskPhase::Verify.name(), "Verify");
     assert_eq!(TaskPhase::Finish.name(), "Finish");
+}
+
+#[test]
+fn test_next_phase_chain() {
+    // Test the full chain: Spec -> Simulate -> Plan -> Implement -> Verify -> Finish -> None
+    use loom_workflow::phases::next_phase;
+    assert_eq!(next_phase(&TaskPhase::Spec), Some(TaskPhase::Simulate));
+    assert_eq!(next_phase(&TaskPhase::Simulate), Some(TaskPhase::Plan));
+    assert_eq!(next_phase(&TaskPhase::Plan), Some(TaskPhase::Implement));
+    assert_eq!(next_phase(&TaskPhase::Implement), Some(TaskPhase::Verify));
+    assert_eq!(next_phase(&TaskPhase::Verify), Some(TaskPhase::Finish));
+    assert_eq!(next_phase(&TaskPhase::Finish), None);
+}
+
+#[test]
+fn test_default_model_tier_new_phases() {
+    use loom_workflow::phases::default_model_tier;
+    use loom_core::ModelTier;
+    assert_eq!(default_model_tier(&TaskPhase::Spec), ModelTier::Flagship);
+    assert_eq!(default_model_tier(&TaskPhase::Simulate), ModelTier::Flagship);
+    assert_eq!(default_model_tier(&TaskPhase::Plan), ModelTier::Flagship);
+    assert_eq!(default_model_tier(&TaskPhase::Implement), ModelTier::Mid);
+    assert_eq!(default_model_tier(&TaskPhase::Verify), ModelTier::Mid);
+    assert_eq!(default_model_tier(&TaskPhase::Finish), ModelTier::Slm);
 }
