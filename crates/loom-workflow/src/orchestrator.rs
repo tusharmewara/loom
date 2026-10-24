@@ -1,3 +1,4 @@
+use crate::task_manager::ConvergeVerdict;
 use crate::task_manager::TaskManager;
 use anyhow::Result;
 use loom_core::{Task, TaskPhase};
@@ -92,5 +93,10 @@ impl TaskOrchestrator {
     /// Get the most recent phase result, if any.
     pub fn latest_phase_result(&self, task_id: &str) -> Result<Option<loom_core::PhaseResult>> {
         self.manager.latest_phase_result(task_id)
+    }
+
+    /// Converge a task against its spec.md + findings.md sidecars.
+    pub fn converge_task(&self, task_id: &str) -> Result<ConvergeVerdict> {
+        self.manager.converge_task(task_id)
     }
 }

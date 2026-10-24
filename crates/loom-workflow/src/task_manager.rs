@@ -25,6 +25,14 @@ fn spec_gate_next_phase(task: &Task, classifier: &Classifier) -> (TaskPhase, Opt
     (next_phase, Some("trellis-brainstorm"))
 }
 
+/// Verdict of converging a task against its spec.md + findings.md.
+#[derive(Debug, Clone)]
+pub struct ConvergeVerdict {
+    pub verdict: String,   // "verified" | "partial" | "failed"
+    pub converged: Option<bool>,
+    pub reason: String,
+}
+
 pub struct TaskManager {
     tasks_dir: PathBuf,
     classifier: Classifier,
@@ -331,6 +339,7 @@ impl TaskManager {
                 None
             },
             findings_path: None,
+            converged: None,
             phase_results: Vec::new(),
             tags: Vec::new(),
             worktree_path: worktree_path.map(|p| p.to_string_lossy().to_string()),
@@ -479,6 +488,88 @@ impl TaskManager {
 
         self.write_task(&task)?;
         Ok(task)
+    }
+
+    /// Converge a task against its spec.md + findings.md sidecars.
+    ///
+    /// Verdict rules:
+    ///   - `verified`  — spec.md exists & non-empty; no open spec-gap/risk findings
+    ///   - `partial`   — spec.md exists but open findings remain
+    ///   - `failed`    — no spec.md found
+    ///
+    /// Sets `converged` on the task (true=verified, false=partial/failed)
+    /// and persists the manifest. Lesson retention to loom-hindsight is the
+    /// caller's responsibility (CLI layer has the hindsight dep).
+    pub fn converge_task(&self, task_id: &str) -> Result<ConvergeVerdict> {
+        let mut task = self
+            .get(task_id)?
+            .with_context(|| format!("task '{task_id}' not found"))?;
+
+        let spec_path = self.tasks_dir.join(format!("{task_id}.spec.md"));
+        let findings_path = self.tasks_dir.join(format!("{task_id}.findings.md"));
+
+        let (verdict, converged, reason) = if !spec_path.exists() {
+            (
+                "failed".to_string(),
+                Some(false),
+                format!("no spec.md found for task {task_id}"),
+            )
+        } else if let Ok(spec_content) = std::fs::read_to_string(&spec_path) {
+            if spec_content.trim().is_empty() {
+                (
+                    "partial".to_string(),
+                    Some(false),
+                    "spec.md is empty".to_string(),
+                )
+            } else {
+                let open_findings = Self::count_open_findings(&findings_path);
+                if open_findings == 0 {
+                    (
+                        "verified".to_string(),
+                        Some(true),
+                        "all findings closed; spec complete".to_string(),
+                    )
+                } else {
+                    (
+                        "partial".to_string(),
+                        Some(false),
+                        format!("{open_findings} open finding(s) remain"),
+                    )
+                }
+            }
+        } else {
+            (
+                "failed".to_string(),
+                Some(false),
+                format!("could not read spec.md for task {task_id}"),
+            )
+        };
+
+        task.converged = converged;
+        task.updated_at = loom_core::rfc3339_now();
+        self.write_task(&task)?;
+
+        Ok(ConvergeVerdict {
+            verdict,
+            converged,
+            reason,
+        })
+    }
+
+    /// Count findings whose tag is spec-gap or risk and that lack a `closed: true` marker.
+    fn count_open_findings(path: &Path) -> usize {
+        let Ok(content) = std::fs::read_to_string(path) else {
+            return 0;
+        };
+        content
+            .lines()
+            .filter(|l| {
+                let t = l.trim_start();
+                t.starts_with("- tag:")
+                    && (t.contains("spec-gap") || t.contains("risk"))
+                    && !l.contains("closed: true")
+            })
+            .count()
     }
 
     pub fn assign_routing(&self, task_id: &str) -> Result<Task> {
