@@ -14,6 +14,7 @@ fn test_create_and_advance_task() {
             "Refactor distributed security middleware",
             false,
             None,
+            None,
         )
         .unwrap();
     assert!(task.complexity_score.is_some());
@@ -34,6 +35,7 @@ fn test_sub_agents_resolution() {
             "Sub-agent test",
             "Test per-phase agent resolution",
             false,
+            None,
             None,
         )
         .unwrap();
@@ -88,6 +90,7 @@ fn test_phase_result_capture_and_replace() {
             "Phase result test",
             "Capture and replace per phase",
             false,
+            None,
             None,
         )
         .unwrap();
@@ -182,4 +185,63 @@ fn test_default_model_tier_new_phases() {
     assert_eq!(default_model_tier(&TaskPhase::Implement), ModelTier::Mid);
     assert_eq!(default_model_tier(&TaskPhase::Verify), ModelTier::Mid);
     assert_eq!(default_model_tier(&TaskPhase::Finish), ModelTier::Slm);
+}
+
+#[test]
+fn test_create_with_spec_flag_starts_in_spec_phase() {
+    let dir = tempdir().unwrap();
+    let engine = WorkflowEngine::new(dir.path().to_str().unwrap());
+    let orch = engine.orchestrator();
+
+    let task = orch
+        .create_task(
+            "Spec-driven feature",
+            "Implement the spec-kit loop entry point",
+            false,
+            None,
+            Some(TaskPhase::Spec),
+        )
+        .unwrap();
+
+    assert!(matches!(task.phase, TaskPhase::Spec));
+    assert_eq!(
+        task.spec_path,
+        Some(format!("{}.spec.md", task.task_id)),
+        "spec_path should default to <task_id>.spec.md when starting in Spec"
+    );
+    // spec.md placeholder file should exist next to the task manifest
+    let spec_path = dir.path().join("workflow").join("tasks").join(format!("{}.spec.md", task.task_id));
+    assert!(
+        spec_path.exists(),
+        "empty spec.md placeholder should be created"
+    );
+}
+
+#[test]
+fn test_create_spec_task_serializes_and_roundtrips() {
+    let dir = tempdir().unwrap();
+    let engine = WorkflowEngine::new(dir.path().to_str().unwrap());
+    let orch = engine.orchestrator();
+
+    let task = orch
+        .create_task(
+            "Round-trip test",
+            "Old task JSON must keep loading",
+            false,
+            None,
+            Some(TaskPhase::Spec),
+        )
+        .unwrap();
+
+    let task_id = &task.task_id;
+    let reloaded = orch.get_task(task_id).unwrap().unwrap();
+    assert_eq!(reloaded.phase, TaskPhase::Spec);
+    assert_eq!(reloaded.spec_path, task.spec_path);
+
+    // Back-compat: a task created without --spec still has spec_path None
+    let plain = orch
+        .create_task("Plain task", "No loop entry", false, None, None)
+        .unwrap();
+    assert!(matches!(plain.phase, TaskPhase::Plan));
+    assert!(plain.spec_path.is_none());
 }

@@ -1,5 +1,5 @@
 use crate::cli::{TemplateAction, WorkflowAction};
-use loom_core::WorkflowTemplate;
+use loom_core::{TaskPhase, WorkflowTemplate};
 use loom_trackers::IssueTracker;
 use loom_workflow::dispatch::{
     capture_dispatch_session, capture_phase_result, fire_post_phase_hooks, last_exit_code,
@@ -138,6 +138,7 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
             token,
             template,
             from_plan,
+            spec,
             worktree,
             no_worktree,
         } => {
@@ -152,6 +153,7 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                 token,
                 template,
                 from_plan,
+                spec,
                 worktree,
                 no_worktree,
             )
@@ -341,6 +343,7 @@ async fn run_create(
     token: &Option<String>,
     template: &Option<String>,
     from_plan: &Option<String>,
+    spec: &bool,
     worktree: &bool,
     no_worktree: &bool,
 ) -> anyhow::Result<()> {
@@ -355,7 +358,13 @@ async fn run_create(
             )
         })?;
         let (t_title, t_description, linked) = fetch_ticket(&parsed, repo, token).await?;
-        let task = orchestrator.create_task(&t_title, &t_description, use_worktree, None)?;
+        let task = orchestrator.create_task(
+            &t_title,
+            &t_description,
+            use_worktree,
+            None,
+            if *spec { Some(TaskPhase::Spec) } else { None },
+        )?;
         orchestrator.set_linked_issue(&task.task_id, &linked)?;
         let task = orchestrator.get_task(&task.task_id)?.unwrap();
         println!("Created task {} from ticket {} 🔗", task.task_id, linked);
@@ -391,7 +400,13 @@ async fn run_create(
             .default_description
             .as_deref()
             .unwrap_or("Created from template");
-        let task = orchestrator.create_task(t_title, t_description, use_worktree, None)?;
+        let task = orchestrator.create_task(
+            t_title,
+            t_description,
+            use_worktree,
+            None,
+            if *spec { Some(TaskPhase::Spec) } else { None },
+        )?;
         // Apply template overrides
         if let Some(agent) = &tpl.default_agent {
             orchestrator.set_last_agent(&task.task_id, agent)?;
@@ -424,7 +439,13 @@ async fn run_create(
         let issue = tracker.get_issue(&issue_id).await?;
         let t_title = issue.title.clone();
         let t_description = issue.body.clone().unwrap_or_default();
-        let task = orchestrator.create_task(&t_title, &t_description, use_worktree, None)?;
+        let task = orchestrator.create_task(
+            &t_title,
+            &t_description,
+            use_worktree,
+            None,
+            if *spec { Some(TaskPhase::Spec) } else { None },
+        )?;
         orchestrator.set_linked_issue(&task.task_id, &issue_id)?;
         let task = orchestrator.get_task(&task.task_id)?.unwrap();
         println!("Created task {} from issue {} 🔗", task.task_id, issue_id);
@@ -434,7 +455,13 @@ async fn run_create(
         let t_description = description
             .clone()
             .unwrap_or_else(|| "New workflow task".to_string());
-        let task = orchestrator.create_task(&t_title, &t_description, use_worktree, None)?;
+        let task = orchestrator.create_task(
+            &t_title,
+            &t_description,
+            use_worktree,
+            None,
+            if *spec { Some(TaskPhase::Spec) } else { None },
+        )?;
         println!("Created task {}", task.task_id);
         println!("{}", serde_json::to_string_pretty(&task)?);
     }

@@ -181,6 +181,7 @@ fn workflow_preserves_routing_across_phases() {
             "Refactor distributed auth layer",
             false,
             None,
+            None,
         )
         .unwrap();
     assert!(task.routing_decision.is_some());

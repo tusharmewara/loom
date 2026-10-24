@@ -301,7 +301,7 @@ fn test_prior_sessions_context_file_convention() -> Result<()> {
     let agents = loom_dir(&dir);
     let engine = WorkflowEngine::new(&agents);
     let orch = engine.orchestrator();
-    let task = orch.create_task("Context file test", "desc", false, None)?;
+    let task = orch.create_task("Context file test", "desc", false, None, None)?;
 
     // Capture the Plan and Implement sessions.
     for (phase, agent) in [
@@ -358,6 +358,7 @@ fn test_full_phase_chain_captures_four_ordered_sessions() -> Result<()> {
         "Phase chain capture",
         "verify the chain end to end",
         false,
+        None,
         None,
     )?;
 

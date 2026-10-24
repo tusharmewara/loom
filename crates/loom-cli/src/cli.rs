@@ -996,6 +996,9 @@ pub enum WorkflowAction {
         /// Create tasks from a chief plan JSON file
         #[arg(long)]
         from_plan: Option<String>,
+        /// Start the task in the Spec phase (enters the spec-kit loop)
+        #[arg(long)]
+        spec: bool,
         /// Auto-create git worktree for this task
         #[arg(long, default_value_t = true)]
         worktree: bool,
