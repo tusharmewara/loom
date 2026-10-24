@@ -1023,6 +1023,26 @@ pub enum WorkflowAction {
         #[arg(long)]
         json: bool,
     },
+    /// Ideate a full spec-kit loop run from a goal: drafts tasks, enters
+    /// Spec phase when --spec is given, and prints the exact next commands
+    /// (advance → dispatch → converge) to take it from ideation to product.
+    Ideate {
+        /// Goal / requirement to ideate into a spec-kit loop task
+        #[arg(long, allow_hyphen_values = true)]
+        goal: String,
+        /// Free-text details for the task
+        #[arg(long, allow_hyphen_values = true)]
+        details: Option<String>,
+        /// Start the task in the Spec phase (enters the spec-kit loop)
+        #[arg(long)]
+        spec: bool,
+        /// Auto-create git worktree for this task
+        #[arg(long, default_value_t = true)]
+        worktree: bool,
+        /// Explicitly disable git worktree creation
+        #[arg(long)]
+        no_worktree: bool,
+    },
     /// Converge a task: read spec.md/findings.md, report verified/partial/failed verdict
     Converge {
         task_id: String,

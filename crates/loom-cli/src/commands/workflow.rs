@@ -172,7 +172,7 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
         } => {
             let goal = title.clone().unwrap_or_else(|| "Untitled goal".to_string());
             let details = description.clone().unwrap_or_default();
-            let plan = loom_workflow::chief::draft_plan(&goal, &details)?;
+            let plan = loom_workflow::chief::draft_plan(goal.as_str(), details.as_str())?;
             if *create {
                 let tasks = loom_workflow::chief::import_plan(orchestrator.manager(), &plan)?;
                 if *json {
@@ -208,6 +208,52 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
                 "{} task(s). Re-run with --create to import.",
                 plan.tasks.len()
             );
+        }
+        WorkflowAction::Ideate {
+            goal,
+            details,
+            spec,
+            worktree,
+            no_worktree,
+        } => {
+            let use_worktree = *worktree && !*no_worktree;
+            let details = details.clone().unwrap_or_default();
+            let plan = loom_workflow::chief::draft_plan(goal.as_str(), details.as_str())?;
+            if plan.tasks.is_empty() {
+                anyhow::bail!("draft plan produced no tasks");
+            }
+            // Create the first drafted task as the spec-kit loop entry point.
+            let first = &plan.tasks[0];
+            let task = orchestrator.create_task(
+                &first.title,
+                &first.description,
+                use_worktree,
+                None,
+                if *spec { Some(loom_core::TaskPhase::Spec) } else { None },
+            )?;
+            let entered = if *spec {
+                "Spec".to_string()
+            } else {
+                "Plan".to_string()
+            };
+            println!("Ideated task {} from goal '{}'", task.task_id, goal);
+            println!("  title: {}", task.title);
+            println!("  phase: {} ({:?})", entered, task.phase);
+            println!("  spec_path: {:?}", task.spec_path);
+            println!("  findings_path: {:?}", task.findings_path);
+            println!("{}", serde_json::to_string_pretty(&task)?);
+            println!();
+            println!("Next commands to take it from ideation to product:");
+            println!("  loom workflow show {}      # inspect the task", task.task_id);
+            if *spec {
+                println!("  # Stage 2 simulate: edit the spec sidecar at {}.spec.md", task.task_id);
+                println!("  loom workflow advance {}    # ComplexityScore gate: Spec → Simulate or Plan", task.task_id);
+                println!("  loom workflow dispatch {}   # run the implementation phase", task.task_id);
+                println!("  loom workflow converge {}   # verified/partial/failed → lesson to hindsight", task.task_id);
+            } else {
+                println!("  loom workflow advance {}    # Plan → Implement → Verify → Finish", task.task_id);
+                println!("  loom workflow dispatch {} --agent <tool>", task.task_id);
+            }
         }
         WorkflowAction::Advance {
             task_id,
