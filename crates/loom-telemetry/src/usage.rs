@@ -23,14 +23,17 @@
 //!
 //! # What is metered today
 //!
-//! Measured now: `resume` (provider usage), `acp` (protocol usage),
-//! `knowledge-extract` (provider usage). `workflow` is recorded with
-//! source `unavailable` — it is in the ledger, but it carries no count.
+//! Measured now: `resume` (provider usage, per turn of the programmatic
+//! multi-turn loop), `acp` (protocol usage, both `loom acp run` and the
+//! daemon's tracked dispatch), `knowledge-extract` (provider usage).
+//! Recorded with source `unavailable` (in the ledger, no count reported
+//! by the external agent): `workflow` dispatch (CLI and TUI embedded
+//! pane — the pane shells out to the CLI, so the same row is written)
+//! and `loom exec`.
 //!
-//! **Not** metered yet: `loom exec`, the TUI dispatch path
-//! (`loom-tui/src/dispatch.rs`), the TUI Cost tab
-//! (`loom-tui/src/ui/tabs/cost.rs`), and multi-turn session cost. The
-//! ledger does not pretend to cover them — an absent row is not a
+//! The TUI Cost tab renders this ledger (`loom telemetry usage --json`).
+//! Still invisible to the ledger: a TerminalLaunch run (the agent owns
+//! the user's terminal; Loom mediates no turn). An absent row is not a
 //! zero-cost run.
 //!
 //! # Estimators
