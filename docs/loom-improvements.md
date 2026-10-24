@@ -44,6 +44,10 @@ Cut from the Harness² analysis after review ([LOOM_HARNESS2_ANALYSIS.md](LOOM_H
 - The validator is wired into `loom skills install` and into both sync paths (`sync_skills_to_native`, `inject_shared_skills`) through one shared predicate, so the two paths cannot disagree; `loom doctor` gained a **Skill validation** row. No new CLI group, no new crate.
 - Cost as estimated: 3–4 days, no LLM spend, one new dependency (`serde_yaml`). Verified against the live corpus (11 distinct skills, 6 flat/dir duplicate pairs, 1 skill with no frontmatter) in a `LOOM_AGENTS_DIR` sandbox.
 
+### spec-kit harness Stages 0–2 — **SHIPPED 2026-10-24** (merge `66994be`, branch `speckit/stage-2`)
+
+Spec/Simulate phases added to `TaskPhase` with `name()`, `Task.spec_path`/`Task.findings_path` (`#[serde(default)]` for old task JSON), and the `ComplexityScore` gate in `advance_phase` (stored creation-time score read before the unconditional re-score; below Mid → Plan, else → Simulate). Four process skills: specify, simulate, implement, harden. Stage-1 trials: five gate-scored problems, two-arm protocol, kill rule — 4 of 5 blocking catches at 1.58x cost, ship. Review `1948ad17` closed all 23 findings; fix `2a5d3362` committed nothing (review was CLEAN). Spec: `docs/plan/stage2/spec.md`; review record: `docs/plan/stage2/findings.md`.
+
 ### Pillar 5 — Verified Review Engine (spec: [plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md](plan/LOOM_VERIFIED_REVIEW_PROPOSAL.md))
 
 - New `loom-review` crate: session → review plan (intent + diff, never the agent's reasoning) → cross-family reviewer seats over ACP dispatch → mechanism dedup → worktree evidence runner → evidence-labelled findings → fix PR (`loom-trackers`) → outcome-gated lessons (`loom-knowledge` + `loom-hindsight`).

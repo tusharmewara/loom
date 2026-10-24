@@ -69,6 +69,7 @@ All independent review reports are on `main` with RESOLVED banners:
 - [Pillar 1 — Harden the Core](docs/plan/LOOM_PILLAR1_REVIEW.md) — merge `7457c72`
 - [Pillar 2 — Security & Trust](docs/plan/LOOM_PILLAR2_REVIEW.md) — merge `e0edb50`
 - [Pillars 3+4 — Protocol Spec & Usage Metering](docs/plan/LOOM_PILLAR34_REVIEW.md) — merges `d8eb9db`, `a31740d`
+- [spec-kit harness Stages 0–2](docs/plan/stage2/findings.md) — merge `66994be`; review `1948ad17` (all 23 findings closed), fix `2a5d3362` committed nothing (review was CLEAN)
 
 Each report maps every finding to its resolution (code change, test addition, or documentation fix).
 

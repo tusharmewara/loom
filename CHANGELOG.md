@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- feat(workflow): spec-kit harness Stages 0–2 — loop the engine into the spec-kit loop: `TaskPhase::Spec`/`TaskPhase::Simulate` with `name()`, `Task.spec_path`/`Task.findings_path` (serde default for old task JSON), the `ComplexityScore` gate in `advance_phase` (stored score read before re-score; below Mid → Plan, else Simulate), four process skills (specify/simulate/implement/harden), Stage-1 five-problem trials (4 of 5 blocking catches at 1.58x cost; kill rule says ship). Validated by the spec in docs/plan/stage2/spec.md and 23-closure review record in docs/plan/stage2/findings.md. Merge 66994be.
+
 ### Changed
 
 - docs(harness): the Harness² Phase B contrast experiment ran and **closed negative** — the probe loop, the per-tool surface schema and the experience library are **not built** on this evidence. 5 planted defects, 10 runs, graded by each crate's own test command: the candidate suite was identical to the base suite in **5 of 5** tasks (the pre-registered rule needed ≥3), at a real spend of **$0.00 / ~41 min** against the $10–20 cap. The second finding is a **measurement-harness flaw**: a shared `CARGO_TARGET_DIR` let stale build artefacts pose as fresh results, so any future A/B needs per-run target dirs. The surface edit itself was injected (the harness auto-loads `AGENTS.md`) and read in 5 of 5 candidate runs — and it still changed no outcome. Loom-the-product has no always-on surface of its own, so Phase D's precondition is false. The analysis is updated to the measured outcome and the negative result is recorded in [`docs/plan/LOOM_PHASE_B_RESULT.md`](docs/plan/LOOM_PHASE_B_RESULT.md). The skill inventory + validation + trigger slice (Phase A) is unaffected and stays
