@@ -54,6 +54,7 @@ hex.workspace = true
 ureq.workspace = true
 lsp-types.workspace = true
 loom-debug = { path = "../loom-debug" }
+loom-review = { path = "../loom-review" }
 
 [features]
 default = ["tui"]

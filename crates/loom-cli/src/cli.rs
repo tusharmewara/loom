@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+use crate::commands::review::ReviewAction;
 use crate::commands::telemetry::TelemetryAction;
 
 /// Loom — The Shared Agentic Ecosystem
@@ -246,6 +247,11 @@ pub enum Command {
     Telemetry {
         #[command(subcommand)]
         action: TelemetryAction,
+    },
+    /// Review session findings (evidence pipeline)
+    Review {
+        #[command(subcommand)]
+        action: ReviewAction,
     },
 }
 
@@ -2050,6 +2056,7 @@ impl Cli {
             Command::Telemetry { action } => {
                 crate::commands::telemetry::run(&loom_dir, &action).await
             }
+            Command::Review { action } => crate::commands::review::run(&loom_dir, action),
             Command::Conflict { action } => {
                 crate::commands::conflict::run(&loom_dir, &action).await
             }

@@ -32,6 +32,7 @@ members = [
     "crates/loom-rules",
     "crates/loom-ast",
     "crates/loom-runtime",
+    "crates/loom-review",
 ]
 
 [workspace.package]

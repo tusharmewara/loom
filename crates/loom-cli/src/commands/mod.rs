@@ -22,6 +22,7 @@ pub mod memory;
 pub mod plugin;
 pub mod remote;
 pub mod resume;
+pub mod review;
 pub mod routing;
 pub mod rules;
 pub mod runtime;

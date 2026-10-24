@@ -2227,6 +2227,7 @@ dependencies = [
  "loom-mcp-server",
  "loom-parallel",
  "loom-remote",
+ "loom-review",
  "loom-routing",
  "loom-rules",
  "loom-runtime",
@@ -2536,6 +2537,20 @@ version = "0.10.1"
 dependencies = [
  "anyhow",
  "shellexpand",
+]
+
+[[package]]
+name = "loom-review"
+version = "0.10.1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "loom-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

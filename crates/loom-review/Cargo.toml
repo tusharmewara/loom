@@ -1,0 +1,17 @@
+[package]
+name = "loom-review"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
