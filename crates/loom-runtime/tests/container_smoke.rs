@@ -53,6 +53,7 @@ fn task() -> Task {
         sub_agents: None,
         spec_path: None,
         findings_path: None,
+        converged: None,
         phase_results: vec![],
         tags: vec![],
         worktree_path: None,

@@ -1,5 +1,6 @@
 use crate::cli::{TemplateAction, WorkflowAction};
 use loom_core::{TaskPhase, WorkflowTemplate};
+use loom_hindsight::Hindsight;
 use loom_trackers::IssueTracker;
 use loom_workflow::dispatch::{
     capture_dispatch_session, capture_phase_result, fire_post_phase_hooks, last_exit_code,
@@ -261,6 +262,48 @@ pub async fn run(loom_dir: &Path, action: &WorkflowAction) -> anyhow::Result<()>
             }
             if let Some(la) = &task.last_agent {
                 println!("  last_agent={la}");
+            }
+        }
+        WorkflowAction::Converge { task_id, json } => {
+            let verdict = orchestrator.converge_task(task_id)?;
+            let reason = verdict.reason.clone();
+            if *json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "command": "workflow.converge",
+                        "task_id": task_id,
+                        "verdict": verdict.verdict,
+                        "converged": verdict.converged,
+                        "reason": verdict.reason,
+                    }))?
+                );
+            } else {
+                println!(
+                    "Converged task {task_id}: {:?} — {}",
+                    verdict.verdict, reason
+                );
+            }
+            if verdict.converged == Some(true) {
+                // Retain a lesson to hindsight for verified convergence.
+                let hindsight_db = Path::new(&loom_dir_str).join("hindsight.db");
+                if let Ok(h) = Hindsight::open(&hindsight_db) {
+                    let lesson = format!(
+                        "Converged task {task_id}: spec complete — {reason}",
+                    );
+                    if let Ok(id) = h.retain(&lesson, "lesson", &format!("workflow:{task_id}"), 0.8) {
+                        println!("  ✅ Lesson retained to hindsight (id: {id}).");
+                    } else {
+                        eprintln!("  ⚠️  Failed to retain lesson to hindsight.");
+                    }
+                } else {
+                    eprintln!("  ⚠️  Could not open hindsight store — lesson not retained.");
+                }
+            } else if verdict.converged == Some(false) {
+                println!("  ⚠️  Open findings remain — no lesson written.");
+            } else {
+                println!("  ❌ Converge failed.");
             }
         }
         WorkflowAction::Dispatch {

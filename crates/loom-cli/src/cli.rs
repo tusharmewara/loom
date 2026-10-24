@@ -1023,6 +1023,13 @@ pub enum WorkflowAction {
         #[arg(long)]
         json: bool,
     },
+    /// Converge a task: read spec.md/findings.md, report verified/partial/failed verdict
+    Converge {
+        task_id: String,
+        /// Output machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Advance a task to the next phase
     Advance {
         task_id: String,
@@ -1035,8 +1042,7 @@ pub enum WorkflowAction {
     },
     /// Assign a routed provider to a task (with optional overrides)
     Assign {
-        task_id: String,
-        /// Override the provider (e.g., "anthropic", "openai")
+        task_id: String,        /// Override the provider (e.g., "anthropic", "openai")
         #[arg(long)]
         provider: Option<String>,
         /// Override the model (e.g., "claude-opus-4", "gpt-4o")

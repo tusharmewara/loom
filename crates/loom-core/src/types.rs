@@ -1014,6 +1014,10 @@ pub struct Task {
     /// Path to the findings.md file for this task (spec-kit loop).
     #[serde(default)]
     pub findings_path: Option<String>,
+    /// Convergence verdict: None = not yet converged, Some(true) = verified,
+    /// Some(false) = partial/failed (spec-kit loop, Stage 4).
+    #[serde(default)]
+    pub converged: Option<bool>,
     /// Results captured after each phase completes. Keyed by phase name
     /// (e.g. "Spec", "Simulate", "Plan", "Implement", "Verify", "Finish"). The most recent
     /// completed phase's result is injected as `LOOM_PRIOR_PHASE_RESULT`
@@ -1538,6 +1542,7 @@ mod derive_tests {
                 sub_agents: None,
                 spec_path: None,
                 findings_path: None,
+                converged: None,
                 phase_results: vec![],
                 tags: vec![],
                 worktree_path: None,
