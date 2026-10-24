@@ -101,7 +101,7 @@ impl LoomService for LoomGrpcService {
         let engine = self.workflow_engine();
         let orch = engine.orchestrator();
         let task = orch
-            .create_task(&req.title, &req.description, req.worktree, None)
+            .create_task(&req.title, &req.description, req.worktree, None, None)
             .map_err(|e| Status::internal(e.to_string()))?;
 
         let (complexity, routing) =

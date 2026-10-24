@@ -249,6 +249,7 @@ impl TaskManager {
         description: &str,
         worktree: bool,
         runtime: Option<String>,
+        initial_phase: Option<TaskPhase>,
     ) -> Result<Task> {
         let now = loom_core::rfc3339_now();
         let task_id = Uuid::new_v4().to_string();
@@ -271,6 +272,8 @@ impl TaskManager {
             complexity.model_tier = phase_default_tier;
         }
 
+        let entering_spec = initial_phase.as_ref() == Some(&TaskPhase::Spec);
+        let task_phase = initial_phase.unwrap_or(TaskPhase::Plan);
         let routing_decision = self.router.decide(complexity.clone());
 
         self.record_outcome(
@@ -305,9 +308,9 @@ impl TaskManager {
             task_id: task_id.clone(),
             title: title.to_string(),
             description: description.to_string(),
-            phase: TaskPhase::Plan,
+            phase: task_phase.clone(),
             phase_history: vec![PhaseHistoryEntry {
-                phase: "Plan".into(),
+                phase: format!("{task_phase:?}"),
                 started_at: now.clone(),
                 completed_at: None,
                 complexity_score: Some(complexity.clone()),
@@ -322,7 +325,11 @@ impl TaskManager {
             last_agent: None,
             linked_issue: None,
             sub_agents: None,
-            spec_path: None,
+            spec_path: if entering_spec {
+                Some(format!("{task_id}.spec.md"))
+            } else {
+                None
+            },
             findings_path: None,
             phase_results: Vec::new(),
             tags: Vec::new(),
@@ -335,6 +342,14 @@ impl TaskManager {
         };
 
         self.write_task(&task)?;
+
+        // Default spec file for loop entry: create the empty placeholder
+        // next to the task manifest so the simulate stage has a home.
+        if entering_spec {
+            let spec_path = self.tasks_dir.join(format!("{task_id}.spec.md"));
+            let _ = std::fs::write(&spec_path, "");
+        }
+
         Ok(task)
     }
 
@@ -687,7 +702,7 @@ mod tests {
     fn set_tags_replaces_the_tag_set() {
         let (_tmp, manager) = manager();
         let task = manager
-            .create_task("title", "description", true, None)
+            .create_task("title", "description", true, None, None)
             .unwrap();
         assert!(task.tags.is_empty());
 
@@ -713,7 +728,7 @@ mod tests {
         use std::io::Write;
         let (_tmp, manager) = manager();
         let task = manager
-            .create_task("title", "description", true, None)
+            .create_task("title", "description", true, None, None)
             .unwrap();
 
         let tasks_dir = _tmp.path().join("loom").join("workflow").join("tasks");
@@ -757,7 +772,7 @@ mod tests {
     fn test_create_task_worktree_field_when_disabled() {
         let (_tmp, manager) = manager();
         let task = manager
-            .create_task("Test task", "Test description", false, None)
+            .create_task("Test task", "Test description", false, None, None)
             .unwrap();
         assert!(task.worktree_path.is_none());
     }
@@ -782,7 +797,7 @@ mod tests {
         .unwrap();
         let manager = TaskManager::new(loom.to_str().unwrap());
 
-        let task = manager.create_task("t", "d", true, None).unwrap();
+        let task = manager.create_task("t", "d", true, None, None).unwrap();
         assert_eq!(task.title, "t");
         assert!(task.worktree_path.is_none());
         // The task must be fully usable despite the skipped worktree.
@@ -794,7 +809,7 @@ mod tests {
         let (_tmp, manager) = manager();
         // Create a task directly in Spec phase with low complexity (short description)
         let mut task = manager
-            .create_task("Spec Gate Low", "Fix typo", true, None)
+            .create_task("Spec Gate Low", "Fix typo", true, None, None)
             .unwrap();
         task.phase = TaskPhase::Spec;
         // Override complexity score to Low (Slm tier)
@@ -818,7 +833,7 @@ mod tests {
         let (_tmp, manager) = manager();
         // Create a task directly in Spec phase with mid complexity
         let mut task = manager
-            .create_task("Spec Gate Mid", "Refactor authentication middleware across modules", true, None)
+            .create_task("Spec Gate Mid", "Refactor authentication middleware across modules", true, None, None)
             .unwrap();
         task.phase = TaskPhase::Spec;
         // Override complexity score to Medium (Mid tier)
@@ -848,7 +863,7 @@ mod tests {
             This requires cross-module coordination, persistent state machines, network \
             partition handling, and extensive integration testing with fault injection.";
         let mut task = manager
-            .create_task("Spec Gate Absent", complex_desc, true, None)
+            .create_task("Spec Gate Absent", complex_desc, true, None, None)
             .unwrap();
         task.phase = TaskPhase::Spec;
         task.complexity_score = None; // Force absent score

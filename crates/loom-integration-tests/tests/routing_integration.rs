@@ -179,6 +179,7 @@ fn test_phase_transition_records_dynamic_signals() -> Result<()> {
             "Add a new endpoint /v1/feature that does something useful across modules.",
             false,
             None,
+            None,
         )?;
         task.task_id
     };
@@ -269,7 +270,7 @@ fn test_manual_override_persists() -> Result<()> {
     let manager = TaskManager::new(&agents);
 
     // Create a task
-    let task = manager.create_task("Override test", "A simple task", false, None)?;
+    let task = manager.create_task("Override test", "A simple task", false, None, None)?;
     let task_id = task.task_id;
 
     // Simulate manual override: directly set routing decision to Slm
@@ -333,6 +334,7 @@ fn test_routing_outcomes_recorded_and_closed() -> Result<()> {
         "Telemetry test",
         "Add a new endpoint /v1/feature that does something useful across modules.",
         false,
+        None,
         None,
     )?;
     let task_id = task.task_id;

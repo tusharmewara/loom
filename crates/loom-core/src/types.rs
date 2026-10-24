@@ -1542,6 +1542,7 @@ mod derive_tests {
                 tags: vec![],
                 worktree_path: None,
                 runtime: None,
+                last_run: None,
                 created_at: "2026-01-01T00:00:00Z".into(),
                 updated_at: "2026-01-01T00:00:00Z".into(),
                 status: TaskStatus::Pending,

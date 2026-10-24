@@ -68,6 +68,7 @@ async fn test_workflow_template_sharing_between_tools() -> anyhow::Result<()> {
         "Users unable to login after password reset",
         false,
         None,
+        None,
     )?;
 
     // Verify task was created with template defaults

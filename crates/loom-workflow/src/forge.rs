@@ -143,7 +143,7 @@ impl ForgeManager {
         );
 
         let task = task_manager
-            .create_task(&title, &description, true, None)
+            .create_task(&title, &description, true, None, None)
             .context("Failed to create task")?;
 
         // Store PR linkage

@@ -1,6 +1,6 @@
 use crate::task_manager::TaskManager;
 use anyhow::Result;
-use loom_core::Task;
+use loom_core::{Task, TaskPhase};
 
 pub struct TaskOrchestrator {
     manager: TaskManager,
@@ -23,9 +23,10 @@ impl TaskOrchestrator {
         description: &str,
         worktree: bool,
         runtime: Option<String>,
+        initial_phase: Option<TaskPhase>,
     ) -> Result<Task> {
         self.manager
-            .create_task(title, description, worktree, runtime)
+            .create_task(title, description, worktree, runtime, initial_phase)
     }
 
     pub fn advance_phase(&self, task_id: &str) -> Result<Task> {
