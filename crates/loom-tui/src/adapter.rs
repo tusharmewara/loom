@@ -58,6 +58,12 @@ impl LoomCliAdapter {
         self.run_json(&["workflow", "list"]).await
     }
 
+    /// Fetch the metered usage ledger (`telemetry usage` payload:
+    /// totals, by_tool, recent runs).
+    pub async fn fetch_usage(&self) -> Result<Value> {
+        self.run_json(&["telemetry", "usage"]).await
+    }
+
     /// Fetch one full workflow task (`workflow show` payload).
     pub async fn fetch_workflow_show(&self, task_id: &str) -> Result<Value> {
         self.run_json(&["workflow", "show", task_id]).await

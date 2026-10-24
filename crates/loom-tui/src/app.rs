@@ -222,6 +222,7 @@ pub struct App {
     pub skills: Value,
     pub sessions: Value,
     pub workflow: Value,
+    pub usage: Value,
     pub acp: Value,
     pub hooks: Value,
     pub knowledge: Value,
@@ -308,6 +309,7 @@ impl App {
             skills: Value::Null,
             sessions: Value::Null,
             workflow: Value::Null,
+            usage: Value::Null,
             acp: Value::Null,
             hooks: Value::Null,
             knowledge: Value::Null,
@@ -448,6 +450,9 @@ impl App {
         }
         if let Ok(v) = self.adapter.fetch_workflow_list().await {
             self.workflow = v;
+        }
+        if let Ok(v) = self.adapter.fetch_usage().await {
+            self.usage = v;
         }
         if let Ok(v) = self.adapter.fetch_acp_agents().await {
             self.acp = v;
