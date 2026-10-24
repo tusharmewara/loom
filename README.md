@@ -1,5 +1,8 @@
 # Loom – The Shared Agentic Ecosystem
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-1.88+-orange.svg)](https://www.rust-lang.org/)
+
 Loom is a unified agentic ecosystem built in Rust. It lets multiple AI coding agents — `claude-code`, `codex`, `opencode`, `goose`, `aider`, `cursor`, `gemini-cli`, `kiro`, `juno`, `crush`, `jcode`, `github-copilot` — **share skills, sessions, MCP servers, hooks, workflows, and credentials** so a task started in one tool can be continued, reviewed, and finished in another without losing context.
 
 At its heart is the `loomd` **daemon**: a long-lived background process that owns every shared subsystem and exposes them to clients through a fast, local **Unix socket**. The CLI (`loom`) and the TUI (`loom tui`) are both thin clients of that daemon, so every feature runs against a single source of truth.
@@ -202,7 +205,9 @@ Release notes go in the `## Notes` section of [`RELEASE_NOTES.md`](RELEASE_NOTES
 
 ## 📄 License
 
-MIT (declared in [`Cargo.toml`](Cargo.toml)).
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
