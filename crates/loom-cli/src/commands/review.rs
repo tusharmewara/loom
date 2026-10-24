@@ -47,6 +47,9 @@ pub enum ReviewAction {
         /// Run ID to generate PR for.
         #[arg(long)]
         run_id: String,
+        /// Repository (owner/repo)
+        #[arg(long)]
+        repo: String,
     },
     /// Show the scoreboard of findings with confidence.
     Scoreboard,
@@ -110,14 +113,79 @@ pub fn run(loom_dir: &str, action: ReviewAction) -> Result<()> {
                 Ok(())
             }
         },
-        ReviewAction::Findings { run_id: _, state: _ } => {
-            todo!()
+        ReviewAction::Findings { run_id, state } => {
+            let id = match run_id {
+                Some(id) => id,
+                None => match store.list_runs()?.first() {
+                    Some(latest) => latest.clone(),
+                    None => anyhow::bail!("no review runs; run `loom review run <session-id>` first"),
+                },
+            };
+            let findings = store.load_findings(&id)?;
+            let findings: Vec<_> = findings
+                .into_iter()
+                .filter(|f| {
+                    state.as_deref().is_none_or(|s| {
+                        f.state.label() == s.trim()
+                    })
+                })
+                .collect();
+            if findings.is_empty() {
+                println!("no findings in run {id}");
+            }
+            for f in findings {
+                println!(
+                    "{:>5.2} [{}] {} — {} ({})",
+                    f.confidence, f.state, f.title, f.reason, f.lens
+                );
+            }
+            Ok(())
         }
-        ReviewAction::FixPr { run_id: _ } => {
-            todo!()
+        ReviewAction::FixPr { run_id, repo } => {
+            let run = store
+                .load_run(&run_id)?
+                .ok_or_else(|| anyhow::anyhow!("run {run_id} not found"))?;
+            let patch_backed: Vec<_> = store
+                .load_findings(&run_id)?
+                .into_iter()
+                .filter(|f| f.patch.is_some() && f.state != loom_review::EvidenceState::Refuted)
+                .collect();
+            if patch_backed.is_empty() {
+                anyhow::bail!("run {run_id} has no patch-backed findings; nothing to PR");
+            }
+            // ponytail: prints the PR plan; branch+push+`GitHubTracker::create_pr`
+            // lands once the seating pipeline produces real patches (today runs
+            // never carry any, so the full git flow would be untestable dead code).
+            let head = format!("fix/{}", run.id);
+            let title = format!("Fixes for review run {}", run.id);
+            let body = patch_backed
+                .iter()
+                .map(|f| format!("- {} ({})", f.title, f.state))
+                .collect::<Vec<_>>()
+                .join("\n");
+            println!("PR plan for {repo}:");
+            println!("  head: {head}  base: main");
+            println!("  title: {title}");
+            println!("  body:\n{body}");
+            Ok(())
         }
         ReviewAction::Scoreboard => {
-            todo!()
+            let mut rows: Vec<(String, loom_review::Finding)> = Vec::new();
+            for id in store.list_runs()? {
+                for f in store.load_findings(&id)? {
+                    rows.push((id.clone(), f));
+                }
+            }
+            if rows.is_empty() {
+                println!("no findings recorded yet");
+                return Ok(());
+            }
+            rows.sort_by(|a, b| b.1.confidence.partial_cmp(&a.1.confidence).unwrap());
+            println!("run                     conf  state          title");
+            for (run, f) in rows {
+                println!("{:<22} {:.2}  {:<13} {}", run, f.confidence, f.state, f.title);
+            }
+            Ok(())
         }
         ReviewAction::Lesson { action } => match action {
             LessonAction::List => {

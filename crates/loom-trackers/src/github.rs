@@ -82,6 +82,44 @@ impl GitHubTracker {
             .collect())
     }
 
+    /// Create a pull request from an existing branch using `gh pr create`.
+    /// Assumes the head branch already exists locally and is pushed to the remote.
+    pub fn create_pr(
+        &self,
+        repo: &str,
+        title: &str,
+        body: &str,
+        head: &str,
+        base: &str,
+    ) -> Result<String, TrackerError> {
+        let output = std::process::Command::new("gh")
+            .args([
+                "pr", "create",
+                "--repo", repo,
+                "--title", title,
+                "--body", body,
+                "--head", head,
+                "--base", base,
+            ])
+            .output()
+            .map_err(|e| TrackerError::GitHubApi(format!("Failed to run gh: {e}")))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(TrackerError::GitHubApi(format!(
+                "gh pr create failed: {}", stderr.trim()
+            )));
+        }
+
+        let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if url.is_empty() {
+            return Err(TrackerError::GitHubApi(
+                "gh pr create returned no URL".into(),
+            ));
+        }
+        Ok(url)
+    }
+
     /// Fetch the diff for a pull request.
     pub async fn fetch_pr_diff(&self, repo: &str, pr_number: u64) -> Result<String, TrackerError> {
         let url = self.api_url(&format!("/repos/{}/pulls/{}", repo, pr_number));

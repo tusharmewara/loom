@@ -24,7 +24,7 @@ pub struct ReviewPlan {
 /// the session manifest; read diff from the session's working tree if
 /// available. For now, this is a skeleton that returns an intent + file
 /// list from the session's topic/messages.
-#[expect(dead_code)]
+#[cfg_attr(not(test), expect(dead_code))]
 pub fn plan_from_session(_session_id: &str) -> Result<ReviewPlan> {
     Ok(ReviewPlan {
         session_id: _session_id.to_string(),

@@ -2546,6 +2546,8 @@ dependencies = [
  "anyhow",
  "chrono",
  "loom-core",
+ "loom-parallel",
+ "loom-runtime",
  "serde",
  "serde_json",
  "tempfile",

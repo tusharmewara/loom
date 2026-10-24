@@ -99,6 +99,21 @@ impl ReviewStore {
         Ok(Some(run))
     }
 
+    /// Load findings from a run's `findings.jsonl` (empty if absent).
+    pub fn load_findings(&self, run_id: &str) -> Result<Vec<Finding>> {
+        let path = self.run_dir(run_id).join("findings.jsonl");
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let content = std::fs::read_to_string(&path)
+            .with_context(|| format!("read findings {}", path.display()))?;
+        content
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).with_context(|| "parse finding line"))
+            .collect()
+    }
+
     /// Mark a run as done by saving its manifest.
     pub fn mark_done(&self, run_id: &str, run: &ReviewRun) -> Result<()> {
         self.save_plan(run_id, run)
@@ -145,6 +160,25 @@ mod tests {
         let loaded = store.load_run("r1").expect("load run");
         assert!(loaded.is_some());
         assert_eq!(loaded.unwrap().session_id, "s1");
+    }
+
+    #[test]
+    fn findings_roundtrip_through_jsonl() {
+        let dir = tempdir().expect("temp dir");
+        let store = ReviewStore::new(dir.path()).expect("store opens");
+        let f = Finding::new(
+            "a1".into(), "t".into(), "r".into(), Some("diff".into()),
+            vec!["a.rs".into()], EvidenceState::Proven, "bugs_security".into(),
+        );
+        store.append_findings("r1", &[f]).expect("append");
+
+        let loaded = store.load_findings("r1").expect("load findings");
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].id, "a1");
+        assert_eq!(loaded[0].state, EvidenceState::Proven);
+
+        // Missing run dir → empty, not an error.
+        assert!(store.load_findings("nope").expect("load missing").is_empty());
     }
 
     #[test]
