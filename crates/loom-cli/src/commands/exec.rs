@@ -99,6 +99,8 @@ async fn run_sequential(
     // Execute via Runtime abstraction
     let result = execute_via_runtime(loom_dir, launch_tool, tool_args, &env_vars, dry_run).await?;
 
+    record_exec_usage(loom_dir, launch_tool, launch_tool, &tool_args.join(" "));
+
     if !result.success {
         anyhow::bail!("Runtime execution failed: {}", result.stderr);
     }
@@ -812,6 +814,32 @@ async fn execute_via_runtime(
     let result = runtime.run(&config, &task).await?;
     runtime.cleanup(&result).await?;
     Ok(result)
+}
+
+/// Record one `loom exec` run in the usage ledger.
+///
+/// The launched agent is an external process that reports no token count,
+/// so the run is recorded as `unavailable` with the `chars/4` forecast
+/// stored beside it. The forecast is never presented as a measurement.
+/// Mirrors `record_dispatch_usage` in `loom-cli/src/commands/workflow.rs`.
+fn record_exec_usage(loom_dir: &str, tool: &str, agent: &str, prompt: &str) {
+    let Ok(meter) = loom_telemetry::UsageMeter::new(loom_dir) else {
+        return;
+    };
+    let prices = loom_routing::CatalogManager::load(loom_dir)
+        .ok()
+        .and_then(|catalog| catalog.prices_for(agent));
+    if let Err(e) = meter.record_run(
+        &format!("exec-{tool}"),
+        "exec",
+        agent,
+        loom_core::UsageCounts::default(),
+        "no-report",
+        prompt.chars().count(),
+        prices,
+    ) {
+        eprintln!("⚠  Could not record usage for exec: {e}");
+    }
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
