@@ -1,5 +1,8 @@
 use chrono;
+use loom_core::UsageCounts;
+use loom_routing::CatalogManager;
 use loom_runtime::RuntimeRegistry;
+use loom_telemetry::UsageMeter;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env;
@@ -695,6 +698,38 @@ impl Dispatcher for RuntimeDispatch {
             }
             Err(e) => DispatchResult::err(format!("Runtime dispatch failed: {e}")),
         }
+    }
+}
+
+/// Record one TUI task dispatch in the usage ledger.
+///
+/// The dispatched agent is an external process: it reports no token count,
+/// so the run is recorded as `unavailable` with the `chars/4` forecast
+/// stored beside it. The forecast is never presented as a measurement.
+/// Mirrors `record_dispatch_usage` in `loom-cli/src/commands/workflow.rs`.
+pub fn record_dispatch_usage(
+    loom_dir: &str,
+    task_id: &str,
+    phase_name: &str,
+    agent: &str,
+    prompt: &str,
+) {
+    let Ok(meter) = UsageMeter::new(loom_dir) else {
+        return;
+    };
+    let prices = CatalogManager::load(loom_dir)
+        .ok()
+        .and_then(|catalog| catalog.prices_for(agent));
+    if let Err(e) = meter.record_run(
+        &format!("tui-{task_id}-{phase_name}"),
+        "tui",
+        agent,
+        UsageCounts::default(),
+        "no-report",
+        prompt.chars().count(),
+        prices,
+    ) {
+        eprintln!("⚠  Could not record usage for tui dispatch: {e}");
     }
 }
 

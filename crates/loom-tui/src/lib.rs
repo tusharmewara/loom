@@ -207,6 +207,30 @@ async fn run_loop(
                                 };
                                 if let Some(task) = app.selected_task().cloned() {
                                     let result = dispatchers[index].dispatch(&task);
+                                    let task_id = task
+                                        .pointer("/task_id")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("");
+                                    let agent_id = task
+                                        .pointer("/agent_id")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("");
+                                    let title = task
+                                        .pointer("/title")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("");
+                                    let phase_name = match index {
+                                        0 => "terminal",
+                                        1 => "acp",
+                                        _ => "runtime",
+                                    };
+                                    crate::dispatch::record_dispatch_usage(
+                                        &app.adapter.loom_dir,
+                                        task_id,
+                                        phase_name,
+                                        agent_id,
+                                        title,
+                                    );
                                     app.last_action_result = Some(crate::adapter::CommandResult {
                                         action: dispatchers[index].name().to_string(),
                                         success: result.success,
@@ -223,6 +247,25 @@ async fn run_loop(
                             if let Some(task) = app.selected_task() {
                                 let dispatcher = crate::dispatch::TerminalLaunch;
                                 let result = dispatcher.dispatch(task);
+                                let task_id = task
+                                    .pointer("/task_id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                let agent_id = task
+                                    .pointer("/agent_id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                let title = task
+                                    .pointer("/title")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                crate::dispatch::record_dispatch_usage(
+                                    &app.adapter.loom_dir,
+                                    task_id,
+                                    "terminal",
+                                    agent_id,
+                                    title,
+                                );
                                 app.last_action_result = Some(crate::adapter::CommandResult {
                                     action: dispatcher.name().to_string(),
                                     success: result.success,
@@ -246,6 +289,25 @@ async fn run_loop(
                                         .map(String::from),
                                 );
                                 let result = dispatcher.dispatch(&task);
+                                let task_id = task
+                                    .pointer("/task_id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                let agent_id = task
+                                    .pointer("/agent_id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                let title = task
+                                    .pointer("/title")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                crate::dispatch::record_dispatch_usage(
+                                    &app.adapter.loom_dir,
+                                    task_id,
+                                    "acp",
+                                    agent_id,
+                                    title,
+                                );
                                 app.last_action_result = Some(crate::adapter::CommandResult {
                                     action: dispatcher.name().to_string(),
                                     success: result.success,
@@ -281,6 +343,25 @@ async fn run_loop(
                                     app.adapter.loom_dir.clone(),
                                 );
                                 let result = dispatcher.dispatch(&task);
+                                let task_id = task
+                                    .pointer("/task_id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                let agent_id = task
+                                    .pointer("/agent_id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                let title = task
+                                    .pointer("/title")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                crate::dispatch::record_dispatch_usage(
+                                    &app.adapter.loom_dir,
+                                    task_id,
+                                    "runtime",
+                                    agent_id,
+                                    title,
+                                );
                                 app.last_action_result = Some(crate::adapter::CommandResult {
                                     action: dispatcher.name().to_string(),
                                     success: result.success,

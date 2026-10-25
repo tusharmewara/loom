@@ -25,6 +25,8 @@ tokio.workspace = true
 loom-core = { path = "../loom-core" }
 loom-runtime = { path = "../loom-runtime" }
 loom-generic-adapter = { path = "../loom-generic-adapter" }
+loom-telemetry = { path = "../loom-telemetry" }
+loom-routing = { path = "../loom-routing" }
 ratatui.workspace = true
 crossterm.workspace = true
 nix = { workspace = true, optional = true }
