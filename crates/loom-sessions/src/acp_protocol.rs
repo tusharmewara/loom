@@ -19,6 +19,13 @@ use std::time::{Duration, Instant};
 /// ACP major protocol version this client speaks.
 pub const ACP_PROTOCOL_VERSION: u64 = 1;
 
+/// How often the response wait loop re-checks child liveness while
+/// waiting for a response.
+const CHILD_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Maximum stderr lines retained for child-death error messages.
+const STDERR_TAIL_LINES: usize = 20;
+
 /// Configuration for one headless agent invocation.
 #[derive(Debug, Clone, Default)]
 pub struct AcpClientConfig {
@@ -270,6 +277,40 @@ fn permission_outcome(params: &Value) -> Value {
     }
 }
 
+/// Error for an agent child that died while a response was awaited:
+/// exit status plus the captured stderr tail.
+fn agent_exit_error(
+    method: &str,
+    status: &std::process::ExitStatus,
+    stderr_tail: &Mutex<Vec<String>>,
+) -> anyhow::Error {
+    let tail = stderr_tail
+        .lock()
+        .map(|tail| tail.join(" | "))
+        .unwrap_or_default();
+    let mut message = format!("ACP agent exited before ACP {method} response (status: {status})");
+    if !tail.is_empty() {
+        message.push_str("; stderr: ");
+        message.push_str(&tail);
+    }
+    anyhow::anyhow!(message)
+}
+
+/// Map a stdin write/flush failure to a child-death error when the write
+/// failed because the agent process already exited.
+fn send_failure(
+    method: &str,
+    error: std::io::Error,
+    action: &str,
+    child: &mut std::process::Child,
+    stderr_tail: &Mutex<Vec<String>>,
+) -> anyhow::Error {
+    if let Some(status) = child.try_wait().ok().flatten() {
+        return agent_exit_error(method, &status, stderr_tail);
+    }
+    anyhow::anyhow!("failed to {action} ACP request: {error}")
+}
+
 /// Canonical ACP v1 client: one-shot headless prompt turns.
 pub struct AcpProtocolClient;
 
@@ -312,13 +353,24 @@ impl AcpProtocolClient {
             .take()
             .ok_or_else(|| anyhow::anyhow!("ACP agent has no stdout"))?;
         let stderr = child.stderr.take();
+        let stderr_tail: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         if let Some(stderr) = stderr {
-            // Spawn a thread to read stderr
+            // Spawn a thread to read stderr; echo it and keep a bounded
+            // tail for error messages.
+            let tail = stderr_tail.clone();
             let _stderr_thread = std::thread::spawn(move || {
                 let reader = BufReader::new(stderr);
                 for line in reader.lines() {
                     match line {
-                        Ok(line) => eprintln!("[STDERR] {}", line),
+                        Ok(line) => {
+                            eprintln!("[STDERR] {}", line);
+                            if let Ok(mut tail) = tail.lock() {
+                                if tail.len() >= STDERR_TAIL_LINES {
+                                    tail.remove(0);
+                                }
+                                tail.push(line);
+                            }
+                        }
                         Err(e) => eprintln!("[STDERR ERROR] {}", e),
                     }
                 }
@@ -380,47 +432,61 @@ impl AcpProtocolClient {
             }
         });
 
-        let send = |id: u64, method: &str, params: Value| -> anyhow::Result<()> {
+        let send = |child: &mut std::process::Child,
+                    id: u64,
+                    method: &str,
+                    params: Value|
+         -> anyhow::Result<()> {
             let line = build_request(id, method, params);
             let mut stdin_guard = stdin
                 .lock()
                 .map_err(|_| anyhow::anyhow!("ACP stdin lock poisoned"))?;
             writeln!(stdin_guard, "{line}")
-                .map_err(|e| anyhow::anyhow!("failed to write ACP request: {e}"))?;
+                .map_err(|e| send_failure(method, e, "write", child, &stderr_tail))?;
             stdin_guard
                 .flush()
-                .map_err(|e| anyhow::anyhow!("failed to flush ACP request: {e}"))?;
+                .map_err(|e| send_failure(method, e, "flush", child, &stderr_tail))?;
             Ok(())
         };
-        let wait_response = |id: u64, method: &str, timeout: Duration| -> anyhow::Result<Value> {
-            let key = id.to_string();
-            let deadline = Instant::now() + timeout;
-            let mut guard = loom_core::lock_ok!(shared.responses);
-            loop {
-                if let Some((result, error)) = guard.remove(&key) {
-                    if let Some(error) = error {
-                        let message = error
-                            .get("message")
-                            .and_then(Value::as_str)
-                            .unwrap_or("unknown ACP error");
-                        anyhow::bail!("ACP {method} failed: {message}");
+        let wait_response =
+            |child: &mut std::process::Child, id: u64, method: &str, timeout: Duration| -> anyhow::Result<Value> {
+                let key = id.to_string();
+                let deadline = Instant::now() + timeout;
+                let mut guard = loom_core::lock_ok!(shared.responses);
+                loop {
+                    if let Some((result, error)) = guard.remove(&key) {
+                        if let Some(error) = error {
+                            let message = error
+                                .get("message")
+                                .and_then(Value::as_str)
+                                .unwrap_or("unknown ACP error");
+                            anyhow::bail!("ACP {method} failed: {message}");
+                        }
+                        return Ok(result.unwrap_or(Value::Null));
                     }
-                    return Ok(result.unwrap_or(Value::Null));
+                    // Fail fast when the agent process died instead of
+                    // waiting out the full timeout.
+                    if let Some(status) = child.try_wait().ok().flatten() {
+                        return Err(agent_exit_error(method, &status, &stderr_tail));
+                    }
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        anyhow::bail!("ACP {method} timed out after {}s", timeout.as_secs());
+                    }
+                    // Poll in slices: a plain wait_timeout(remaining)
+                    // would sleep through a child crash because nothing
+                    // notifies the condvar on exit.
+                    let (guard_out, _) = shared
+                        .arrived
+                        .wait_timeout(guard, remaining.min(CHILD_POLL_INTERVAL))
+                        .unwrap();
+                    guard = guard_out;
                 }
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
-                    anyhow::bail!("ACP {method} timed out after {}s", timeout.as_secs());
-                }
-                let (guard_out, wait) = shared.arrived.wait_timeout(guard, remaining).unwrap();
-                guard = guard_out;
-                if wait.timed_out() && !guard.contains_key(&key) {
-                    anyhow::bail!("ACP {method} timed out after {}s", timeout.as_secs());
-                }
-            }
-        };
+            };
 
         // 1. initialize + version negotiation.
         send(
+            child,
             0,
             "initialize",
             serde_json::json!({
@@ -436,7 +502,7 @@ impl AcpProtocolClient {
                 },
             }),
         )?;
-        let init = wait_response(0, "initialize", timeout)?;
+        let init = wait_response(child, 0, "initialize", timeout)?;
         let version = init.get("protocolVersion").and_then(Value::as_u64);
         if version != Some(ACP_PROTOCOL_VERSION) {
             anyhow::bail!(
@@ -457,11 +523,12 @@ impl AcpProtocolClient {
                 .unwrap_or_default(),
         };
         send(
+            child,
             1,
             "session/new",
             serde_json::json!({ "cwd": cwd, "mcpServers": [] }),
         )?;
-        let new_session = wait_response(1, "session/new", timeout)?;
+        let new_session = wait_response(child, 1, "session/new", timeout)?;
         let session_id = new_session
             .get("sessionId")
             .and_then(Value::as_str)
@@ -471,6 +538,7 @@ impl AcpProtocolClient {
         // 3. session/prompt; on timeout, cancel first so a well-behaved
         // agent can still report the `cancelled` stop reason.
         send(
+            child,
             2,
             "session/prompt",
             serde_json::json!({
@@ -478,10 +546,11 @@ impl AcpProtocolClient {
                 "prompt": [{ "type": "text", "text": prompt }],
             }),
         )?;
-        let prompt_result = match wait_response(2, "session/prompt", timeout) {
+        let prompt_result = match wait_response(child, 2, "session/prompt", timeout) {
             Ok(result) => result,
             Err(e) => {
                 let _ = send(
+                    child,
                     3,
                     "session/cancel",
                     serde_json::json!({ "sessionId": session_id }),
@@ -490,7 +559,7 @@ impl AcpProtocolClient {
                 // agent a short grace period, then report the original
                 // failure — a protocol error must not be reported as a
                 // timeout.
-                match wait_response(2, "session/prompt", Duration::from_secs(2)) {
+                match wait_response(child, 2, "session/prompt", Duration::from_secs(2)) {
                     Ok(result) => result,
                     Err(_) => return Err(e),
                 }
@@ -774,6 +843,38 @@ mod tests {
         assert!(
             !message.contains("timed out"),
             "a protocol error must not be reported as a timeout: {message}"
+        );
+    }
+
+    #[test]
+    fn initialize_fails_fast_when_child_exits() {
+        let cfg = AcpClientConfig {
+            program: "/bin/sh".to_string(),
+            args: vec!["-c".to_string(), "exit 7".to_string()],
+            cwd: None,
+            timeout_secs: 30,
+            env: Vec::new(),
+        };
+        let started = std::time::Instant::now();
+        let err = AcpProtocolClient::run_prompt(&cfg, "hi").unwrap_err();
+        let elapsed = started.elapsed();
+        println!("initialize_fails_fast_when_child_exits elapsed: {elapsed:?}");
+        let message = err.to_string();
+        assert!(
+            elapsed < std::time::Duration::from_secs(10),
+            "expected a fast failure, took {elapsed:?}: {message}"
+        );
+        assert!(
+            message.contains("exit status: 7"),
+            "expected the exit status in the error, got: {message}"
+        );
+        assert!(
+            message.contains("exited before ACP initialize"),
+            "expected a child-death error, got: {message}"
+        );
+        assert!(
+            !message.contains("timed out"),
+            "a dead child must not be reported as a timeout: {message}"
         );
     }
 
