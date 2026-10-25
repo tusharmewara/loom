@@ -15,6 +15,8 @@ use std::path::Path;
 /// The dispatched agent is an external process: it reports no token count,
 /// so the run is recorded as `unavailable` with the `chars/4` forecast
 /// stored beside it. The forecast is never presented as a measurement.
+/// The TUI's embedded pane spawns this CLI command, so it inherits this
+/// row — no separate recording there.
 fn record_dispatch_usage(
     loom_dir: &str,
     task_id: &str,
@@ -1044,7 +1046,67 @@ async fn fetch_ticket(
 
 #[cfg(test)]
 mod tests {
+    use super::record_dispatch_usage;
     use super::{parse_ticket_ref, TicketRef};
+    use loom_core::{Task, TaskPhase, TaskStatus, UsageSource};
+    use loom_telemetry::UsageMeter;
+
+    #[test]
+    fn dispatch_attempt_writes_one_unavailable_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let loom_dir = dir.path().to_str().unwrap();
+        let task = Task {
+            task_id: "t-1".to_string(),
+            title: "Metered dispatch".to_string(),
+            description: String::new(),
+            phase: TaskPhase::Implement,
+            phase_history: vec![],
+            prd_path: None,
+            context_files: vec![],
+            routed_provider: None,
+            files_modified: vec![],
+            complexity_score: None,
+            routing_decision: None,
+            last_agent: None,
+            linked_issue: None,
+            sub_agents: None,
+            spec_path: None,
+            findings_path: None,
+            converged: None,
+            phase_results: vec![],
+            tags: vec![],
+            worktree_path: None,
+            runtime: None,
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            status: TaskStatus::Pending,
+            last_run: None,
+        };
+        record_dispatch_usage(loom_dir, "t-1", "Implement", "opencode", &task, "fix the bug");
+
+        let meter = UsageMeter::new(loom_dir).unwrap();
+        let rows = meter.recent(10).unwrap();
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row.run_id, "t-1-Implement");
+        assert_eq!(row.tool, "workflow");
+        assert_eq!(row.model, "opencode");
+        assert_eq!(row.source, UsageSource::Unavailable);
+        // No count from the external agent — no fabricated zero either.
+        assert_eq!(row.input_tokens, None);
+        assert_eq!(row.output_tokens, None);
+        assert_eq!(row.cost_usd, None);
+        // chars/4 forecast leg, labelled as an estimate (11 chars → 3).
+        assert_eq!(row.est_input_tokens, Some(3));
+        assert_eq!(row.est_output_tokens, Some(1));
+
+        let by_tool = meter.by_tool().unwrap();
+        assert_eq!(by_tool.len(), 1);
+        assert_eq!(by_tool[0].tool, "workflow");
+        assert_eq!(by_tool[0].runs, 1);
+        assert_eq!(by_tool[0].unavailable_runs, 1);
+        assert_eq!(by_tool[0].input_tokens, None);
+    }
 
     #[test]
     fn parses_explicit_tracker_prefixes() {
