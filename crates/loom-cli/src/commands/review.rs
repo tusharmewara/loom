@@ -20,6 +20,9 @@ pub enum ReviewAction {
         /// Number of evidence seats (default: 2).
         #[arg(long, default_value_t = 2)]
         seats: usize,
+        /// Explicit seat agent ids (repeatable); overrides `--seats` defaults.
+        #[arg(long = "seat")]
+        seat: Vec<String>,
         /// Optional lenses to focus on (e.g. "bugs_security").
         #[arg(long)]
         lenses: Option<String>,
@@ -64,7 +67,12 @@ pub enum ReviewAction {
 pub enum LessonAction {
     List,
     Confirm { id: String },
-    Dismiss { id: String, reason: String },
+    Dismiss {
+        id: String,
+        /// Why the lesson is being dismissed.
+        #[arg(long)]
+        reason: String,
+    },
 }
 
 /// Execute a review command.
@@ -74,10 +82,15 @@ pub async fn run(loom_dir: &str, action: ReviewAction) -> Result<()> {
         ReviewAction::Run {
             session_id,
             seats,
+            seat,
             lenses,
             dry_run,
         } => {
-            let seat_list = seats_arg(seats);
+            let seat_list = if seat.is_empty() {
+                seats_arg(seats)
+            } else {
+                seat
+            };
             let run =
                 run_review_pipeline(loom_dir, &session_id, &seat_list, &lenses, dry_run).await?;
             println!("{}", write_report(&run, &run.findings)?);
@@ -179,15 +192,33 @@ pub async fn run(loom_dir: &str, action: ReviewAction) -> Result<()> {
         }
         ReviewAction::Lesson { action } => match action {
             LessonAction::List => {
-                println!("lesson actions: list");
+                let lessons = store.load_all_lessons()?;
+                if lessons.is_empty() {
+                    println!("no lessons recorded; run a review with terminal findings first");
+                    return Ok(());
+                }
+                for l in lessons {
+                    let reason = l
+                        .reason
+                        .as_deref()
+                        .map(|r| format!(" — {r}"))
+                        .unwrap_or_default();
+                    println!("{:<5} {} [{}] {} ({})", format!("{:?}", l.outcome).to_lowercase(), l.id, l.state, l.title, reason);
+                }
                 Ok(())
             }
             LessonAction::Confirm { id } => {
-                println!("lesson confirmed {id}");
+                store.set_lesson_outcome(&id, loom_review::LessonOutcome::Confirmed, None)?;
+                println!("lesson confirmed: {id}");
                 Ok(())
             }
             LessonAction::Dismiss { id, reason } => {
-                println!("lesson dismissed {id} reason={reason}");
+                store.set_lesson_outcome(
+                    &id,
+                    loom_review::LessonOutcome::Dismissed,
+                    Some(reason),
+                )?;
+                println!("lesson dismissed: {id}");
                 Ok(())
             }
         },
@@ -314,6 +345,12 @@ async fn run_review_pipeline(
     run.findings = merged.clone();
     store.save_plan(&run.id, &run)?;
     store.append_findings(&run.id, &merged)?;
+    // Outcome-gated lessons: one per terminal finding.
+    let lessons = loom_review::Lesson::derive(&run.id, &merged);
+    if !lessons.is_empty() {
+        store.save_lessons(&run.id, &lessons)?;
+        println!("lessons: {} pending (loom review lesson list)", lessons.len());
+    }
     let report = write_report(&run, &merged)?;
     let path = store.write_report(&run.id, &report)?;
     run.report_path = Some(path.display().to_string());

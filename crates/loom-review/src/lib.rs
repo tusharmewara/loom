@@ -26,6 +26,7 @@ mod runner;
 mod dedup;
 mod report;
 mod state;
+mod lessons;
 
 pub use types::*;
 pub use plan::ReviewPlan;
@@ -33,3 +34,4 @@ pub use runner::EvidenceRunner;
 pub use dedup::dedup_findings;
 pub use report::write_report;
 pub use state::ReviewStore;
+pub use lessons::{Lesson, LessonOutcome};

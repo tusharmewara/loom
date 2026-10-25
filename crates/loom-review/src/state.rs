@@ -133,6 +133,58 @@ impl ReviewStore {
     pub fn review_root(loom_dir: &Path) -> PathBuf {
         loom_dir.join("review")
     }
+
+    /// Overwrite a run's `lessons.json`.
+    pub fn save_lessons(&self, run_id: &str, lessons: &[crate::lessons::Lesson]) -> Result<()> {
+        let dir = self.run_dir(run_id);
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join("lessons.json");
+        let content = serde_json::to_string_pretty(lessons)?;
+        std::fs::write(&path, content)
+            .with_context(|| format!("write lessons {}", path.display()))?;
+        Ok(())
+    }
+
+    /// Load a run's `lessons.json` (empty if absent).
+    pub fn load_lessons(&self, run_id: &str) -> Result<Vec<crate::lessons::Lesson>> {
+        let path = self.run_dir(run_id).join("lessons.json");
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let content = std::fs::read_to_string(&path)
+            .with_context(|| format!("read lessons {}", path.display()))?;
+        Ok(serde_json::from_str(&content)?)
+    }
+
+    /// Every lesson across all runs (runs listed newest first).
+    pub fn load_all_lessons(&self) -> Result<Vec<crate::lessons::Lesson>> {
+        let mut all = Vec::new();
+        for run_id in self.list_runs()? {
+            all.extend(self.load_lessons(&run_id)?);
+        }
+        Ok(all)
+    }
+
+    /// Set a lesson's outcome (and reason) wherever it lives, matched by
+    /// its cross-run-unique id. Errors when no run holds it.
+    pub fn set_lesson_outcome(
+        &self,
+        lesson_id: &str,
+        outcome: crate::lessons::LessonOutcome,
+        reason: Option<String>,
+    ) -> Result<()> {
+        for run_id in self.list_runs()? {
+            let mut lessons = self.load_lessons(&run_id)?;
+            let Some(pos) = lessons.iter().position(|l| l.id == lesson_id) else {
+                continue;
+            };
+            lessons[pos].outcome = outcome;
+            lessons[pos].reason = reason;
+            self.save_lessons(&run_id, &lessons)?;
+            return Ok(());
+        }
+        anyhow::bail!("lesson {lesson_id} not found")
+    }
 }
 
 impl Default for ReviewStore {
@@ -187,5 +239,34 @@ mod tests {
         assert_eq!(EvidenceState::Proven.weight(), 2.0);
         assert!(EvidenceState::Proven.terminal());
         assert!(!EvidenceState::Unverified.terminal());
+    }
+
+    #[test]
+    fn lessons_persist_and_set_outcome() {
+        let dir = tempdir().expect("temp dir");
+        let store = ReviewStore::new(dir.path()).expect("store opens");
+        let f = Finding::new(
+            "f1".into(), "t".into(), "r".into(), Some("diff".into()),
+            vec![], EvidenceState::Proven, "seat".into(),
+        );
+        let lessons = crate::lessons::Lesson::derive("r1", &[f]);
+        store.save_lessons("r1", &lessons).expect("save lessons");
+
+        let loaded = store.load_lessons("r1").expect("load lessons");
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].outcome, crate::lessons::LessonOutcome::Pending);
+
+        store
+            .set_lesson_outcome(
+                "r1:f1",
+                crate::lessons::LessonOutcome::Dismissed,
+                Some("wrong file".into()),
+            )
+            .expect("set outcome");
+        let all = store.load_all_lessons().expect("load all");
+        assert_eq!(all[0].outcome, crate::lessons::LessonOutcome::Dismissed);
+        assert_eq!(all[0].reason.as_deref(), Some("wrong file"));
+
+        assert!(store.set_lesson_outcome("nope:x", crate::lessons::LessonOutcome::Confirmed, None).is_err());
     }
 }
