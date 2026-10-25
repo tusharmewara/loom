@@ -5,6 +5,27 @@ All notable changes to the Loom project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-10-25
+
+<!-- Release notes copied from RELEASE_NOTES.md -->
+
+### Added
+
+- feat(review): the Verified Review Engine — new `loom-review` crate and `loom review` CLI (`run`, `status`, `findings`, `scoreboard`, `fix-pr`). A review run extracts a plan from a session, seats cross-family reviewer models over ACP, dedups findings, verifies each in an isolated git worktree via `loom-parallel` + `loom-runtime`, and labels every finding with what it established (`proven` / `suite_green` / `unverified` / `could_not_run` / `refuted`). `--seat` picks the agent per seat; lessons are written only for proven findings
+- feat(review): `loom review fix-pr` is a real git flow — branch, commit the verified patches, push, and open the PR via `GitHubTracker::create_pr` (`gh pr create`)
+- feat(telemetry): `loom exec` and every TUI task dispatch path (terminal launch, ACP dispatch, runtime dispatch) now record runs in the metered usage ledger (unavailable + `chars/4` forecast, provenance labelled)
+- feat(auth): `loom auth rotate-password [--vault-password <pw>] --new-password <pw>` re-encrypts every credential in place and invalidates all derived grants
+
+### Fixed
+
+- fix(acp): fail fast when the ACP agent child dies instead of sleeping out the full timeout
+- fix(acp): publish the vendored ACP registry and make `registry_url` configuration live
+- test(workflow): pin dispatch usage recording and document embedded-pane dispatch inheritance
+
+### Changed
+
+- docs: close the embedded-pane live-TUI e2e item; retire the usage-metering gap list; add MIT LICENSE and badges
+
 ## [0.10.1] - 2026-10-24
 
 <!-- Release notes copied from RELEASE_NOTES.md -->
