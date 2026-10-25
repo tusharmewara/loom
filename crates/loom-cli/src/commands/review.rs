@@ -53,6 +53,9 @@ pub enum ReviewAction {
         /// Repository (owner/repo)
         #[arg(long)]
         repo: String,
+        /// Local git repository to apply findings in (default: current dir).
+        #[arg(long)]
+        path: Option<String>,
     },
     /// Show the scoreboard of findings with confidence.
     Scoreboard,
@@ -144,33 +147,25 @@ pub async fn run(loom_dir: &str, action: ReviewAction) -> Result<()> {
             }
             Ok(())
         }
-        ReviewAction::FixPr { run_id, repo } => {
-            let run = store
-                .load_run(&run_id)?
-                .ok_or_else(|| anyhow::anyhow!("run {run_id} not found"))?;
-            let patch_backed: Vec<_> = store
-                .load_findings(&run_id)?
-                .into_iter()
-                .filter(|f| f.patch.is_some() && f.state != loom_review::EvidenceState::Refuted)
-                .collect();
-            if patch_backed.is_empty() {
-                anyhow::bail!("run {run_id} has no patch-backed findings; nothing to PR");
-            }
-            // ponytail: prints the PR plan; branch+push+`GitHubTracker::create_pr`
-            // lands once the seating pipeline produces real patches (today runs
-            // never carry any, so the full git flow would be untestable dead code).
-            let head = format!("fix/{}", run.id);
-            let title = format!("Fixes for review run {}", run.id);
-            let body = patch_backed
-                .iter()
-                .map(|f| format!("- {} ({})", f.title, f.state))
-                .collect::<Vec<_>>()
-                .join("\n");
-            println!("PR plan for {repo}:");
-            println!("  head: {head}  base: main");
-            println!("  title: {title}");
-            println!("  body:\n{body}");
-            Ok(())
+        ReviewAction::FixPr {
+            run_id,
+            repo,
+            path,
+        } => {
+            let repo_path = path
+                .as_deref()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."));
+            // Graceful credential check: the tracker only constructs with a
+            // token; without one the local git work still happens and the
+            // manual `gh pr create` command is printed instead.
+            let tracker = loom_trackers::github::GitHubTracker::new(None).ok();
+            let create_pr = tracker.as_ref().map(|t| {
+                move |r: &str, title: &str, body: &str, head: &str, base: &str| {
+                    t.create_pr(r, title, body, head, base)
+                }
+            });
+            apply_review_fixes(&store, &run_id, &repo_path, &repo, create_pr.as_ref())
         }
         ReviewAction::Scoreboard => {
             let mut rows: Vec<(String, loom_review::Finding)> = Vec::new();
@@ -488,9 +483,395 @@ fn uuid_like() -> String {
     )
 }
 
+/// Apply the verified patch-backed findings of a review run as a real git
+/// flow in `repo_path`: branch `fix/<run_id>` from HEAD, one `git apply` per
+/// patch, one commit, push to `origin` when it exists, then PR creation via
+/// the injected `create_pr` seam (`(repo, title, body, head, base) -> url`).
+/// Without the seam (no credentials) the manual `gh pr create` command is
+/// printed instead — the local work is never lost to a missing token.
+fn apply_review_fixes<F>(
+    store: &ReviewStore,
+    run_id: &str,
+    repo_path: &std::path::Path,
+    repo_slug: &str,
+    create_pr: Option<&F>,
+) -> Result<()>
+where
+    F: Fn(&str, &str, &str, &str, &str)
+        -> Result<String, loom_trackers::models::TrackerError>,
+{
+    if store.load_run(run_id)?.is_none() {
+        anyhow::bail!("run {run_id} not found");
+    }
+    let findings: Vec<_> = store
+        .load_findings(run_id)?
+        .into_iter()
+        .filter(|f| {
+            f.patch.is_some()
+                && matches!(
+                    f.state,
+                    loom_review::EvidenceState::SuiteGreen | loom_review::EvidenceState::Proven
+                )
+        })
+        .collect();
+    if findings.is_empty() {
+        anyhow::bail!(
+            "run {run_id} has no verified patch-backed findings (suite_green/proven); nothing to PR"
+        );
+    }
+
+    if !repo_path.join(".git").exists() {
+        anyhow::bail!("{} is not a git repository (no .git)", repo_path.display());
+    }
+    let head = format!("fix/{run_id}");
+    git_out(repo_path, &["checkout", "-b", &head], None)?;
+    for f in &findings {
+        let patch = f.patch.as_deref().unwrap_or_default();
+        if let Err(e) = git_out(repo_path, &["apply", "-"], Some(patch)) {
+            anyhow::bail!("apply patch for finding {} ({}): {e}", f.id, f.title);
+        }
+    }
+
+    // Stage only what the patches touch so unrelated dirty worktree files
+    // never leak into the commit; fall back to -A when the diff headers
+    // yield no paths.
+    let mut touched: Vec<String> = findings
+        .iter()
+        .filter_map(|f| f.patch.as_deref())
+        .flat_map(patch_paths)
+        .collect();
+    touched.sort();
+    touched.dedup();
+    if touched.is_empty() {
+        git_out(repo_path, &["add", "-A"], None)?;
+    } else {
+        let mut add = vec!["add", "--"];
+        add.extend(touched.iter().map(String::as_str));
+        git_out(repo_path, &add, None)?;
+    }
+
+    let body = findings
+        .iter()
+        .map(|f| format!("- {} ({})", f.title, f.state))
+        .collect::<Vec<_>>()
+        .join("\n");
+    git_out(
+        repo_path,
+        &[
+            "commit",
+            "-m",
+            &format!("Apply verified findings from review run {run_id}"),
+            "-m",
+            &body,
+        ],
+        None,
+    )?;
+    let sha = git_out(repo_path, &["rev-parse", "HEAD"], None)?;
+    println!(
+        "branch {head} created at {sha} ({} finding(s) applied)",
+        findings.len()
+    );
+
+    let remotes = git_out(repo_path, &["remote"], None)?;
+    if remotes.lines().any(|r| r == "origin") {
+        match git_out(repo_path, &["push", "-u", "origin", &head], None) {
+            Ok(_) => println!("pushed {head} to origin"),
+            Err(e) => eprintln!("push failed (continuing): {e}"),
+        }
+    } else {
+        println!("no `origin` remote; skipped push (branch {head} is local only)");
+    }
+
+    let title = format!("Fixes for review run {run_id}");
+    match create_pr {
+        Some(f) => match f(repo_slug, &title, &body, &head, "main") {
+            Ok(url) => println!("Created PR: {url}"),
+            Err(e) => print_pr_fallback(
+                repo_slug,
+                &head,
+                &sha,
+                &title,
+                &body,
+                &format!("PR creation failed: {e}"),
+            ),
+        },
+        None => print_pr_fallback(
+            repo_slug,
+            &head,
+            &sha,
+            &title,
+            &body,
+            "no GitHub credentials (set GITHUB_TOKEN or GH_TOKEN)",
+        ),
+    }
+    Ok(())
+}
+
+/// Print the branch, commit sha, and the exact `gh pr create` command the
+/// user can run when the automated PR step is unavailable.
+fn print_pr_fallback(repo: &str, head: &str, sha: &str, title: &str, body: &str, why: &str) {
+    println!("PR not created: {why}");
+    println!("  branch: {head} @ {sha}");
+    println!(
+        "  run: gh pr create --repo {repo} --head {head} --base main --title \"{title}\" --body \"{body}\""
+    );
+}
+
+/// Repo-relative paths a unified diff touches, from its `a/`/`b/` headers.
+/// Skips `/dev/null` so additions and deletions resolve to real paths.
+fn patch_paths(patch: &str) -> Vec<String> {
+    patch
+        .lines()
+        .filter_map(|l| {
+            l.strip_prefix("+++ b/")
+                .or_else(|| l.strip_prefix("--- a/"))
+        })
+        .filter(|p| *p != "/dev/null")
+        .map(str::to_string)
+        .collect()
+}
+
+/// Run a git command in `dir` (optionally feeding `stdin`, e.g. a patch to
+/// `apply -`); trimmed stdout on success, command + stderr on failure.
+fn git_out(dir: &std::path::Path, args: &[&str], stdin: Option<&str>) -> Result<String> {
+    use std::io::Write;
+    let mut cmd = std::process::Command::new("git");
+    cmd.arg("-C").arg(dir).args(args);
+    if stdin.is_some() {
+        cmd.stdin(std::process::Stdio::piped());
+    }
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("git {}: {e}", args.join(" ")))?;
+    if let Some(input) = stdin {
+        child
+            .stdin
+            .take()
+            .expect("piped stdin")
+            .write_all(input.as_bytes())?;
+    }
+    let out = child.wait_with_output()?;
+    if !out.status.success() {
+        anyhow::bail!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use loom_review::{EvidenceState, Finding, ReviewRun};
+    use loom_trackers::models::TrackerError;
+    use std::process::Command;
+    use std::sync::Mutex;
+
+    /// PR-creation seam signature as a fn pointer, for `None` stubs.
+    type PrFn = fn(&str, &str, &str, &str, &str) -> Result<String, TrackerError>;
+
+    /// Unified diff against `BASE_CONTENT` fixing the sign bug.
+    const FIX_PATCH: &str = "--- a/lib.rs\n+++ b/lib.rs\n@@ -1 +1 @@\n-fn add(a: i32, b: i32) -> i32 { a - b }\n+fn add(a: i32, b: i32) -> i32 { a + b }\n";
+    const BASE_CONTENT: &str = "fn add(a: i32, b: i32) -> i32 { a - b }\n";
+    const FIXED_CONTENT: &str = "fn add(a: i32, b: i32) -> i32 { a + b }\n";
+
+    /// Run git in `dir`, panicking on failure (test setup only).
+    fn git_setup(dir: &std::path::Path, args: &[&str]) {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// Temp git repo with one committed `lib.rs`, plus a bare `origin`
+    /// remote when `with_remote` (offline: a local bare repo, no network).
+    fn init_repo(with_remote: bool) -> (tempfile::TempDir, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("lib.rs"), BASE_CONTENT).unwrap();
+        git_setup(dir.path(), &["init"]);
+        git_setup(dir.path(), &["config", "user.email", "test@loom.dev"]);
+        git_setup(dir.path(), &["config", "user.name", "Loom Test"]);
+        git_setup(dir.path(), &["add", "-A"]);
+        git_setup(dir.path(), &["commit", "-m", "base"]);
+        let remote = tempfile::tempdir().unwrap();
+        if with_remote {
+            git_setup(remote.path(), &["init", "--bare"]);
+            git_setup(
+                dir.path(),
+                &["remote", "add", "origin", remote.path().to_str().unwrap()],
+            );
+        }
+        (dir, remote)
+    }
+
+    /// Store seeded with `run_id` + one SuiteGreen patch-backed finding.
+    fn seed_run(store: &ReviewStore, run_id: &str) {
+        store
+            .save_plan(run_id, &ReviewRun::new(run_id.into(), "s".into()))
+            .unwrap();
+        let f = Finding::new(
+            "f1".into(),
+            "wrong sign".into(),
+            "add subtracts instead of adding".into(),
+            Some(FIX_PATCH.into()),
+            vec!["lib.rs".into()],
+            EvidenceState::SuiteGreen,
+            "bugs_security".into(),
+        );
+        store.append_findings(run_id, &[f]).unwrap();
+    }
+
+    #[test]
+    fn fix_pr_creates_branch_applies_patch_and_commits() {
+        let (repo, _remote) = init_repo(true);
+        let store_dir = tempfile::tempdir().unwrap();
+        let store = ReviewStore::new(store_dir.path()).unwrap();
+        seed_run(&store, "run-1");
+
+        let calls = Mutex::new(Vec::<Vec<String>>::new());
+        let pr = |r: &str, t: &str, b: &str, h: &str, base: &str| {
+            calls
+                .lock()
+                .unwrap()
+                .push(vec![r.into(), t.into(), b.into(), h.into(), base.into()]);
+            Ok::<_, TrackerError>("https://github.com/o/r/pull/1".into())
+        };
+        apply_review_fixes(&store, "run-1", repo.path(), "o/r", Some(&pr)).unwrap();
+
+        // On the fix branch.
+        let branch = git_out(repo.path(), &["rev-parse", "--abbrev-ref", "HEAD"], None).unwrap();
+        assert_eq!(branch, "fix/run-1");
+        // Patched content on disk.
+        let content = std::fs::read_to_string(repo.path().join("lib.rs")).unwrap();
+        assert_eq!(content, FIXED_CONTENT);
+        // Exactly one commit beyond the base (root) commit.
+        let root = git_out(repo.path(), &["rev-list", "--max-parents=0", "HEAD"], None).unwrap();
+        let count = git_out(repo.path(), &["rev-list", &format!("{root}..HEAD")], None).unwrap();
+        assert_eq!(count.lines().count(), 1, "expected exactly one commit");
+        // Commit message carries the run id and the finding title.
+        let msg = git_out(repo.path(), &["log", "-1", "--pretty=%B"], None).unwrap();
+        assert!(msg.contains("Apply verified findings from review run run-1"), "{msg}");
+        assert!(msg.contains("wrong sign"), "{msg}");
+        // PR seam called with repo/head/base; head/base must not be reordered.
+        let c = calls.lock().unwrap();
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0][0], "o/r");
+        assert_eq!(c[0][3], "fix/run-1");
+        assert_eq!(c[0][4], "main");
+        assert!(c[0][1].contains("run-1"), "{}", c[0][1]);
+        // Push landed on the bare origin.
+        let refs = git_out(repo.path(), &["ls-remote", "origin", "fix/run-1"], None).unwrap();
+        assert!(refs.contains("refs/heads/fix/run-1"), "{refs}");
+    }
+
+    #[test]
+    fn fix_pr_bails_without_verified_findings() {
+        let (repo, _remote) = init_repo(false);
+        let store_dir = tempfile::tempdir().unwrap();
+        let store = ReviewStore::new(store_dir.path()).unwrap();
+        store
+            .save_plan("r2", &ReviewRun::new("r2".into(), "s".into()))
+            .unwrap();
+        // Patch-backed but never verified — and a refuted one. Neither applies.
+        let unverified = Finding::new(
+            "f1".into(),
+            "t".into(),
+            "r".into(),
+            Some(FIX_PATCH.into()),
+            vec!["lib.rs".into()],
+            EvidenceState::Unverified,
+            "seat".into(),
+        );
+        let refuted = Finding::new(
+            "f2".into(),
+            "t2".into(),
+            "r2".into(),
+            Some(FIX_PATCH.into()),
+            vec!["lib.rs".into()],
+            EvidenceState::Refuted,
+            "seat".into(),
+        );
+        store.append_findings("r2", &[unverified, refuted]).unwrap();
+
+        let never_pr: PrFn = |_: &str, _: &str, _: &str, _: &str, _: &str| {
+            panic!("PR step must not run when nothing is verified")
+        };
+        let err = apply_review_fixes(&store, "r2", repo.path(), "o/r", Some(&never_pr))
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("no verified patch-backed findings"),
+            "{err}"
+        );
+        // Repo untouched: file still has the base content.
+        let content = std::fs::read_to_string(repo.path().join("lib.rs")).unwrap();
+        assert_eq!(content, BASE_CONTENT);
+    }
+
+    #[test]
+    fn fix_pr_names_finding_on_apply_failure() {
+        let (repo, _remote) = init_repo(false);
+        let store_dir = tempfile::tempdir().unwrap();
+        let store = ReviewStore::new(store_dir.path()).unwrap();
+        store
+            .save_plan("r3", &ReviewRun::new("r3".into(), "s".into()))
+            .unwrap();
+        let bad = Finding::new(
+            "f-bad".into(),
+            "does not apply".into(),
+            "patch expects content that was never committed".into(),
+            Some("--- a/lib.rs\n+++ b/lib.rs\n@@ -1 +1 @@\n-fn nope() {}\n+fn yes() {}\n".into()),
+            vec!["lib.rs".into()],
+            EvidenceState::Proven,
+            "bugs_security".into(),
+        );
+        store.append_findings("r3", &[bad]).unwrap();
+
+        let err = apply_review_fixes(&store, "r3", repo.path(), "o/r", None::<&PrFn>).unwrap_err();
+        assert!(err.to_string().contains("f-bad"), "{err}");
+        assert!(err.to_string().contains("does not apply"), "{err}");
+    }
+
+    #[test]
+    fn fix_pr_without_remote_or_credentials_still_succeeds() {
+        let (repo, _remote) = init_repo(false);
+        let store_dir = tempfile::tempdir().unwrap();
+        let store = ReviewStore::new(store_dir.path()).unwrap();
+        seed_run(&store, "run-4");
+
+        // No origin remote, no PR seam (credentials unavailable): the local
+        // git work must still complete and the command must not fail.
+        apply_review_fixes(&store, "run-4", repo.path(), "o/r", None::<&PrFn>).unwrap();
+
+        let branch = git_out(repo.path(), &["rev-parse", "--abbrev-ref", "HEAD"], None).unwrap();
+        assert_eq!(branch, "fix/run-4");
+        let content = std::fs::read_to_string(repo.path().join("lib.rs")).unwrap();
+        assert_eq!(content, FIXED_CONTENT);
+        // No remote was ever configured, so nothing could have been pushed.
+        assert!(git_out(repo.path(), &["remote"], None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn fix_pr_rejects_non_git_path() {
+        let store_dir = tempfile::tempdir().unwrap();
+        let store = ReviewStore::new(store_dir.path()).unwrap();
+        seed_run(&store, "run-5");
+        let plain_dir = tempfile::tempdir().unwrap();
+        let err =
+            apply_review_fixes(&store, "run-5", plain_dir.path(), "o/r", None::<&PrFn>).unwrap_err();
+        assert!(err.to_string().contains("not a git repository"), "{err}");
+    }
 
     #[tokio::test]
     async fn review_run_missing_session_errors() {
@@ -499,6 +880,7 @@ mod tests {
             ReviewAction::Run {
                 session_id: "no-such-session".into(),
                 seats: 2,
+                seat: Vec::new(),
                 lenses: None,
                 dry_run: true,
             },
