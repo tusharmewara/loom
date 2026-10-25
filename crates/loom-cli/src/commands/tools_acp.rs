@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Args;
-use loom_sessions::acp_launch::{pick_distribution, ACP_REGISTRY_URL};
+use loom_sessions::acp_launch::{pick_distribution, registry_url};
 use loom_sessions::{AcpClient, AgentMetadata};
 use std::path::Path;
 
@@ -11,7 +11,7 @@ pub struct AddArgs {
 
 impl AddArgs {
     pub async fn handle(&self, loom_dir: &str) -> Result<()> {
-        let client = AcpClient::new(ACP_REGISTRY_URL, std::time::Duration::from_secs(0))
+        let client = AcpClient::new(&registry_url(loom_dir), std::time::Duration::from_secs(0))
             .await
             .map_err(|e| anyhow::anyhow!("Failed to create ACP client: {}", e))?;
         let agents = client

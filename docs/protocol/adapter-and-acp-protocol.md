@@ -682,8 +682,12 @@ with a `run_id`.
 The registry lives upstream at
 <https://github.com/agentclientprotocol/registry> and is vendored in this
 repository as `acp_registry/`, committed as a **gitlink** pinned at
-`2edbfd245997eae3b19c0b6cba46f86826dc5f44` — but with **no `.gitmodules`
-entry**, so a fresh clone does not populate it (see §4 #9). The rules below
+`2edbfd245997eae3b19c0b6cba46f86826dc5f44`. Since 2026-10-25 a `.gitmodules`
+entry maps the path, so a fresh clone populates it with
+`git submodule update --init` (§4 #9 resolved). The registry URL used by
+Loom's fetch sites is overridable through `config/acp.toml`'s `registry_url`
+(one owner: `crates/loom-sessions/src/acp_launch.rs` `registry_url`, which
+falls back to the built-in CDN default; §4 #12 resolved). The rules below
 are transcribed from that directory's own schema files.
 
 **Per-agent layout** (`acp_registry/CONTRIBUTING.md:13`): a directory named
@@ -1121,10 +1125,10 @@ truth and a maintainer can fix it separately.
 | 6 | `crates/loom-sessions/src/acp_launch.rs:214` | `to_toml_entry` documents itself as rendering *the* `agents.toml` entry, but renders a partial one — `source` is added separately (`crates/loom-cli/src/commands/tools_acp.rs:56`). |
 | 7 | `crates/loom-cli/src/commands/tools_acp.rs:56` | `source = "acp-registry"` is written but never read by any Loom code path. |
 | 8 | `crates/loom-sessions/src/acp_client.rs:10` | `AgentMetadata` has no `version` field, although the registry schema requires one (`acp_registry/agent.schema.json:7`); `repository`, `website`, `authors`, `license`, `icon` are dropped too. `auth_methods` / `platforms` / `tags` are parsed and never used, so the registry's authentication guarantee (`acp_registry/AUTHENTICATION.md:7`) is not surfaced by Loom. |
-| 9 | `acp_registry/` | The directory is committed as a gitlink with **no `.gitmodules` entry**: `git submodule status` fails with *"fatal: no submodule mapping found in .gitmodules for path 'acp_registry'"*. A fresh clone cannot populate it, so the registry schemas are unavailable to contributors. |
+| 9 | `acp_registry/` | ~~The directory is committed as a gitlink with **no `.gitmodules` entry**~~ — **resolved 2026-10-25**: `.gitmodules` now maps `acp_registry` to <https://github.com/agentclientprotocol/registry>, so `git submodule status` succeeds and a fresh clone populates it with `git submodule update --init`. |
 | 10 | `crates/loom-cli/src/commands/acp_run.rs:54` | `--runtime` is advertised in the CLI help as *"Runtime backend: process, docker, podman, kubernetes"* (`crates/loom-cli/src/cli.rs:1912`) but is never implemented — it warns *"runtime '…' does not support the ACP protocol yet; running directly"* and runs directly. |
 | 11 | `crates/loomd/src/capture.rs:237` | `complete_run(&run_id, 0, …)` hardcodes exit code `0`, so `loom acp run-status` shows `Exit: 0` even for a failed agent; and because the error path returns before `complete_run`, a failed dispatch leaves the run "still running" forever. |
-| 12 | `crates/loom-core/src/config.rs:197` | `config/acp.toml`'s `registry_url` is parsed and displayed by `loom config show` (`crates/loom-cli/src/commands/config.rs:110`) but **never used to fetch** — every fetch site uses the hard-coded `ACP_REGISTRY_URL` (`crates/loom-sessions/src/acp_launch.rs:317`, `crates/loom-cli/src/commands/tools_acp.rs:14`, `crates/loom-cli/src/commands/acp.rs:310`). The documented "ACP registry URL" setting is dead for registry access. |
+| 12 | `crates/loom-core/src/config.rs:197` | ~~`config/acp.toml`'s `registry_url` is parsed and displayed but **never used to fetch**~~ — **resolved 2026-10-25**: `acp_launch::registry_url(loom_dir)` reads the merged config and falls back to the built-in default; all three fetch sites now route through it (`crates/loom-sessions/src/acp_launch.rs` `registry_entry`/`from_registry`/`resolve`, `crates/loom-cli/src/commands/tools_acp.rs:14`, `crates/loom-cli/src/commands/acp.rs:310`). Pinned by `registry_url_prefers_config_and_falls_back_to_default`. |
 | 13 | `crates/loom-generic-adapter/src/lib.rs:102` | `present_features` / `absent_features` cover only the six trait sections; `[lsp]`, `[debug]` and `[launch]` are never reported. `GenericAdapter` does not implement the `LspProvider` / `DebugProvider` core traits (`crates/loom-core/src/types.rs:1284`, `:984`), so a TOML-registered tool's `[lsp]` and `[debug]` sections are parsed but unused by `loom lsp exec` and `loom debug`, which resolve tools through `adapter_for` only (`crates/loom-cli/src/commands/lsp.rs:89`). |
 | 14 | `crates/loom-generic-adapter/src/traits.rs:76` | The generic trait implementations are documented as "no-ops", and they are: `GenericMcpConsumer` never writes the tool's MCP config, `GenericHookExecutor` never executes a hook, `GenericAuthProvider::export_credential` always errors. A `[mcp]` / `[hooks]` / `[auth]` section in a hand-written TOML therefore declares intent that the generic runtime does not fulfil. |
 | 15 | `crates/loom-auth/src/import.rs:42` | `loom-auth` reads tool TOMLs with a *different* schema (`[auth]`/`[provider]` with `provider_id`, `credential`, …) than `ToolToml`'s `[auth]` section (`store_path` / `providers` / `import_on_register`). The two coexist in one file and neither documents the other. |

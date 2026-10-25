@@ -307,7 +307,7 @@ async fn handle_registry(
     available_only: bool,
 ) -> anyhow::Result<()> {
     let client = loom_sessions::AcpClient::new(
-        loom_sessions::acp_launch::ACP_REGISTRY_URL,
+        &loom_sessions::acp_launch::registry_url(&loom_dir.to_string_lossy()),
         std::time::Duration::from_secs(0),
     )
     .await

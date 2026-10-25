@@ -41,7 +41,7 @@ Agents execute arbitrary code with your credentials. Trust is the adoption gate 
 Adoption comes from being the easiest layer to plug into. The moat is the protocol, not the adapters.
 
 - **Public protocol.** Versioned, documented spec for the adapter contract and ACP dispatch; publish the `acp_registry` schemas. Third-party agents register without forking.
-  ↳ Spec landed: [`docs/protocol/adapter-and-acp-protocol.md`](docs/protocol/adapter-and-acp-protocol.md) (spec v1.0.0 — adapter contract v1, ACP protocol v1). Still open: publishing the `acp_registry` schemas as a fetchable artifact (the directory is an unpopulatable gitlink today) and the SDK story below.
+  ↳ Spec landed: [`docs/protocol/adapter-and-acp-protocol.md`](docs/protocol/adapter-and-acp-protocol.md) (spec v1.0.0 — adapter contract v1, ACP protocol v1). ~~Publishing the `acp_registry` schemas~~ — closed 2026-10-25: the registry vendored at `acp_registry/` is now a real submodule (`.gitmodules` added — a fresh clone populates it with `git submodule update --init`), and the documented `config/acp.toml` `registry_url` setting is live: one owner `acp_launch::registry_url` feeds all three fetch sites (`add-acp-agent`, `acp registry`, launch resolution). Still open: the SDK story below.
 - **SDK story.** Grow `loom-ffi` beyond minimal; a thin binding story for registering tools, skills, and handlers from other languages.
 - **Adapter coverage.** More presets; `GenericAdapter` TOML stays the escape hatch; a contribution guide so coverage scales without us.
 - **Consumption surfaces.** `loom-mcp-server` as the bridge for external orchestrators/UIs to use Loom services — the "UIs consume Loom" play from the competitive analysis.

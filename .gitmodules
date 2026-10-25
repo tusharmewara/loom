@@ -1,0 +1,3 @@
+[submodule "acp_registry"]
+	path = acp_registry
+	url = https://github.com/agentclientprotocol/registry

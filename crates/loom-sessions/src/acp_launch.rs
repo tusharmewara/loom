@@ -21,6 +21,17 @@ use crate::acp_client::{AcpClient, AgentMetadata};
 /// Base URL of the public ACP agent registry.
 pub const ACP_REGISTRY_URL: &str = "https://cdn.agentclientprotocol.com/registry";
 
+/// Effective registry URL: `config/acp.toml`'s `registry_url` when set,
+/// else the built-in default. One owner so the documented setting is
+/// actually consulted by every registry fetch site.
+pub fn registry_url(loom_dir: &str) -> String {
+    loom_core::config::ConfigReader::new(loom_dir)
+        .load()
+        .ok()
+        .and_then(|c| c.acp_registry_url)
+        .unwrap_or_else(|| ACP_REGISTRY_URL.to_string())
+}
+
 /// A resolved ACP agent launch: the program to spawn plus its arguments
 /// and any environment it needs.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -312,9 +323,9 @@ pub fn launch_from_entry(agent_id: &str, entry: &toml::Table) -> AcpLaunch {
     }
 }
 
-/// Look an agent up in the public ACP registry.
-pub async fn registry_entry(agent_id: &str) -> Result<AgentMetadata> {
-    let client = AcpClient::new(ACP_REGISTRY_URL, std::time::Duration::from_secs(0)).await?;
+/// Look an agent up in the ACP registry (config-overridable URL).
+pub async fn registry_entry(loom_dir: &str, agent_id: &str) -> Result<AgentMetadata> {
+    let client = AcpClient::new(&registry_url(loom_dir), std::time::Duration::from_secs(0)).await?;
     let agents = client.discover_agents().await?;
     agents
         .into_iter()
@@ -322,9 +333,9 @@ pub async fn registry_entry(agent_id: &str) -> Result<AgentMetadata> {
         .ok_or_else(|| anyhow::anyhow!("Agent `{agent_id}` not found in ACP registry"))
 }
 
-/// Resolve a launch spec for `agent_id` from the public registry.
-pub async fn from_registry(agent_id: &str) -> Result<AcpLaunch> {
-    let entry = registry_entry(agent_id).await?;
+/// Resolve a launch spec for `agent_id` from the ACP registry.
+pub async fn from_registry(loom_dir: &str, agent_id: &str) -> Result<AcpLaunch> {
+    let entry = registry_entry(loom_dir, agent_id).await?;
     let distribution = pick_distribution(&entry).ok_or_else(|| {
         anyhow::anyhow!("Agent `{agent_id}` has no distribution available for this platform")
     })?;
@@ -352,7 +363,7 @@ pub async fn resolve(loom_dir: &str, agent_id: &str) -> Result<AcpLaunch> {
     }
 
     let local = from_agents_toml(loom_dir, agent_id);
-    let registry = from_registry(agent_id).await.ok();
+    let registry = from_registry(loom_dir, agent_id).await.ok();
 
     match (local, registry) {
         (Some(mut launch), Some(registry)) => {
@@ -400,6 +411,25 @@ pub fn ensure_runnable(launch: &AcpLaunch) -> Result<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn registry_url_prefers_config_and_falls_back_to_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("config");
+        std::fs::create_dir_all(&cfg).unwrap();
+        std::fs::write(
+            cfg.join("acp.toml"),
+            "registry_url = \"https://example.test/registry\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            registry_url(dir.path().to_str().unwrap()),
+            "https://example.test/registry"
+        );
+        // No overlay → the built-in default.
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(registry_url(empty.path().to_str().unwrap()), ACP_REGISTRY_URL);
+    }
 
     fn metadata(distribution: Value) -> AgentMetadata {
         AgentMetadata {
