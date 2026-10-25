@@ -142,6 +142,18 @@ pub async fn run(loom_dir: &Path, action: &AuthAction) -> anyhow::Result<()> {
         AuthAction::Grant { action } => {
             crate::commands::grant::run(loom_dir, action)?;
         }
+        AuthAction::RotatePassword {
+            vault_password: password,
+            new_password,
+        } => {
+            let current = crate::commands::grant::vault_password(password.as_ref())?;
+            let mut manager = AuthManager::new(loom_dir.to_str().unwrap());
+            manager.unlock_vault(&current)?;
+            manager.vault_mut().change_password(&current, new_password)?;
+            let count = manager.vault().list_credentials()?.len();
+            println!("✓ Master password rotated ({count} credential(s) re-encrypted)");
+            println!("  Every derived grant key was invalidated — re-issue grants as needed.");
+        }
         AuthAction::Export {
             output,
             json,

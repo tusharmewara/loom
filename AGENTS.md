@@ -257,6 +257,7 @@ do, and the TUI dispatcher does too. A path that skips it leaks the container.
 - `loom auth grant verify --token <token> --run <run> --tool <tool> [--json]` — Verify a **grant**'s scope/expiry/revocation
 - `loom auth grant revoke --grant-id <id> [--json]` — Revoke a grant (immediate, audited)
 - `loom auth grant list [--json]` — List known grants
+- `loom auth rotate-password [--vault-password <pw>] --new-password <pw>` — Rotate the vault master password (re-encrypts every credential; invalidates all derived grants). Current password from the flag or `LOOM_VAULT_PASSWORD`.
 - `loom auth export [-o path] [--json] [--print-public-key]` — Export the audit chain to a signed, portable JSON file (default `<loom-dir>/auth/audit-export.json`); `--print-public-key` prints the machine's export-signing public key and writes nothing
 - `loom auth verify [path] [--json] [--public-key <hex|file>]` — Verify an audit **export** (one verdict: `intact` / `tampered` / `unanchored`), or the local audit chain when no path is given
 

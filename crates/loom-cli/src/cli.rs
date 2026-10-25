@@ -749,6 +749,17 @@ pub enum AuthAction {
     },
     /// Validate a provider credential
     Validate { provider_id: String },
+    /// Rotate the vault master password (re-encrypts every credential).
+    ///
+    /// Invalidates every derived grant key — issue new grants afterwards.
+    RotatePassword {
+        /// Current vault master password (or set LOOM_VAULT_PASSWORD)
+        #[arg(long)]
+        vault_password: Option<String>,
+        /// New vault master password
+        #[arg(long)]
+        new_password: String,
+    },
     /// Manage scoped credential grants (per-run, per-tool, revocable)
     Grant {
         #[command(subcommand)]

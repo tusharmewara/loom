@@ -9,7 +9,7 @@ use loom_auth::AuthManager;
 use std::path::Path;
 
 /// Vault master password: explicit flag wins, then the environment.
-fn vault_password(flag: Option<&String>) -> anyhow::Result<String> {
+pub(crate) fn vault_password(flag: Option<&String>) -> anyhow::Result<String> {
     flag.cloned()
         .or_else(|| std::env::var("LOOM_VAULT_PASSWORD").ok())
         .filter(|p| !p.is_empty())
