@@ -2056,7 +2056,7 @@ impl Cli {
             Command::Telemetry { action } => {
                 crate::commands::telemetry::run(&loom_dir, &action).await
             }
-            Command::Review { action } => crate::commands::review::run(&loom_dir, action),
+            Command::Review { action } => crate::commands::review::run(&loom_dir, action).await,
             Command::Conflict { action } => {
                 crate::commands::conflict::run(&loom_dir, &action).await
             }
