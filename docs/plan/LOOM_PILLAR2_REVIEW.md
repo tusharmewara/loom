@@ -8,7 +8,7 @@
 > |---|---|---|
 > | F1, F2 | HIGH / MEDIUM | Closed. The export is self-verifying: the chain hash covers the *normalised* outcome (`chain_scheme: 2`) so a consumer can re-derive it, and the whole document is signed with a per-machine Ed25519 key. Three verdicts: `intact` / `tampered` / `unanchored` — never `intact` without a pinned key. Three attack tests (field tamper, whole-document forgery, re-hashed tamper) all fail verification. The raw `result` never leaves the machine. |
 > | F3 | MEDIUM | Closed. The TUI dispatch path now calls `Runtime::cleanup(&result)` after a successful run, so the container is not leaked (the engine's auto-remove stays off so the runtime can read the logs after exit). |
-> | F4 | MEDIUM | Closed. A `restricted` request that resolves to `none` is logged on every run: "container network posture downgraded: restricted (posture=none, allowed_hosts not enforced yet: …)". |
+> | F4 | MEDIUM | Closed. A `restricted` request that resolves to `none` is logged on every run: "container network posture downgraded: restricted (posture=none, allowed_hosts recorded but unenforced: …)". |
 > | F5 | MEDIUM | Closed. The Kubernetes `NetworkPolicy` is created *before* the Job (the pod selector is computable from `loom.task_id`), and the doc comment states that a NetworkPolicy only denies egress when the cluster CNI enforces it — the k8s backend is best-effort, Docker/Podman are unconditionally fail-closed. |
 > | F6 | LOW | Closed. `GrantRecord::is_usable` is deleted; `verify_grant` is the single owner of the grant-check rule. |
 > | F7 | LOW | Closed. `auth/grants.json` is written through the vault's private writer (mode `0600`). |
@@ -176,7 +176,7 @@ acceptable, but it should be surfaced in the run output, not just the label.
 
 **Required fix:** log the *resolved* posture and the *requested* posture whenever
 they differ, e.g. at `lib.rs:903-904` where the policy is resolved — "restricted
-(posture=none, allowed_hosts not enforced yet)". This is a `tracing::warn!` /
+(posture=none, allowed_hosts recorded but unenforced)". This is a `tracing::warn!` /
 `tracing::info!` line, no new mechanism.
 
 ### F5 — MEDIUM — `p2/container-policy`: the Kubernetes `NetworkPolicy` is created *after* the Job, so the pod can start with egress before the policy exists

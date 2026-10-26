@@ -108,9 +108,15 @@ jobs:
       - name: Verify Docker is present
         run: docker version
 
+      - name: Build egress proxy image
+        # The restricted-posture smoke needs the proxy sidecar's image; the
+        # crate is standalone, so this is a self-contained build.
+        run: docker build -t loom-egress-proxy:latest crates/loom-egress-proxy
+
       - name: Run container smoke test
         env:
           LOOM_CONTAINER_SMOKE: "1"
+          LOOM_EGRESS_PROXY_IMAGE: loom-egress-proxy:latest
         run: |
           set -o pipefail
           cargo test -p loom-runtime --features docker --test container_smoke -- --nocapture 2>&1 | tee container-smoke-output.log
@@ -120,6 +126,10 @@ jobs:
             echo "::error::container smoke test skipped on a runner with Docker present"
             exit 1
           fi
+          # Same bar for the egress path specifically — the restricted
+          # posture smoke must never silently skip in CI.
+          grep -q "ALLOWED:200" container-smoke-output.log
+          grep -q "DENIED:OK" container-smoke-output.log
 
       - name: Upload Container Test Results
         uses: actions/upload-artifact@v4
