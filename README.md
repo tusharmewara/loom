@@ -86,7 +86,7 @@ Third-party agents integrate through Loom's public protocol — the versioned **
 
 ## 🏗️ Architecture overview
 
-Loom is a Rust workspace of 31 crates (see all in [`Cargo.toml`](Cargo.toml)). Three binaries — `loom` (CLI), `loomd` (the long-lived daemon), and `loom-mcp-server` (on-demand MCP server over stdio) — sit on top of the library crates:
+Loom is a Rust workspace of 32 crates (plus the standalone `loom-egress-proxy` image crate; see all in [`Cargo.toml`](Cargo.toml)). Three binaries — `loom` (CLI), `loomd` (the long-lived daemon), and `loom-mcp-server` (on-demand MCP server over stdio) — sit on top of the library crates:
 
 | Crate | Role |
 |------|------|
@@ -167,7 +167,7 @@ Loom advertises hard budgets and measures them on every build. The envelope is s
 - **ACP dispatch** — spawn any registered agent (claude-code, codex, opencode, goose, …) on demand via `loom acp run`; per-run logs, completion status, automatic session capture.
 - **Agent adapters** — 12 preset adapters + an infinite set via `loom-generic-adapter` (any tool whose config can be expressed in TOML).
 - **Remote capture** — `loom remote exec --capture-session …` runs a command on an SSH `RemoteHost` and records it as an indexed session.
-- **Container isolation** (`loom-runtime`) — opt-in: the default runtime stays `process`, so nothing changes until a tool's `[launch] runtime` says `docker`/`podman`/`kubernetes`. Once a container *is* selected, the **default network posture is `none` (no egress)**; `unrestricted` (engine default network, full egress) must be asked for by name. Postures: `none` (default), `restricted` (allowlist — currently fail-closed to `none` until the egress proxy lands), `unrestricted` (explicit escape hatch). Free-form network names (`bridge`, `host`, …) are rejected — a name is not a posture. Set per run with the tool's `[launch] network` value.
+- **Container isolation** (`loom-runtime`) — opt-in: the default runtime stays `process`, so nothing changes until a tool's `[launch] runtime` says `docker`/`podman`/`kubernetes`. Once a container *is* selected, the **default network posture is `none` (no egress)**; `unrestricted` (engine default network, full egress) must be asked for by name. Postures: `none` (default), `restricted` (allowlist — enforced on Docker via the `loom-egress-proxy` sidecar on an internal network; Podman and Kubernetes stay deny-all until their wiring), `unrestricted` (explicit escape hatch). Free-form network names (`bridge`, `host`, …) are rejected — a name is not a posture. Set per run with the tool's `[launch] network` value.
 
 ### Orchestration & tracking
 - **Workflow engine** — multi-phase tasks, phase advancement, templates; build from a chief plan or a ticket (`loom workflow create --from-plan/ticket`, `loom workflow draft-plan`).
@@ -215,6 +215,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 | Version | Highlights |
 |---------|-----------|
+| **0.10.2** (2026‑10‑25) | Verified Review Engine: `loom-review` crate + `loom review` (`run`/`status`/`findings`/`scoreboard`/`fix-pr`), `loom auth rotate-password`, metered usage for `loom exec` and every TUI dispatch path, live ACP `registry_url`, MIT LICENSE. |
 | **0.10.1** (2026‑10‑24) | Spec-kit harness loop productized: `loom workflow ideate` single-entry ideate-to-product, `create --spec`, Spec/Simulate phases, `advance` ComplexityScore gate, `dispatch`, `converge` with hindsight lesson retention; Phase B probe loop closed negative (signal zero, does not ship). |
 | **0.10.0** (2026‑10‑22) | Documentation updates: added review record links to ROADMAP/STATUS, gated acp_live test behind LOOM_ACP_LIVE=1, replaced documentation cards. |
 | **0.9.6** (2026‑10‑20) | ACP launch resolution from the registry (`loom acp registry`, 42 agents, deterministic `npx`/`uvx`/`binary` pick) and real agent errors no longer masked as timeouts; Kanban and Orchestrator tabs no longer trap tab navigation. |

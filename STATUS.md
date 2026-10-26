@@ -6,10 +6,10 @@ Loom is a multi-agent orchestration framework built in Rust. It provides a unifi
 
 ## Crates
 
-31 crates in the workspace (`cargo metadata` is the source of truth):
+32 crates in the workspace (`cargo metadata` is the source of truth), plus the standalone `loom-egress-proxy` image crate (not a workspace member — see `docs/decisions/0002-egress-allowlist-proxy.md`):
 
 - `loom-core`: Types, config, constants, errors, traits, single-instance lock
-- `loom`: CLI binary with 20+ subcommands
+- `loom`: CLI binary with 37 top-level subcommands
 - `loomd`: Background daemon aggregating all subsystems
 - `loom-tui`: Terminal UI (ratatui + crossterm)
 - `loom-ipc`: JSON-line protocol over Unix sockets
@@ -38,6 +38,8 @@ Loom is a multi-agent orchestration framework built in Rust. It provides a unifi
 - `loom-rules`: Stream rules engine for LoomEvent processing
 - `loom-runtime`: Pluggable runtime backends (process, Docker, Podman, Kubernetes)
 - `loom-trackers`: GitHub/Linear issue and PR trackers
+- `loom-review`: Verified Review Engine (ACP-seated reviewers, verified findings, scoreboard, fix-PR flow)
+- `loom-egress-proxy`: standalone allowlist CONNECT proxy for the Docker `restricted` posture (image crate)
 - `loom-integration-tests`: Cross-crate integration tests
 
 ## Packages
@@ -67,12 +69,14 @@ Loom is a multi-agent orchestration framework built in Rust. It provides a unifi
 - Credential vault with encryption
 - Scoped, revocable, expiring per-run grants (`loom auth grant issue|verify|revoke|list`); the agent never holds the stored secret, and there is deliberately no CLI `redeem`
 - Tamper-evident, signed audit export (`loom auth export` / `loom auth verify`): a recomputable chain over the normalised outcome plus an Ed25519 anchor; one verdict — `intact` / `tampered` / `unanchored`
-- Container network posture as a policy enum (`none` / `restricted` / `unrestricted`); a container run defaults to no egress, and `restricted` is fail-closed until the egress proxy lands
+- Container network posture as a policy enum (`none` / `restricted` / `unrestricted`); a container run defaults to no egress, and `restricted` enforces the host allowlist on Docker via the `loom-egress-proxy` sidecar (Podman/Kubernetes stay deny-all; ADR 0002)
 - Session export/import with compression
 - Hook system for pre/post task execution
 - Workflow engine for task orchestration
 - Routing for model selection
 - Telemetry and anomaly detection
+- Verified Review Engine: `loom review run|status|findings|scoreboard|fix-pr` — seats reviewer agents over ACP, verifies findings in isolated worktrees, opens the fix PR
+- One-command password rotation: `loom auth rotate-password` re-encrypts every credential and invalidates derived grants
 
 ## Build & Test
 
@@ -98,13 +102,13 @@ cargo clippy --workspace
 ### Homebrew (macOS/Linux)
 
 ```bash
-brew install loom
+brew tap tusharmewara/loom && brew install loom
 ```
 
-### Cargo
+### Cargo (source only — not published to crates.io)
 
 ```bash
-cargo install loom
+cargo install --path crates/loom-cli
 ```
 
 ### From Source
