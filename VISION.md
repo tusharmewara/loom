@@ -13,7 +13,7 @@ Loom is a **shared agentic ecosystem** — a unifying layer that connects multip
 - **Hooks** — intercept and modify tool behavior
 - **Workflow** — cross-tool task orchestration
 
-It's written in Rust as a Cargo workspace of 31 crates plus 8 tool-adaptation packages.
+It's written in Rust as a Cargo workspace of 32 crates (plus the standalone `loom-egress-proxy` image crate) plus 8 tool-adaptation packages.
 
 ## What's Been Built (pushed to git)
 
