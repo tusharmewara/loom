@@ -27,19 +27,20 @@ pub struct LoomConfig {
     pub security: SecurityConfig,
 }
 
-/// Security posture knobs. Defaults preserve the historic trust model.
+/// Security posture knobs.
 ///
-/// Trust model (docs/routing-debt.md Step 5): everything under the loom
-/// dir is user-owned local state. Signed artifacts (hooks, plugins) are
-/// verified whenever a signature is present; unsigned ones have always
-/// been allowed, because write access to the loom dir already implies
-/// trust. `require_signature = true` flips the posture to
-/// verify-by-default: unsigned hooks and plugins are rejected outright.
+/// Trust model (docs/routing-debt.md Step 5, tightened by ADR 0005):
+/// signed artifacts (hooks, plugins) are verified whenever a signature is
+/// present; `require_signature = true` (the default since ADR 0005) makes
+/// verification the default path — remote plugin installs that are
+/// unsigned are refused with the opt-out named in the message, and
+/// unsigned hooks are skipped. Opt out of the plugin refusals with
+/// `[security] require_signature = false`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct SecurityConfig {
-    /// Reject hooks and plugins that carry no signature.
-    /// Default false (back-compat: unsigned local artifacts are allowed).
-    #[serde(default)]
+    /// Reject hooks and refuse unsigned remote plugin installs.
+    /// Default true (verify-by-default, ADR 0005).
+    #[serde(default = "default_require_signature")]
     pub require_signature: bool,
     /// Audit chain retention window, in days.
     ///
@@ -61,10 +62,15 @@ fn default_audit_retention_days() -> u32 {
     DEFAULT_AUDIT_RETENTION_DAYS
 }
 
+/// Default: verification is the default path (ADR 0005).
+fn default_require_signature() -> bool {
+    true
+}
+
 impl Default for SecurityConfig {
     fn default() -> Self {
         Self {
-            require_signature: false,
+            require_signature: default_require_signature(),
             audit_retention_days: default_audit_retention_days(),
         }
     }

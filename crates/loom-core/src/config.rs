@@ -561,13 +561,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn security_require_signature_parses_and_defaults_off() {
+    fn security_require_signature_defaults_on() {
         let tmp = tempfile::tempdir().unwrap();
         let loom_dir = tmp.path().to_str().unwrap();
 
-        // No config at all → historic default (flag off).
+        // No config at all → verify-by-default (ADR 0005).
         let empty = ConfigReader::new(loom_dir).load().unwrap();
-        assert!(!empty.security.require_signature);
+        assert!(empty.security.require_signature);
 
         // [security] require_signature = true → flag on.
         std::fs::write(
@@ -577,6 +577,22 @@ mod tests {
         .unwrap();
         let on = ConfigReader::new(loom_dir).load().unwrap();
         assert!(on.security.require_signature);
+    }
+
+    #[test]
+    fn security_require_signature_explicit_opt_out() {
+        let tmp = tempfile::tempdir().unwrap();
+        let loom_dir = tmp.path().to_str().unwrap();
+
+        // Explicit opt-out wins over the default (config layers beat
+        // built-in defaults — ConfigReader deep-merges, file wins).
+        std::fs::write(
+            tmp.path().join("config.toml"),
+            "[security]\nrequire_signature = false\n",
+        )
+        .unwrap();
+        let off = ConfigReader::new(loom_dir).load().unwrap();
+        assert!(!off.security.require_signature);
     }
 
     #[test]

@@ -128,8 +128,13 @@ async fn test_engine_skips_unsigned_hooks_when_required() {
         .unwrap();
     assert_eq!(results.len(), 0, "unsigned hook must be skipped");
 
-    // Flag off (config removed, re-read per execution) → hook runs again.
-    fs::remove_file(dir.path().join("config.toml")).unwrap();
+    // Explicit opt-out config (re-read per execution) → hook runs again.
+    // (Removing the config would now default the flag on — ADR 0005.)
+    fs::write(
+        dir.path().join("config.toml"),
+        "[security]\nrequire_signature = false\n",
+    )
+    .unwrap();
     let results = engine
         .execute_hooks(HookEventType::PreToolUse.to_string().as_str(), &ctx)
         .await
