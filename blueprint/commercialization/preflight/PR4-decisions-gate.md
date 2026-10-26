@@ -16,9 +16,9 @@ Why: unblocks phase 2's exit test with a 100-line CLI; matches the signed-offlin
 
 Commercialization plan phases 2–8 unlock only when **all** hold:
 
-- [ ] PR1 exit: foreign-language process registers tool + skill via loom-ffi; `loom scan` lists both.
-- [ ] PR2 exit: `restricted:<hosts>` enforced via egress proxy on the default backend; "not enforced yet" string gone; CI `container` job green.
-- [ ] PR3 exit: `docs/adapter-contribution.md` merged; all commands execute verbatim on tempdir; README links it.
+- [x] PR1 exit: foreign-language process registers tool + skill via loom-ffi; `loom scan` lists both. — merged `preflight/pr1-sdk`; ctypes lifecycle re-validated on merged main (register ok → skill refused-without-description correctly → unregister ok → structured not-found error); example lives in `docs/adapter-contribution.md`. Checked 2026-10-26.
+- [x] PR2 exit: `restricted:<hosts>` enforced via egress proxy on the default backend; "not enforced yet" string gone; CI `container` job green. — merged `preflight/pr2-egress`; container smoke on merged main via colima (`ALLOWED:200` / `DENIED:OK`), 20/20 loom-runtime + 11/11 proxy tests; CI job added in `.github/workflows/ci.yml`. Checked 2026-10-26.
+- [x] PR3 exit: `docs/adapter-contribution.md` merged; all commands execute verbatim on tempdir; README links it. — merged `preflight/pr3-adapter-guide`; tempdir validation recorded in the doc's validated-on line; FFI example re-validated post-merge. Checked 2026-10-26.
 - [x] `loom-admin licensemint` decision ratified (or overridden with a stated alternative). — ratified as specified: offline mint CLI, separate `loom-admin` bin; mint/verify live in `crates/loom-core/src/license.rs`; ADR `docs/decisions/0004-license-mint-custody.md`. Checked on 2026-10-26, minting + 0600 + pinning tests pass (`cargo test -p loom-core license`, `cargo test -p loom --bin loom-admin`).
 - [ ] 1.0 tagged (pillars 1–3 remainder closed per master plan phase 1).
 - [ ] Spec-kit task created for phase 2 (`loom workflow create --title "Phase 2: license gate" --spec`).

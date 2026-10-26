@@ -154,8 +154,46 @@ touches a genuine `~/.loom`.
 ### Reading it programmatically
 
 Registering from outside Rust: `loom-ffi` exposes C-ABI registration exports
-that write the same TOML this guide covers (see
-`blueprint/commercialization/preflight/PR1-sdk-story.md` for the FFI surface).
+that write the same TOML this guide covers — `loom_register_tool`,
+`loom_register_skill`, `loom_unregister_tool` (JSON payload string in, JSON
+reply string out).
+
+Python example — validated inline during preflight (run
+`cargo build -p loom-ffi` first for `target/debug/libloom_ffi.dylib` on macOS /
+`.so` on Linux). Two rules bite if you skip them:
+`restype` must be a 64-bit pointer type (the default `c_int` truncates the
+pointer and segfaults), and the loom string convention returns a
+**boxed `CString` struct** — read the char pointer from its first field, copy
+the text, then free the outer box with `loom_free_string`:
+
+```python
+import ctypes, json
+lib = ctypes.CDLL("target/debug/libloom_ffi.dylib")
+for f in ("loom_register_tool", "loom_register_skill", "loom_unregister_tool"):
+    getattr(lib, f).argtypes = [ctypes.c_char_p]
+    getattr(lib, f).restype = ctypes.c_void_p
+lib.loom_free_string.argtypes = [ctypes.c_void_p]
+lib.loom_free_string.restype = None
+
+def call(fn, payload):
+    raw = getattr(lib, fn)(payload.encode())          # *mut CString box
+    inner = ctypes.cast(raw, ctypes.POINTER(ctypes.c_void_p)).contents.value
+    text = ctypes.cast(inner, ctypes.c_char_p).value.decode()
+    lib.loom_free_string(raw)
+    return json.loads(text)
+
+print(call("loom_register_tool", json.dumps({"name": "pytool"})))
+# {'ok': True, 'toml_path': '<loomdir>/tools/pytool.toml', 'updated': False}
+print(call("loom_register_skill", json.dumps(
+    {"name": "pyskill", "content": "---\ndescription: demo\n---\n# pyskill"})))
+print(call("loom_unregister_tool", "pytool"))   # {'ok': True, 'removed': ...}
+print(call("loom_unregister_tool", "pytool"))   # {'ok': False, 'error': "...not found..."}
+```
+
+`loom scan` (tools row) and `loom skills list` show the result — the same
+registration path the CLI uses, reached from Python. Skill content needs
+`description:` frontmatter (skills are dropped silently at load without it —
+the FFI surface refuses up front to keep the failure loud).
 
 `loom_generic_adapter::GenericAdapter::new(loom_dir, "mytool")` parses the
 TOML and reports which features are present/absent (`present_features()` /
