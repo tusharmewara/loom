@@ -185,7 +185,7 @@ cargo clippy --workspace        # lint (kept at 0 warnings)
 cargo build --workspace
 ```
 
-Conventions live in [`AGENTS.md`](AGENTS.md) (GraphFlow surgical editing, symbol-sliced diffs). Architectural decisions are tracked under `.brv/` and per-release notes in [`CHANGELOG.md`](CHANGELOG.md).
+Conventions live in [`AGENTS.md`](AGENTS.md) (GraphFlow surgical editing, symbol-sliced diffs). Adding an agent-tool adapter: see [`docs/adapter-contribution.md`](docs/adapter-contribution.md). Architectural decisions are tracked under `.brv/` and per-release notes in [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 

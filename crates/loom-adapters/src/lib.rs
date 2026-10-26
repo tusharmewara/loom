@@ -12,6 +12,10 @@
 //! | `gemini-cli` | Gemini CLI |
 //! | `aider` | Aider |
 //! | `kiro` | Kiro (VS Code fork) |
+//!
+//! Adding a new adapter: follow [`docs/adapter-contribution.md`](../../../docs/adapter-contribution.md)
+//! — and prefer a plain TOML registration (`loom thread <tool>`) unless the tool
+//! needs behavior TOML cannot express.
 
 pub mod aider;
 pub mod claude_code;
