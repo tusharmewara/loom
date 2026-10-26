@@ -216,7 +216,7 @@ pub async fn run(loom_dir: &Path, action: &SkillsAction) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use loom_skills::install::{install_skill, remove_skill};
+    use loom_skills::install::{install_skill, remove_skill, update_lock};
     use std::path::PathBuf;
     use tempfile::tempdir;
 
@@ -421,7 +421,7 @@ mod tests {
         let src = tmp.path().join("fence.md");
         std::fs::write(&src, "---\nname: x\ndescription: y\n").unwrap();
 
-        let defects = scan::validate_skill_file(&src, None);
+        let defects = loom_skills::scan::validate_skill_file(&src, None);
         assert!(defects
             .iter()
             .any(|d| d.code == "invalid_frontmatter" && d.severity == Severity::Fatal));

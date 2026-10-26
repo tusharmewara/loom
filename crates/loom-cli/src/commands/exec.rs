@@ -96,6 +96,11 @@ async fn run_sequential(
     // Inject shared ecosystem resources
     inject_shared_resources(loom_dir, &native_mcp_config, &native_skills_dir);
 
+    // Validate: if launching a single tool without args, require -- to pass args
+    if tools.len() == 1 && tool_args.is_empty() && !dry_run {
+        anyhow::bail!("No arguments provided for tool '{}'. Please use `-- <args>` to pass arguments to the tool, or provide a directory/path as the first argument.\nExample: loom exec opencode -- --help", launch_tool);
+    }
+
     // Execute via Runtime abstraction
     let result = execute_via_runtime(loom_dir, launch_tool, tool_args, &env_vars, dry_run).await?;
 
