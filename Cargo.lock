@@ -2320,6 +2320,7 @@ dependencies = [
  "chrono",
  "ed25519-dalek",
  "hex",
+ "rand_core",
  "regex-lite",
  "rusqlite",
  "semver",

@@ -1,5 +1,6 @@
 pub mod config;
 pub mod constants;
+pub mod license;
 pub mod lock;
 pub mod plugin_registry;
 pub mod types;
