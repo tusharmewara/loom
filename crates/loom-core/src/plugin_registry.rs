@@ -1,6 +1,7 @@
 use crate::PluginManifest;
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Plugin downloads are HTTPS-only, mirroring remote-config loading
@@ -68,6 +69,131 @@ pub fn verify_plugin_signature(
     }
 }
 
+/// Path to the key-continuity pin store (`{loom_dir}/auth/plugin-pins.json`).
+pub fn pins_path(loom_dir: &str) -> PathBuf {
+    Path::new(loom_dir).join("auth").join("plugin-pins.json")
+}
+
+/// Read the pin store: tool_name → signing key (hex). Missing file → empty.
+fn load_pins(loom_dir: &str) -> Result<HashMap<String, String>> {
+    let path = pins_path(loom_dir);
+    if !path.exists() {
+        return Ok(HashMap::new());
+    }
+    let raw = std::fs::read_to_string(&path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    serde_json::from_str(&raw).with_context(|| format!("invalid pin store {}", path.display()))
+}
+
+/// Write the pin store (0600), reusing the auth-file permission pattern.
+fn save_pins(loom_dir: &str, pins: &HashMap<String, String>) -> Result<()> {
+    let path = pins_path(loom_dir);
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(&path, serde_json::to_string_pretty(pins)?)?;
+    restrict_file_permissions(&path)
+}
+
+#[cfg(unix)]
+fn restrict_file_permissions(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = std::fs::metadata(path)?.permissions();
+    perms.set_mode(0o600);
+    std::fs::set_permissions(path, perms)?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn restrict_file_permissions(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// Key-continuity pin check (TOFU with explicit acknowledgement): on the
+/// first signed install of a tool name, record the signing key. On a later
+/// install of the same name, refuse if the key differs — the user must
+/// delete the pin entry to acknowledge the change.
+pub fn check_and_write_pin(loom_dir: &str, tool_name: &str, public_key_b64: &str) -> Result<()> {
+    use base64::Engine;
+    let pk_bytes = base64::engine::general_purpose::STANDARD
+        .decode(public_key_b64)
+        .context("invalid base64 public_key")?;
+    let key_hex = hex::encode(pk_bytes);
+
+    let mut pins = load_pins(loom_dir)?;
+    if let Some(pinned) = pins.get(tool_name) {
+        if pinned != &key_hex {
+            anyhow::bail!(
+                "install refused: key changed since last install (pin mismatch) — delete {} entry for '{tool_name}' to acknowledge",
+                pins_path(loom_dir).display()
+            );
+        }
+    } else {
+        pins.insert(tool_name.to_string(), key_hex);
+        save_pins(loom_dir, &pins)?;
+    }
+    Ok(())
+}
+
+/// Produce the publisher-signed payload from a downloaded tool TOML:
+/// the artifact with its own trust fields (`public_key` / `signature`
+/// lines) removed — a signature cannot cover itself.
+fn signed_payload(content: &str) -> String {
+    content
+        .lines()
+        .filter(|l| {
+            !(l.starts_with("public_key") || l.starts_with("signature "))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Shared trust gate for installs and updates: verify the manifest's
+/// signature when present, enforce the `require_signature` posture
+/// (default true — verify-by-default), and maintain key-continuity pins.
+/// Nothing is written to disk before this passes.
+fn enforce_trust(
+    loom_dir: &Path,
+    manifest: &PluginManifest,
+    content: &str,
+    require_signature: bool,
+) -> Result<()> {
+    let payload = signed_payload(content);
+    let payload = payload.as_bytes();
+    if manifest.public_key.is_some() && manifest.signature.is_some() {
+        verify_plugin_signature(manifest, payload, true)?;
+        let loom_dir_str = loom_dir.to_str().context("loom dir not valid UTF-8")?;
+        check_and_write_pin(
+            loom_dir_str,
+            &manifest.name,
+            manifest.public_key.as_deref().unwrap(),
+        )?;
+    } else if manifest.public_key.is_some() || manifest.signature.is_some() {
+        // Half-signed manifests are always invalid.
+        verify_plugin_signature(manifest, payload, false)?;
+    } else if require_signature {
+        anyhow::bail!(
+            "install refused: plugin '{}' is unsigned — signature verification is on by default; set [security] require_signature = false to opt out",
+            manifest.name
+        );
+    }
+    Ok(())
+}
+
+/// Extract `public_key` / `signature` fields carried by the downloaded
+/// tool TOML (publisher-signed artifacts embed them alongside the tool
+/// config keys).
+fn extract_trust_fields(parsed: &toml::Value) -> (Option<String>, Option<String>) {
+    (
+        parsed
+            .get("public_key")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        parsed
+            .get("signature")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+    )
+}
+
 /// Manages the plugin registry stored in `~/.loom/plugins/`.
 pub struct PluginRegistry {
     plugins_dir: PathBuf,
@@ -119,11 +245,40 @@ impl PluginRegistry {
     }
 
     /// Install a plugin from a tool TOML URL, creating a PluginManifest.
+    ///
+    /// Downloads are the only network step here; every trust decision
+    /// (signature, pins) lives in [`Self::install_from_content`] so it can
+    /// be tested without a server.
     pub fn install_from_url(
         &self,
         name: &str,
         url: &str,
         version: Option<&str>,
+        require_signature: bool,
+    ) -> Result<PluginManifest> {
+        // Plugin downloads are HTTPS-only (routing-debt.md Step 5)
+        validate_https_url(url)?;
+
+        // Attempt to download the tool TOML
+        let response = ureq::get(url)
+            .call()
+            .map_err(|e| anyhow::anyhow!("Failed to download tool TOML from '{}': {}", url, e))?;
+
+        let body = response
+            .into_string()
+            .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))?;
+
+        self.install_from_content(name, url, &body, version, require_signature)
+    }
+
+    /// Install a plugin from already-fetched tool TOML content.
+    pub fn install_from_content(
+        &self,
+        name: &str,
+        url: &str,
+        content: &str,
+        version: Option<&str>,
+        require_signature: bool,
     ) -> Result<PluginManifest> {
         // Validate the plugin name (alphanumeric + hyphens)
         if !name
@@ -141,53 +296,47 @@ impl PluginRegistry {
             anyhow::bail!("Plugin '{}' is already installed", name);
         }
 
-        // Plugin downloads are HTTPS-only (routing-debt.md Step 5)
-        validate_https_url(url)?;
-
-        // Attempt to download the tool TOML
-        let response = ureq::get(url)
-            .call()
-            .map_err(|e| anyhow::anyhow!("Failed to download tool TOML from '{}': {}", url, e))?;
-
-        let body = response
-            .into_string()
-            .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))?;
-
         // Validate that it's parseable TOML (must at least resemble a tool config)
-        if let Err(e) = toml::from_str::<toml::Value>(&body) {
-            anyhow::bail!("Downloaded file is not valid TOML: {e}");
-        }
+        let parsed = toml::from_str::<toml::Value>(content)
+            .map_err(|e| anyhow::anyhow!("Downloaded file is not valid TOML: {e}"))?;
 
-        // Compute checksum
-        let checksum = {
-            let mut hasher = Sha256::new();
-            hasher.update(body.as_bytes());
-            format!("{:x}", hasher.finalize())
-        };
-
-        // Save the tool TOML to the tools directory
-        let tools_dir = self.plugins_dir.parent().unwrap().join("tools");
-        std::fs::create_dir_all(&tools_dir)?;
-        let tool_path = tools_dir.join(format!("{name}.toml"));
-        std::fs::write(&tool_path, &body)?;
-
-        // Record the linked tool
-        println!("  Downloaded tool TOML to {}", tool_path.display());
-
-        // Create and save the plugin manifest
+        // Trust gate BEFORE anything is written (ADR 0005: verification is
+        // the default path for remote installs).
+        let (public_key, signature) = extract_trust_fields(&parsed);
         let manifest = PluginManifest {
             name: name.to_string(),
             version: version.unwrap_or("0.1.0").to_string(),
-            description: None,
+            description: parsed.get("description").and_then(|v| v.as_str()).map(str::to_string),
             author: None,
             homepage: None,
             repository: None,
             tool_toml_url: Some(url.to_string()),
             installed_at: Some(chrono::Utc::now().to_rfc3339()),
-            checksum: Some(checksum),
-            public_key: None,
-            signature: None,
+            checksum: None,
+            public_key,
+            signature,
         };
+
+        let loom_dir = self.plugins_dir.parent().unwrap();
+        enforce_trust(loom_dir, &manifest, content, require_signature)?;
+
+        // Compute checksum after the trust gate
+        let checksum = {
+            let mut hasher = Sha256::new();
+            hasher.update(content.as_bytes());
+            format!("{:x}", hasher.finalize())
+        };
+
+        // Save the tool TOML to the tools directory
+        let tools_dir = loom_dir.join("tools");
+        std::fs::create_dir_all(&tools_dir)?;
+        let tool_path = tools_dir.join(format!("{name}.toml"));
+        std::fs::write(&tool_path, content)?;
+
+        // Record the linked tool
+        println!("  Downloaded tool TOML to {}", tool_path.display());
+
+        let manifest = PluginManifest { checksum: Some(checksum), ..manifest };
 
         self.save(&manifest)?;
 
@@ -251,7 +400,8 @@ impl PluginRegistry {
     }
 
     /// Update a plugin: re-download tool TOML if it has a tool_toml_url.
-    pub fn update(&self, name: &str) -> Result<PluginManifest> {
+    /// The new content passes the same trust gate as installs.
+    pub fn update(&self, name: &str, require_signature: bool) -> Result<PluginManifest> {
         let existing = self.get(name)?;
 
         let url = existing.tool_toml_url.as_deref().ok_or_else(|| {
@@ -274,6 +424,14 @@ impl PluginRegistry {
         if let Err(e) = toml::from_str::<toml::Value>(&body) {
             anyhow::bail!("Downloaded file is not valid TOML: {e}");
         }
+
+        // Trust gate on the fresh content (ADR 0005), before overwrite.
+        let parsed: toml::Value = toml::from_str(&body).unwrap();
+        let (public_key, signature) = extract_trust_fields(&parsed);
+        let mut fresh = existing.clone();
+        fresh.public_key = public_key;
+        fresh.signature = signature;
+        enforce_trust(self.plugins_dir.parent().unwrap(), &fresh, &body, require_signature)?;
 
         // Compute new checksum
         let checksum = {
@@ -346,7 +504,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let registry = PluginRegistry::new(tmp.path().to_str().unwrap());
         let err = registry
-            .install_from_url("evil", "http://evil.example/x.toml", None)
+            .install_from_url("evil", "http://evil.example/x.toml", None, true)
             .unwrap_err();
         assert!(err.to_string().contains("HTTPS"), "got: {err}");
         // Rejected before any download: nothing was written.
@@ -364,7 +522,7 @@ mod tests {
             "name = \"x\"\nversion = \"0.1.0\"\ntool_toml_url = \"http://evil.example/x.toml\"\n",
         )
         .unwrap();
-        let err = registry.update("x").unwrap_err();
+        let err = registry.update("x", true).unwrap_err();
         assert!(err.to_string().contains("HTTPS"), "got: {err}");
     }
 
@@ -405,5 +563,160 @@ mod tests {
         m.signature = Some("deadbeef".to_string());
         assert!(verify_plugin_signature(&m, b"c", false).is_err());
         assert!(verify_plugin_signature(&m, b"c", true).is_err());
+    }
+
+    // ─── ADR 0005: verify-by-default + key-continuity pins ───────────
+
+    /// Generate an Ed25519 keypair and return the manifest fields
+    /// (public_key base64, signature hex) over `content`.
+    fn signed_fields(
+        content: &[u8],
+    ) -> (String, String) {
+        use base64::Engine;
+        use ed25519_dalek::Signer;
+        use rand_core::OsRng;
+
+        let sk = ed25519_dalek::SigningKey::generate(&mut OsRng);
+        let sig = sk.sign(content);
+        (
+            base64::engine::general_purpose::STANDARD.encode(sk.verifying_key().to_bytes()),
+            hex::encode(sig.to_bytes()),
+        )
+    }
+
+    fn content_text(name: &str) -> String {
+        format!("[tool]\nname = \"{name}\"\ncommand = \"echo\"\n")
+    }
+
+    /// Strip trust lines the way `signed_payload` does, so tests sign
+    /// exactly what the gate verifies.
+    fn payload_of(content: &str) -> String {
+        content
+            .lines()
+            .filter(|l| !(l.starts_with("public_key") || l.starts_with("signature ")))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn valid_url() -> &'static str {
+        "https://plugins.example/x.toml"
+    }
+
+    #[test]
+    fn unsigned_install_refused_by_default_with_opt_out_named() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = PluginRegistry::new(tmp.path().to_str().unwrap());
+
+        let err = registry
+            .install_from_content(
+                "x",
+                valid_url(),
+                &unsigned_content(),
+                None,
+                /* require_signature */ true,
+            )
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains(
+                "install refused: plugin 'x' is unsigned — signature verification is on by default; set [security] require_signature = false to opt out"
+            ),
+            "got: {msg}"
+        );
+
+        // Refusal is fail-closed: nothing was written.
+        assert!(!tmp.path().join("plugins").join("x.toml").exists());
+        assert!(!tmp.path().join("tools").join("x.toml").exists());
+
+        // Explicit opt-out (require_signature = false in config) installs.
+        let manifest = registry
+            .install_from_content("x", valid_url(), &unsigned_content(), None, false)
+            .unwrap();
+        assert!(manifest.public_key.is_none());
+    }
+
+    fn unsigned_content() -> String {
+        content_text("x")
+    }
+
+    #[test]
+    fn signed_install_writes_pin_with_0600() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = PluginRegistry::new(tmp.path().to_str().unwrap());
+        let content = content_text("x");
+        let (public_key, signature) = signed_fields(payload_of(&content).as_bytes());
+        let content_s = format!("public_key = \"{public_key}\"\nsignature = \"{signature}\"\n{content}");
+
+        let manifest = registry
+            .install_from_content("x", valid_url(), &content_s, None, true)
+            .expect("valid signature must install");
+
+        assert_eq!(manifest.public_key.as_deref(), Some(public_key.as_str()));
+
+        // Pin recorded, hex of the raw key bytes.
+        use base64::Engine;
+        let pins_file = pins_path(tmp.path().to_str().unwrap());
+        let pins_raw = std::fs::read_to_string(&pins_file).unwrap();
+        let raw_key = base64::engine::general_purpose::STANDARD
+            .decode(&public_key)
+            .unwrap();
+        assert!(pins_raw.contains(&hex::encode(raw_key)));
+
+        // 0600 on unix (license.rs pattern).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&pins_file)
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+    }
+
+    #[test]
+    fn pin_mismatch_refused_with_acknowledgement_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = PluginRegistry::new(tmp.path().to_str().unwrap());
+
+        // Install under key A.
+        let content_a = content_text("x");
+        let (public_key_a, signature_a) = signed_fields(payload_of(&content_a).as_bytes());
+        registry
+            .install_from_content("x", valid_url(), &format!("public_key = \"{public_key_a}\"\nsignature = \"{signature_a}\"\n{content_a}"), None, true)
+            .unwrap();
+
+        // Uninstall, then re-install the same tool name under key B.
+        std::fs::remove_file(tmp.path().join("plugins").join("x.toml")).unwrap();
+
+        let content_b = content_text("x");
+        let (public_key_b, signature_b) = signed_fields(payload_of(&content_b).as_bytes());
+        assert_ne!(public_key_a, public_key_b);
+        let err = registry
+            .install_from_content("x", valid_url(), &format!("public_key = \"{public_key_b}\"\nsignature = \"{signature_b}\"\n{content_b}"), None, true)
+            .unwrap_err();
+        let pins = pins_path(tmp.path().to_str().unwrap());
+        assert!(
+            err.to_string().contains(
+                "key changed since last install (pin mismatch) — delete",
+            ),
+            "got: {err}"
+        );
+        assert!(
+            err.to_string().contains(&pins.display().to_string()),
+            "must name the pin store path, got: {err}"
+        );
+    }
+
+    #[test]
+    fn unsigned_install_writes_no_pin() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = PluginRegistry::new(tmp.path().to_str().unwrap());
+
+        // Opted out: unsigned installs are allowed but must not record pins.
+        registry
+            .install_from_content("x", valid_url(), &unsigned_content(), None, false)
+            .unwrap();
+        assert!(!pins_path(tmp.path().to_str().unwrap()).exists());
     }
 }

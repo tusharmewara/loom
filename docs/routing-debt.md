@@ -219,7 +219,9 @@ commit.)*
   `if hook.signature.is_some()`; `plugin_registry.rs` `(None, None) => Ok(())`
   allows unsigned. Product decision needed: require signatures (breaking) vs a
   config flag `require_signature` (default off, back-compat) + document the
-  trust model. Lazy default: the flag.
+  trust model. Lazy default: the flag. **Superseded 2026-10-26 by ADR 0005:**
+  the flag defaults on (verify-by-default for remote plugin installs, pins
+  written on signed installs); see `docs/decisions/0005-plugin-verify-by-default.md`.
 
 **Landed:** `fn validate_https_url(url: &str) -> Result<()>` at
 `crates/loom-core/src/plugin_registry.rs:9`, called by `install_from_url` (:145)

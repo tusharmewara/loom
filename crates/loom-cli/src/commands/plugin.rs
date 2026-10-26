@@ -1,5 +1,5 @@
 use crate::cli::PluginAction;
-use loom_core::plugin_registry::{self, PluginRegistry};
+use loom_core::plugin_registry::PluginRegistry;
 use loom_core::ConfigReader;
 use std::path::Path;
 
@@ -102,25 +102,25 @@ pub async fn run(loom_dir: &Path, action: &PluginAction) -> anyhow::Result<()> {
             verify,
         } => {
             println!("Installing plugin '{}' from {}...", name, url);
-            // security.require_signature = true implies verification and
-            // rejects unsigned plugins (routing-debt.md Step 5).
+            // security.require_signature defaults true (ADR 0005: verify is
+            // the default path); install/update refuse unsigned content
+            // with the opt-out named. `ConfigReader` embeds built-in
+            // defaults, so the fallback also defaults true on load failure.
             let require_sig = ConfigReader::new(loom_dir.to_str().unwrap())
                 .load()
                 .map(|c| c.security.require_signature)
-                .unwrap_or(false);
-            let manifest = registry.install_from_url(name, url, version.as_deref())?;
-            let verify = *verify || require_sig;
-            if verify {
-                // Re-read the downloaded tool TOML to verify signature
-                let tools_dir = loom_dir.join("tools");
-                let tool_path = tools_dir.join(format!("{name}.toml"));
-                if tool_path.exists() {
-                    let content = std::fs::read(&tool_path)?;
-                    plugin_registry::verify_plugin_signature(&manifest, &content, require_sig)?;
-                    println!("  ✓ Signature verified");
-                } else {
-                    println!("  ⚠ Tool TOML not found, skipping signature verification");
-                }
+                .unwrap_or(true);
+            let manifest =
+                registry.install_from_url(name, url, version.as_deref(), require_sig)?;
+            // Verification + pinning happened inside the registry gate
+            // before anything was written; the flag remains for verbose
+            // confirmation on opted-out installs.
+            if manifest.signature.is_some() {
+                println!("  ✓ Signature verified");
+            } else if *verify {
+                println!(
+                    "  ⚠ Plugin unsigned — installed under verification opt-out ([security] require_signature = false)"
+                );
             }
             println!(
                 "✓ Plugin '{}' v{} installed",
@@ -141,7 +141,11 @@ pub async fn run(loom_dir: &Path, action: &PluginAction) -> anyhow::Result<()> {
         }
         PluginAction::Update { name } => {
             println!("Updating plugin '{}'...", name);
-            let manifest = registry.update(name)?;
+            let require_sig = ConfigReader::new(loom_dir.to_str().unwrap())
+                .load()
+                .map(|c| c.security.require_signature)
+                .unwrap_or(true);
+            let manifest = registry.update(name, require_sig)?;
             println!(
                 "✓ Plugin '{}' updated to v{}",
                 manifest.name, manifest.version
