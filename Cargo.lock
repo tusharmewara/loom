@@ -2380,8 +2380,12 @@ version = "0.10.2"
 dependencies = [
  "anyhow",
  "loom-core",
+ "loom-generic-adapter",
  "loom-routing",
+ "loom-skills",
  "serde_json",
+ "tempfile",
+ "toml",
  "wasm-bindgen",
 ]
 

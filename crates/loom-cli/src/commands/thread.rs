@@ -51,8 +51,7 @@ pub async fn run(
             debug: None,
             launch: None,
         };
-        let toml_str = toml::to_string_pretty(&config)?;
-        std::fs::write(&toml_path, &toml_str)?;
+        config.write(Path::new(loom_dir))?;
         println!("✓ {action} tool '{tool_name}' at {}", toml_path.display());
     }
 
