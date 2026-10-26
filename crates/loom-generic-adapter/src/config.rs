@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::Path;
 
 /// Root TOML document for a tool registration.
 ///
@@ -270,4 +271,20 @@ fn default_runtime() -> String {
 
 fn default_auto_remove() -> bool {
     true
+}
+
+impl ToolToml {
+    /// Write this registration to `{loom_dir}/tools/{tool.name}.toml`, creating
+    /// the tools directory as needed.
+    ///
+    /// The one writer for tool registration TOMLs: the CLI's `loom thread`
+    /// fallback path and the FFI `loom_register_tool` export both route here,
+    /// so a foreign process and the CLI write byte-identical files.
+    pub fn write(&self, loom_dir: &Path) -> anyhow::Result<std::path::PathBuf> {
+        let tools_dir = loom_dir.join("tools");
+        std::fs::create_dir_all(&tools_dir)?;
+        let toml_path = tools_dir.join(format!("{}.toml", self.tool.name));
+        std::fs::write(&toml_path, toml::to_string_pretty(self)?)?;
+        Ok(toml_path)
+    }
 }

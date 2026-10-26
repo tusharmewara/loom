@@ -1,6 +1,7 @@
 pub mod adapter;
 pub mod edit;
 pub mod hot_reload;
+pub mod install;
 pub mod loader;
 pub mod lockfile;
 pub mod manager;
