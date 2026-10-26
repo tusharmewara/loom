@@ -1,10 +1,12 @@
-//! The posture-downgrade diagnostic.
+//! The posture diagnostic.
 //!
-//! `restricted` resolves to the `none` engine posture because the allowlist
-//! is not enforced yet. The operator asked for one thing and got another, so
-//! the runtime has to say so — a silent downgrade reads like the allowlist is
-//! in force. The empty-allowlist case is the same problem in a worse shape:
-//! `restricted:` asks for "these hosts" and names none.
+//! `restricted` with a **non-empty** allowlist is enforced as-is (the Docker
+//! backend composes the egress proxy), so it produces no diagnostic — a
+//! diagnostic on every such run would be noise operators learn to ignore
+//! (see `an_enforced_posture_is_not_reported_as_a_downgrade`). The
+//! **empty** allowlist is different: `restricted:` asks for "these hosts"
+//! and names none, so the honest reading of the resulting posture is
+//! "deny all egress", and that has to be said explicitly.
 
 use loom_runtime::{resolve_network_policy, NetworkPolicy};
 use loom_telemetry::logging::tracing_subscriber;
@@ -45,24 +47,17 @@ fn resolve_with_capture(requested: &str) -> String {
 }
 
 #[test]
-fn a_restricted_allowlist_is_reported_as_not_enforced() {
+fn an_enforced_posture_is_not_reported_as_a_downgrade() {
+    // A named allowlist is enforced through the egress proxy — saying
+    // "downgraded" or "not enforced" here would be a lie.
     let logged = resolve_with_capture("restricted:api.example.com");
-
-    // The operator must be able to tell, from the log, that the allowlist is
-    // not in force yet.
     assert!(
-        logged.contains("not enforced"),
-        "the diagnostic must say the allowlist is not enforced: {logged}"
+        !logged.contains("deny-all"),
+        "an enforced allowlist must not be reported as deny-all: {logged}"
     );
-    // …and which hosts were asked for.
     assert!(
-        logged.contains("api.example.com"),
-        "the diagnostic must name the requested hosts: {logged}"
-    );
-    // …and that the posture actually in force is the total-isolation one.
-    assert!(
-        logged.contains("posture=none") || logged.contains("none"),
-        "the diagnostic must state the resolved posture: {logged}"
+        !logged.contains("posture diagnostic"),
+        "an enforced allowlist must not produce a diagnostic: {logged}"
     );
 }
 
@@ -73,8 +68,12 @@ fn an_empty_allowlist_is_reported_too() {
     for requested in ["restricted", "restricted:", "restricted: , "] {
         let logged = resolve_with_capture(requested);
         assert!(
-            logged.contains("not enforced"),
+            logged.contains("empty"),
             "an empty allowlist must still be reported ({requested}): {logged}"
+        );
+        assert!(
+            logged.contains("deny-all"),
+            "the empty-allowlist diagnostic must state the real posture: {logged}"
         );
     }
 }
@@ -87,8 +86,8 @@ fn a_posture_that_was_asked_for_is_not_reported_as_a_downgrade() {
     for requested in ["none", "unrestricted"] {
         let logged = resolve_with_capture(requested);
         assert!(
-            !logged.contains("not enforced"),
-            "{requested} must not produce a downgrade diagnostic: {logged}"
+            !logged.contains("deny-all"),
+            "{requested} must not produce a posture diagnostic: {logged}"
         );
     }
 }
@@ -99,20 +98,20 @@ fn the_diagnostic_exists_on_the_posture_itself() {
     // engine — and it is absent for the postures that need none.
     assert!(NetworkPolicy::NoNetwork.diagnostic().is_none());
     assert!(NetworkPolicy::Unrestricted.diagnostic().is_none());
-
-    let diagnostic = NetworkPolicy::parse("restricted:api.example.com")
-        .unwrap()
-        .diagnostic()
-        .expect("restricted needs a diagnostic");
-    assert!(diagnostic.contains("not enforced"));
-    assert!(diagnostic.contains("api.example.com"));
+    assert!(
+        NetworkPolicy::parse("restricted:api.example.com")
+            .unwrap()
+            .diagnostic()
+            .is_none(),
+        "an enforced allowlist needs no diagnostic"
+    );
 
     let empty = NetworkPolicy::parse("restricted")
         .unwrap()
         .diagnostic()
         .expect("an empty allowlist needs a diagnostic");
-    assert!(empty.contains("not enforced"));
     assert!(empty.contains("empty"));
+    assert!(empty.contains("deny-all"));
 }
 
 #[test]

@@ -141,7 +141,8 @@ container *is* selected, the **default network posture is `none` (no egress)**.
 | Posture | Engine argument | Meaning |
 |---|---|---|
 | `none` (default) | `--network none` | no egress |
-| `restricted` | `--network none` | fail-closed until the egress allowlist proxy lands |
+| `restricted:<hosts>` (non-empty, Docker) | internal user-defined network + egress-proxy sidecar | egress **only** through the allowlisted proxy; Podman/K8s stay deny-all until their wiring lands (ADR 0002) |
+| `restricted` / `restricted:` (empty) | `--network none` | deny-all; diagnostic logged |
 | `unrestricted` | *(no override)* | engine default network, full egress — explicit opt-in |
 
 Set it per run with the tool's `[launch] network` value (`none` \| `restricted`
@@ -153,20 +154,28 @@ holds the pure-logic policy tests (run everywhere) and
 (gated behind `LOOM_CONTAINER_SMOKE=1`, skipped when no engine is present; the
 `container` CI job runs it with Docker).
 
-**`restricted` is not enforced yet, and says so.** A `restricted` allowlist
-resolves to the same `none` engine posture as `none` — fail-closed, but the
-allowlist is *not* in force. The runtime logs the downgrade on every
-`restricted` run (`container network posture downgraded: restricted
-(posture=none, allowed_hosts not enforced yet: …)`), including the
-empty-allowlist case. Do not read a `restricted` run as "limited to those
-hosts" — it is "no egress at all".
+**`restricted` is enforced.** For a non-empty allowlist on the Docker
+backend, the runtime composes a `loom-egress-proxy` sidecar
+(`docs/decisions/0002-egress-allowlist-proxy.md`): a user-defined
+`--internal` network (no NAT — direct egress is impossible even if the
+workload tries), the proxy attached to that network *and* to the default
+bridge, `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY=localhost,127.0.0.1` injected
+into the workload, and hosts matched as written (CIDR entries for IP
+literals) before any DNS lookup. Proxy failure fails the dispatch — never
+a silent widening of egress. The image comes from `LOOM_EGRESS_PROXY_IMAGE`
+(default `loom-egress-proxy:latest`, built from
+`crates/loom-egress-proxy/Dockerfile`).
 
-Enforcement differs per backend. Docker and Podman enforce isolation in the
-engine itself (`--network none`) and are unconditionally fail-closed.
-Kubernetes creates a `NetworkPolicy` object, which is only enforced when the
-cluster's CNI implements NetworkPolicy — a cluster whose CNI ignores the
-object leaves the Pod on the cluster's default egress. The Kubernetes backend
-therefore has no guaranteed isolation, and there is no CNI capability check.
+Enforcement still differs per backend: the Podman and Kubernetes backends do
+not compose the proxy yet, so `restricted` non-empty there stays deny-all —
+fail-closed, but the allowlist is not honored until the per-backend wiring
+lands (ADR 0002). Kubernetes additionally creates a `NetworkPolicy` object,
+which is only enforced when the cluster's CNI implements NetworkPolicy — a
+cluster whose CNI ignores the object leaves the Pod on the cluster's default
+egress; there is no CNI capability check, so Kubernetes isolation is never
+guaranteed. Docker and Podman enforce the deny-all baseline in the engine
+itself (`--network none`, an internal network has no NAT) and are
+unconditionally fail-closed on that.
 
 The container is removed by the runtime, not by the engine: the engine's
 auto-remove is **off** so the runtime can read the container's logs after the
