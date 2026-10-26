@@ -17,25 +17,33 @@
 //! | Posture | Engine argument | Meaning |
 //! |---|---|---|
 //! | [`NetworkPolicy::NoNetwork`] (default) | `--network none` | no egress |
-//! | [`NetworkPolicy::Restricted`] | `--network none` | fail-closed: egress denied until the allowlist proxy lands |
+//! | [`NetworkPolicy::Restricted`] non-empty | internal user-defined network + egress-proxy sidecar | egress **only** through the allowlisted proxy (Docker backend) |
+//! | [`NetworkPolicy::Restricted`] empty | `--network none` | deny-all, diagnostic logged |
 //! | [`NetworkPolicy::Unrestricted`] | *(no override)* | engine default network, full egress |
 //!
 //! The posture is selected per run from the tool's `[launch] network` value
 //! (`none` | `restricted` | `unrestricted`); free-form network names are
 //! rejected — a name is not a posture.
 //!
-//! `restricted` is **fail-closed but not yet an allowlist**: it resolves to the
-//! `none` engine posture, because nothing enforces the host list yet. The
-//! runtime logs that downgrade on every `restricted` run (see
-//! [`NetworkPolicy::diagnostic`]), so an operator asking for
-//! `restricted:api.example.com` is never left thinking the allowlist is in
-//! force.
+//! `restricted` **non-empty** is enforced: the Docker backend launches a
+//! `loom-egress-proxy` sidecar on a user-defined `--internal` network (no
+//! NAT, no direct egress for the workload), injects
+//! `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY=localhost,127.0.0.1` into the
+//! workload, and attaches the proxy to the default bridge for its own
+//! upstream connections. The proxy starts from `LOOM_EGRESS_PROXY_IMAGE`
+//! (default `loom-egress-proxy:latest`) and a failing proxy fails the
+//! dispatch — never a silent widening of egress. The workload's engine
+//! network is the internal bridge itself: no default-route NAT, so direct
+//! egress is impossible even without the proxy.
 //!
-//! Enforcement is per backend: Docker and Podman deny egress in the engine
-//! itself (`--network none`) and are unconditionally fail-closed. Kubernetes
-//! creates a `NetworkPolicy` object, which is only enforced when the
-//! cluster's CNI implements NetworkPolicy — there is no capability check, so
-//! the Kubernetes backend is not guaranteed to be fail-closed.
+//! Enforcement is per backend: the Docker backend composes the proxy itself
+//! and is unconditionally fail-closed. The Podman and Kubernetes backends do
+//! not compose the proxy yet (see docs/decisions/0002-egress-allowlist-proxy.md):
+//! `restricted` non-empty stays deny-all there — fail-closed, but the
+//! allowlist is not honored until the per-backend wiring lands. Kubernetes
+//! additionally has no guaranteed isolation — its `NetworkPolicy` object is
+//! enforced only when the cluster's CNI implements NetworkPolicy, and there
+//! is no capability check.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -48,8 +56,13 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-/// Re-export LaunchConfig for consumers.
-pub use loom_core::types::LaunchConfig;
+    /// Engine port the egress proxy listens on. The Docker wiring points
+    /// `HTTP_PROXY` at it on the internal network; `loom-egress-proxy`'s
+    /// `LOOM_EGRESS_PORT` defaults to the same value.
+    pub const EGRESS_PROXY_PORT: u16 = 3128;
+
+    /// Re-export LaunchConfig for consumers.
+    pub use loom_core::types::LaunchConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunResult {
@@ -92,17 +105,15 @@ pub enum NetworkPolicy {
     /// The default posture for untrusted runs.
     #[default]
     NoNetwork,
-    /// Egress restricted to an allowlist of hosts.
+    /// Hosts the run is allowed to reach.
     ///
-    /// Fail-closed: an allowlist that is not enforced yet must never widen to
-    /// full egress, so this resolves to the same engine argument as
-    /// [`NetworkPolicy::NoNetwork`] until the egress proxy lands. The
-    /// allowlist is recorded on the container labels, so it is observable
-    /// (and auditable) before it is enforced — and the runtime logs the
-    /// downgrade (see [`NetworkPolicy::diagnostic`]) so the gap is visible
-    /// at run time, not only in the labels.
+    /// Non-empty: enforced — a loom-egress-proxy sidecar carries egress over
+    /// the user-defined internal network (Docker backend; other backends:
+    /// see [`Runtime::run`] and docs/decisions/0002-egress-allowlist-proxy.md).
+    /// Empty: the posture stays [`NetworkPolicy::NoNetwork`] — deny-all, with
+    /// a diagnostic (see [`NetworkPolicy::diagnostic`]) because the operator
+    /// named zero hosts.
     Restricted {
-        /// Hosts the run is allowed to reach.
         allowed_hosts: Vec<String>,
     },
     /// Unrestricted egress on the engine's default network. Explicit opt-in.
@@ -139,8 +150,10 @@ impl NetworkPolicy {
     /// network applies. `Some("none")` means "no network at all".
     pub fn engine_network_mode(&self) -> Option<&'static str> {
         match self {
-            // Restricted is fail-closed: an unenforced allowlist must not
-            // widen to full egress.
+            // The engine argument only. The egress *enforcement* (allowlist
+            // proxy) is composed by the Docker backend when this posture is
+            // non-empty; the engine argument stays a hard deny so direct
+            // egress can never bypass the proxy.
             NetworkPolicy::NoNetwork | NetworkPolicy::Restricted { .. } => Some("none"),
             NetworkPolicy::Unrestricted => None,
         }
@@ -176,25 +189,19 @@ impl NetworkPolicy {
 
     /// The diagnostic this posture needs, if any.
     ///
-    /// `Restricted` resolves to the `none` engine posture because the
-    /// allowlist is not enforced yet, so the operator asked for one thing
-    /// and got another. That difference has to be visible: a silent
-    /// `restricted:api.example.com` reads like "only that host" while it
-    /// actually means "no egress at all".
+    /// `Restricted` with a **non-empty** allowlist is enforced as-is (the
+    /// Docker backend runs the egress proxy sidecar), so there is nothing to
+    /// warn about. Restricted with an **empty** allowlist still needs one:
+    /// `restricted:` asks for "these hosts" and names none — the honest
+    /// reading of the resulting posture is "deny all egress", and saying
+    /// only "restricted" would leave the operator guessing whether the list
+    /// was lost or empty.
     ///
-    /// `None` for the postures that resolve to themselves.
+    /// `None` otherwise.
     pub fn diagnostic(&self) -> Option<String> {
         match self {
-            NetworkPolicy::Restricted { allowed_hosts } => {
-                let hosts = if allowed_hosts.is_empty() {
-                    "allowed_hosts empty and not enforced yet".to_string()
-                } else {
-                    format!(
-                        "allowed_hosts not enforced yet: {}",
-                        allowed_hosts.join(",")
-                    )
-                };
-                Some(format!("restricted (posture=none, {hosts})"))
+            NetworkPolicy::Restricted { allowed_hosts } if allowed_hosts.is_empty() => {
+                Some("restricted with an empty allowlist; resolved to deny-all (posture=none)".to_string())
             }
             _ => None,
         }
@@ -227,15 +234,14 @@ pub fn resolve_network_policy(
         Some(value) => NetworkPolicy::parse(value)?,
         None => runtime_default.clone(),
     };
-    // The requested posture and the resolved posture can differ — a
-    // `restricted` allowlist is not enforced yet and resolves to the `none`
-    // engine posture. Say so, or the operator believes an allowlist is in
-    // force.
+    // Postures that need a diagnostic still say so; `restricted` non-empty
+    // is now enforced through the egress proxy, so it is down to the
+    // empty-allowlist edge only.
     if let Some(diagnostic) = policy.diagnostic() {
         tracing::warn!(
             posture = policy.name(),
             requested = requested.unwrap_or("(runtime default)"),
-            "container network posture downgraded: {diagnostic}"
+            "container network posture diagnostic: {diagnostic}"
         );
     }
     Ok(policy)
@@ -592,9 +598,11 @@ pub mod kubernetes_client {
 
             // Fail-closed, exactly like the Docker/Podman backends: an empty
             // egress list denies all egress. A `Restricted` allowlist is not
-            // enforced yet (it lands with the egress proxy), so it must not
+            // wired to the egress proxy on this backend yet (follow-up,
+            // docs/decisions/0002-egress-allowlist-proxy.md), so it must not
             // widen to full egress — and a hostname is not a CIDR, so it
-            // cannot be expressed as an `IPBlock` either.
+            // cannot be expressed as an `IPBlock` either. Deferred wiring
+            // never widens: until it lands, `restricted` here = deny-all.
             let egress: Vec<NetworkPolicyEgressRule> = Vec::new();
             let k8s_policy = K8sNetworkPolicy {
                 metadata: ObjectMeta {
@@ -1153,17 +1161,301 @@ mod docker_client {
 
     impl DockerClient {
         pub async fn new() -> Result<Self> {
-            let client = Docker::connect_with_socket_defaults()
-                .context("Failed to connect to Docker daemon")?;
+            // DOCKER_HOST wins, exactly like the docker CLI: `unix://…`
+            // selects a different socket (colima, rootless Podman), any
+            // `tcp://`/`http://…` an HTTP endpoint. Without it, the built-in
+            // socket default applies so CI (and a vanilla Docker Desktop)
+            // works unchanged.
+            let client = match std::env::var("DOCKER_HOST") {
+                Ok(host) if host.starts_with("unix://") => {
+                    let path = host
+                        .strip_prefix("unix://")
+                        .ok_or_else(|| anyhow::anyhow!("invalid DOCKER_HOST unix path: {host}"))?;
+                    Docker::connect_with_socket(path, 120, bollard::API_DEFAULT_VERSION)
+                }
+                Ok(host) => Docker::connect_with_http(&host, 120, bollard::API_DEFAULT_VERSION),
+                Err(_) => Docker::connect_with_socket_defaults(),
+            }
+            .context("Failed to connect to Docker daemon")?;
             // Test connection
             client.ping().await.context("Docker daemon not reachable")?;
             Ok(Self { client })
+        }
+
+        /// Compose the egress half of a `restricted` (non-empty) run:
+        ///
+        /// 1. a **user-defined `--internal` network** — Docker installs no
+        ///    NAT/masquerade for it, so the workload cannot reach the
+        ///    internet even though it has an interface;
+        /// 2. the **egress proxy sidecar**, attached to that network *and*
+        ///    to the default bridge (its only route upstream), started from
+        ///    `LOOM_EGRESS_PROXY_IMAGE` with the run's allowlist;
+        ///
+        /// Ready is proven, not assumed: the proxy prints `EGRESS listening`
+        /// when it is serving, and this polls the container logs for that
+        /// line. Every failure fails the dispatch with a clear error —
+        /// never a fallback to unisolated egress.
+        async fn start_egress(
+            &self,
+            short: &str,
+            allowed_hosts: &[String],
+        ) -> Result<EgressEcosystem> {
+            let (network, proxy_name) = EgressEcosystem::names(short);
+
+            self.client
+                .create_network(bollard::network::CreateNetworkOptions {
+                    name: network.clone(),
+                    driver: "bridge".to_string(),
+                    // The whole point: no NAT, no default route to anywhere.
+                    internal: true,
+                    attachable: true,
+                    ..Default::default()
+                })
+                .await
+                .with_context(|| format!("failed to create internal egress network {network}"))?;
+
+            // Everything from here on must unwind cleanly: the proxy steps
+            // clean up the sidecar container on failure, this call cleans up
+            // the network — a failed dispatch never leaks egress state.
+            match self
+                .start_proxy(&network, &proxy_name, allowed_hosts)
+                .await
+            {
+                Ok(proxy_id) => {
+                    tracing::info!(
+                        network = %network,
+                        proxy = %proxy_name,
+                        allowed_hosts = allowed_hosts.join(","),
+                        "restricted egress enforced via proxy"
+                    );
+                    Ok(EgressEcosystem {
+                        network,
+                        proxy_name,
+                        proxy_id,
+                    })
+                }
+                Err(e) => {
+                    self.client.remove_network(&network).await.ok();
+                    Err(e)
+                }
+            }
+        }
+
+        /// Pull (or find locally), create, bridge-attach, start, and
+        /// wait-for-readiness the proxy sidecar. On failure, removes the
+        /// sidecar; the network is removed by the caller.
+        async fn start_proxy(
+            &self,
+            network: &str,
+            proxy_name: &str,
+            allowed_hosts: &[String],
+        ) -> Result<String> {
+            let image = std::env::var("LOOM_EGRESS_PROXY_IMAGE")
+                .unwrap_or_else(|_| "loom-egress-proxy:latest".to_string());
+            // A locally built/tagged image is enough; only pull from a
+            // registry when it does not exist locally.
+            if self.client.inspect_image(&image).await.is_err() {
+                self.pull_image(&image)
+                    .await
+                    .with_context(|| format!("egress proxy image '{image}' unavailable"))?;
+            }
+
+            let mut labels = HashMap::new();
+            labels.insert("loom.egress_role".to_string(), "proxy".to_string());
+            labels.insert("loom.network_policy".to_string(), "restricted".to_string());
+            labels.insert(
+                "loom.network_allowed_hosts".to_string(),
+                allowed_hosts.join(","),
+            );
+
+            let proxy = Config {
+                image: Some(image.clone()),
+                env: Some(vec![format!(
+                    "LOOM_ALLOWED_HOSTS={}",
+                    allowed_hosts.join(",")
+                )]),
+                labels: Some(labels),
+                host_config: Some(HostConfig {
+                    network_mode: Some(network.to_string()),
+                    auto_remove: Some(false),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let created = self
+                .client
+                .create_container(
+                    Some(CreateContainerOptions {
+                        name: proxy_name.clone(),
+                        platform: None,
+                    }),
+                    proxy,
+                )
+                .await
+                .with_context(|| {
+                    format!("failed to create egress proxy container {proxy_name} (image '{image}')")
+                })?;
+            let proxy_id = created.id;
+
+            let outcome = async {
+                // The internal network is NAT-free, so the proxy itself
+                // would have no egress either. The default bridge is its
+                // upstream.
+                self.client
+                    .connect_network(
+                        "bridge",
+                        bollard::network::ConnectNetworkOptions {
+                            container: proxy_name.clone(),
+                            endpoint_config: bollard::models::EndpointSettings::default(),
+                        },
+                    )
+                    .await
+                    .with_context(|| {
+                        format!("failed to attach egress proxy {proxy_name} to the bridge network")
+                    })?;
+
+                self.client
+                    .start_container(&proxy_id, None::<StartContainerOptions<String>>)
+                    .await
+                    .with_context(|| {
+                        format!("failed to start egress proxy container {proxy_name}")
+                    })?;
+
+                self.wait_for_listening(&proxy_id)
+                    .await
+                    .with_context(|| format!("egress proxy {proxy_name} did not become ready"))?;
+
+                Ok::<String, anyhow::Error>(proxy_id.clone())
+            }
+            .await;
+
+            if outcome.is_err() {
+                // Best-effort undo of the sidecar before bailing.
+                self.client
+                    .remove_container(
+                        &proxy_id,
+                        Some(RemoveContainerOptions {
+                            force: true,
+                            ..Default::default()
+                        }),
+                    )
+                    .await
+                    .ok();
+            }
+            outcome
+        }
+
+        /// Poll the proxy's own log output for its ready line.
+        async fn wait_for_listening(&self, proxy_id: &str) -> Result<()> {
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+            loop {
+                let mut stream = self.client.logs(
+                    proxy_id,
+                    Some(bollard::container::LogsOptions::<String> {
+                        stdout: true,
+                        stderr: true,
+                        ..Default::default()
+                    }),
+                );
+                while let Some(log) = stream.try_next().await? {
+                    let line = match log {
+                        LogOutput::StdOut { message } | LogOutput::StdErr { message } => {
+                            String::from_utf8_lossy(&message).into_owned()
+                        }
+                        _ => continue,
+                    };
+                    if line.contains("EGRESS listening") {
+                        return Ok(());
+                    }
+                }
+                if tokio::time::Instant::now() > deadline {
+                    anyhow::bail!(
+                        "the egress proxy never printed its ready line within 10s (image broken or crashed?)"
+                    );
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+    }
+
+    /// The egress composition for a `restricted` (non-empty) run: the
+    /// user-defined internal network both containers share, and the proxy
+    /// sidecar that is the only route off it.
+    #[derive(Debug)]
+    struct EgressEcosystem {
+        network: String,
+        proxy_name: String,
+        proxy_id: String,
+    }
+
+    impl EgressEcosystem {
+        fn names(short: &str) -> (String, String) {
+            (format!("loom-net-{short}"), format!("loom-{short}-proxy"))
+        }
+
+        /// Best-effort removal of the sidecar and the network. Used after a
+        /// successful run (via `remove_container`, which derives the same
+        /// names from the workload's) and on mid-setup failures.
+        async fn teardown(&self, client: &bollard::Docker) {
+            if let Err(e) = client
+                .remove_container(
+                    &self.proxy_id,
+                    Some(RemoveContainerOptions {
+                        force: true,
+                        ..Default::default()
+                    }),
+                )
+                .await
+            {
+                tracing::warn!(proxy = %self.proxy_name, "failed to remove egress proxy container: {e}");
+            }
+            if let Err(e) = client.remove_network(&self.network).await {
+                tracing::warn!(network = %self.network, "failed to remove egress network: {e}");
+            }
         }
     }
 
     #[async_trait]
     impl ContainerClient for DockerClient {
         async fn create_container(&self, spec: &ContainerSpec) -> Result<String> {
+            let short = &Uuid::new_v4().to_string()[..8];
+            // Restricted non-empty ⇒ the workload talks only to the egress
+            // proxy, over an internal user-defined network. Any failure here
+            // fails the dispatch loudly — it must never degrade into *more*
+            // egress than the posture allows.
+            let ecosystem = match &spec.network_policy {
+                NetworkPolicy::Restricted { allowed_hosts }
+                    if !allowed_hosts.is_empty() =>
+                {
+                    Some(
+                        self.start_egress(short, allowed_hosts)
+                            .await
+                            .context("restricted egress setup (internal network + allowlist proxy)")?,
+                    )
+                }
+                _ => None,
+            };
+
+            let mut spec = spec.clone();
+            let network_mode = match &ecosystem {
+                Some(egress) => {
+                    spec.env.insert(
+                        "HTTP_PROXY".to_string(),
+                        format!("http://{}:{}", egress.proxy_name, crate::EGRESS_PROXY_PORT),
+                    );
+                    spec.env.insert(
+                        "HTTPS_PROXY".to_string(),
+                        format!("http://{}:{}", egress.proxy_name, crate::EGRESS_PROXY_PORT),
+                    );
+                    // Loopback traffic is the workload's own; honored by
+                    // clients, never routed to the proxy.
+                    spec.env
+                        .insert("NO_PROXY".to_string(), "localhost,127.0.0.1".to_string());
+                    Some(egress.network.clone())
+                }
+                None => spec.network_policy.engine_network_mode().map(String::from),
+            };
+
             let config = Config {
                 image: Some(spec.image.clone()),
                 cmd: Some(spec.cmd.clone()),
@@ -1188,7 +1480,7 @@ mod docker_client {
                             })
                             .collect(),
                     ),
-                    network_mode: spec.network_policy.engine_network_mode().map(String::from),
+                    network_mode,
                     // The runtime owns the container lifecycle (`auto_remove`
                     // on `ContainerRuntime`): the daemon deleting the
                     // container on exit would take the logs with it and make
@@ -1213,16 +1505,21 @@ mod docker_client {
             };
 
             let options = CreateContainerOptions {
-                name: format!("loom-{}", &Uuid::new_v4().to_string()[..8]),
+                name: format!("loom-{short}"),
                 platform: None,
             };
 
-            let response = self
-                .client
-                .create_container(Some(options), config)
-                .await
-                .context("Failed to create container")?;
-            Ok(response.id)
+            match self.client.create_container(Some(options), config).await {
+                Ok(response) => Ok(response.id),
+                Err(e) => {
+                    // Undo whatever partial egress state exists: a failed
+                    // dispatch must not leak the sidecar or the network.
+                    if let Some(egress) = &ecosystem {
+                        egress.teardown(&self.client).await;
+                    }
+                    Err(anyhow::anyhow!("Failed to create container: {e}"))
+                }
+            }
         }
 
         async fn start_container(&self, id: &str) -> Result<()> {
@@ -1276,6 +1573,48 @@ mod docker_client {
         }
 
         async fn remove_container(&self, id: &str, force: bool) -> Result<()> {
+            // Egress teardown first, derived from the workload's name: the
+            // sidecar container and the internal network are named
+            // deterministically from it. Best-effort — a 404 anywhere means
+            // the piece is already gone.
+            if let Ok(inspected) = self
+                .client
+                .inspect_container(id, None::<bollard::container::InspectContainerOptions>)
+                .await
+            {
+                if let Some(name) = inspected.name.as_deref().map(|n| n.trim_start_matches('/')) {
+                    if let Some(short) = name.strip_prefix("loom-") {
+                        let (network, proxy_name) = EgressEcosystem::names(short);
+                        match self
+                            .client
+                            .remove_container(
+                                &proxy_name,
+                                Some(RemoveContainerOptions { force, ..Default::default() }),
+                            )
+                            .await
+                        {
+                            Ok(_) => {}
+                            Err(
+                                bollard::errors::Error::DockerResponseServerError {
+                                    status_code: 404,
+                                    ..
+                                },
+                            ) => {}
+                            Err(e) => {
+                                tracing::warn!(proxy = %proxy_name, "failed to remove egress proxy container: {e}")
+                            }
+                        }
+                        match self.client.remove_network(&network).await {
+                            Ok(_) => {}
+                            Err(e) if e.to_string().contains("not found") => {}
+                            Err(e) => {
+                                tracing::warn!(network = %network, "failed to remove egress network: {e}")
+                            }
+                        }
+                    }
+                }
+            }
+
             let options = RemoveContainerOptions {
                 force,
                 ..Default::default()

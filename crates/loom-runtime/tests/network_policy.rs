@@ -38,8 +38,9 @@ fn no_network_maps_to_no_network_argument() {
 
 #[test]
 fn restricted_is_fail_closed() {
-    // An allowlist that is not enforced by the engine yet must never widen to
-    // full egress.
+    // The engine argument always stays maximum-deny: enforcement of the
+    // allowlist happens through the egress proxy the Docker backend
+    // composes, and direct egress can never bypass it.
     let policy = NetworkPolicy::parse("restricted:10.0.0.0/8,example.com").unwrap();
     assert_eq!(policy.engine_network_mode(), Some("none"));
     assert_eq!(policy.cli_args(), vec!["--network", "none"]);
