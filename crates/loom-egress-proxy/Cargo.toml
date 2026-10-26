@@ -1,0 +1,17 @@
+[package]
+name = "loom-egress-proxy"
+version = "0.10.2"
+edition = "2021"
+description = "Allowlist-enforcing CONNECT proxy for Loom's restricted container network posture"
+
+# Deliberately standalone (not a loom workspace member): the Docker/CI image
+# build copies only this directory, and a tiny dep tree keeps the musl build
+# C-free. See docs/decisions/0002-egress-allowlist-proxy.md.
+[workspace]
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+
+[profile.release]
+strip = true
