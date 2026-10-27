@@ -20,8 +20,8 @@ Commercialization plan phases 2–8 unlock only when **all** hold:
 - [x] PR2 exit: `restricted:<hosts>` enforced via egress proxy on the default backend; "not enforced yet" string gone; CI `container` job green. — merged `preflight/pr2-egress`; container smoke on merged main via colima (`ALLOWED:200` / `DENIED:OK`), 20/20 loom-runtime + 11/11 proxy tests; CI job added in `.github/workflows/ci.yml`. Checked 2026-10-26.
 - [x] PR3 exit: `docs/adapter-contribution.md` merged; all commands execute verbatim on tempdir; README links it. — merged `preflight/pr3-adapter-guide`; tempdir validation recorded in the doc's validated-on line; FFI example re-validated post-merge. Checked 2026-10-26.
 - [x] `loom-admin licensemint` decision ratified (or overridden with a stated alternative). — ratified as specified: offline mint CLI, separate `loom-admin` bin; mint/verify live in `crates/loom-core/src/license.rs`; ADR `docs/decisions/0004-license-mint-custody.md`. Checked on 2026-10-26, minting + 0600 + pinning tests pass (`cargo test -p loom-core license`, `cargo test -p loom --bin loom-admin`).
-- [ ] 1.0 tagged (pillars 1–3 remainder closed per master plan phase 1).
-- [ ] Spec-kit task created for phase 2 (`loom workflow create --title "Phase 2: license gate" --spec`).
+- [ ] 1.0 tagged (pillars 1–3 remainder closed per master plan phase 1). — **deferred by decision 2026-10-26**: pillars 1–3 remainder is code-complete, but 0.11.0 was cut first (`v0.11.0`, commit `ca2142b`); 1.0 remains a later tag on a clean tree.
+- [x] Spec-kit task created for phase 2 (`loom workflow create --title "Phase 2: license gate" --spec`). — task `db4a21e6-7191-4bfe-8ac2-0b4db9d914bf`, spec sidecar `db4a21e6-7191-4bfe-8ac2-0b4db9d914bf.spec.md`, worktree `~/.loom/worktrees/db4a21e6-…-phase-2--license-gate`. Created 2026-10-26; next stage simulate (design-heavy → ComplexityScore routes to Simulate).
 
 Record the pass in this file (`checked on <date>, tag <sha>`) — the plan's phase ladder gets an auditable gate, not a vibe.
 
