@@ -806,6 +806,117 @@ fn parse_session_content(content: &str) -> Vec<loom_core::Message> {
     Vec::new()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use loom_core::license::{
+        verify_license_key, load_with_key, write_license_store, License, TeamFeature,
+        CapabilityClass, LICENSE_GRACE_DAYS,
+    };
+    use loom_core::constants::LICENSE_REQUIRED_MSG;
+    use std::path::Path;
+    use tempfile::tempdir;
+
+    /// Generate a test license key with the given expiry offset from now.
+    /// Uses the test mint (allows past expiries) for grace/expired scenarios.
+    /// Returns (token, public_key_hex).
+    fn test_token(expires_at: chrono::DateTime<Utc>) -> (String, String) {
+        let keypair = loom_core::license::generate_keypair().unwrap();
+        let pk = keypair.1.clone();
+        let payload = loom_core::license::LicensePayload {
+            org_id: "test-org".into(),
+            tier: "team".into(),
+            seats: 5,
+            expires_at: expires_at.to_rfc3339(),
+            features: vec![],
+        };
+        // Use test mint for any expiry that could be in the past
+        let token = if expires_at <= Utc::now() {
+            loom_core::license::mint_license_for_test(&payload, &keypair.0).unwrap()
+        } else {
+            loom_core::license::mint_license(&payload, &keypair.0).unwrap()
+        };
+        (token, pk)
+    }
+
+    /// Fixture feature keys for gate testing.
+    fn test_read() -> TeamFeature {
+        TeamFeature::read_only("test.read")
+    }
+    fn test_write() -> TeamFeature {
+        TeamFeature::mutating("test.write")
+    }
+
+    #[test]
+    fn daemon_gate_unlicensed_returns_shared_refusal() {
+        let dir = tempdir().unwrap();
+        let license = License::load(Path::new(dir.path()));
+        let now = Utc::now();
+
+        let result = loom_core::license::require_unlocked(&license, test_read(), now);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), LICENSE_REQUIRED_MSG);
+    }
+
+    #[test]
+    fn daemon_gate_active_unlocks_all_classes() {
+        let dir = tempdir().unwrap();
+        let (token, pk) = test_token(Utc::now() + chrono::Duration::days(30));
+        write_license_store(Path::new(dir.path()), &token).unwrap();
+        let license = load_with_key(Path::new(dir.path()), &pk);
+        let now = Utc::now();
+
+        assert!(loom_core::license::require_unlocked(&license, test_read(), now).is_ok());
+        assert!(loom_core::license::require_unlocked(&license, test_write(), now).is_ok());
+    }
+
+    #[test]
+    fn daemon_gate_grace_allows_read_only_refuses_mutating() {
+        let dir = tempdir().unwrap();
+        let (token, pk) = test_token(Utc::now() - chrono::Duration::days(10)); // 10 days into grace
+        write_license_store(Path::new(dir.path()), &token).unwrap();
+        let license = load_with_key(Path::new(dir.path()), &pk);
+        let now = Utc::now();
+
+        // read-only allowed
+        assert!(loom_core::license::require_unlocked(&license, test_read(), now).is_ok());
+        // mutating refused
+        let result = loom_core::license::require_unlocked(&license, test_write(), now);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), LICENSE_REQUIRED_MSG);
+
+        // verify grace window length
+        let grace_end = license.grace_until().unwrap();
+        let expected_end = license.expires_at().unwrap() + chrono::Duration::days(LICENSE_GRACE_DAYS);
+        assert_eq!(grace_end, expected_end);
+    }
+
+    #[test]
+    fn daemon_gate_expired_refuses_all() {
+        let dir = tempdir().unwrap();
+        let (token, pk) = test_token(Utc::now() - chrono::Duration::days(40)); // past grace
+        write_license_store(Path::new(dir.path()), &token).unwrap();
+        let license = load_with_key(Path::new(dir.path()), &pk);
+        let now = Utc::now();
+
+        assert!(loom_core::license::require_unlocked(&license, test_read(), now).is_err());
+        assert!(loom_core::license::require_unlocked(&license, test_write(), now).is_err());
+    }
+
+    #[test]
+    fn daemon_gate_invalid_key_refuses() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("license.json"), "invalid.key").unwrap();
+        let license = License::load(Path::new(dir.path()));
+        let now = Utc::now();
+
+        let result = loom_core::license::require_unlocked(&license, test_read(), now);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), LICENSE_REQUIRED_MSG);
+    }
+}
+
 /// Parse a tag filter from a JSON value. The IPC layer accepts tags as
 /// either a JSON array of strings (`["rust", "go"]`), a single string
 /// (`"rust"`), or a comma-separated string (`"rust,go"`). Returns

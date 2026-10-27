@@ -11,6 +11,7 @@
 
 use anyhow::{bail, Context, Result};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+pub use base64::engine::general_purpose::URL_SAFE_NO_PAD as Base64UrlSafe;
 use base64::Engine;
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
@@ -80,6 +81,34 @@ fn validate_payload(payload: &LicensePayload) -> Result<()> {
 /// issuance (phase 6) calls this same function.
 pub fn mint_license(payload: &LicensePayload, private_key_hex: &str) -> Result<String> {
     validate_payload(payload)?;
+    mint_license_internal(payload, private_key_hex)
+}
+
+/// Internal mint without the "expires in future" validation.
+/// Tests use this to create keys with past expiries for grace/expired scenarios.
+pub fn mint_license_for_test(payload: &LicensePayload, private_key_hex: &str) -> Result<String> {
+    let expires = DateTime::parse_from_rfc3339(&payload.expires_at)
+        .with_context(|| format!("expires_at must be RFC3339, got '{}'", payload.expires_at))?
+        .with_timezone(&Utc);
+    if payload.org_id.trim().is_empty() {
+        bail!("org_id must not be empty");
+    }
+    if payload.tier.trim().is_empty() {
+        bail!("tier must not be empty");
+    }
+    if payload.seats == 0 {
+        bail!("seats must be at least 1");
+    }
+    if expires > Utc::now() + chrono::Duration::days(LICENSE_MAX_VALIDITY_DAYS) {
+        bail!(
+            "expires_at must be at most {} days out — the license model dyes keys with expiry within one year",
+            LICENSE_MAX_VALIDITY_DAYS
+        );
+    }
+    mint_license_internal(payload, private_key_hex)
+}
+
+fn mint_license_internal(payload: &LicensePayload, private_key_hex: &str) -> Result<String> {
     let private = hex::decode(private_key_hex.trim()).context("private key is not valid hex")?;
     let bytes: [u8; 32] = private
         .as_slice()
@@ -174,6 +203,223 @@ fn restrict_permissions(path: &Path) -> Result<()> {
 #[cfg(not(unix))]
 fn restrict_permissions(_path: &Path) -> Result<()> {
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Phase-2 license gate: stored key, state machine, Team-feature predicate.
+// ---------------------------------------------------------------------------
+
+/// Where the activated license key is stored inside the loom dir.
+pub const LICENSE_STORE_FILE: &str = "license.json";
+
+/// Grace window after `expires_at`: Team surfaces stay read-only usable, then
+/// refuse. Fixed (no config knob) — GitLab's lapse behaviour, not JetBrains' 48h.
+pub const LICENSE_GRACE_DAYS: i64 = 30;
+
+/// What kind of surface a gated feature is. Grace keeps read-only surfaces
+/// usable; mutating ones refuse until the license is renewed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapabilityClass {
+    ReadOnly,
+    Mutating,
+}
+
+/// One gate-able Team surface. `key` is the claim key a license carries in
+/// [`LicensePayload::features`]; adding a surface is adding a const, not an
+/// enum variant, so no future surface name has to be guessed ahead of time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TeamFeature {
+    pub key: &'static str,
+    pub class: CapabilityClass,
+}
+
+impl TeamFeature {
+    pub const fn read_only(key: &'static str) -> Self {
+        Self {
+            key,
+            class: CapabilityClass::ReadOnly,
+        }
+    }
+
+    pub const fn mutating(key: &'static str) -> Self {
+        Self {
+            key,
+            class: CapabilityClass::Mutating,
+        }
+    }
+}
+
+/// Fixture features: the only gate-able surfaces this phase ships. Real
+/// surfaces replace these keys when phases 4–5 land (vault audit read,
+/// registry org sync).
+pub const TEST_FEATURE_READ: TeamFeature = TeamFeature::read_only("test.read");
+pub const TEST_FEATURE_WRITE: TeamFeature = TeamFeature::mutating("test.write");
+
+/// The license state at a given instant. `Invalid` (stored key does not
+/// verify) is distinct from `Unlicensed` (no key stored).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LicenseState {
+    Unlicensed,
+    Invalid,
+    Active,
+    Grace,
+    Expired,
+}
+
+impl LicenseState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unlicensed => "unlicensed",
+            Self::Invalid => "invalid",
+            Self::Active => "active",
+            Self::Grace => "grace",
+            Self::Expired => "expired",
+        }
+    }
+}
+
+/// An activated license: the stored key's verified claims plus the pinned key
+/// it was verified against. Time is always passed in — state is a function of
+/// `now`, so grace boundaries are testable without sleeping.
+#[derive(Debug, Clone)]
+pub struct License {
+    payload: Option<LicensePayload>,
+    invalid_reason: Option<String>,
+    #[allow(dead_code)]
+    verify_key: String,
+}
+
+impl License {
+    /// Read `{loom_dir}/license.json` and verify against the embedded key.
+    pub fn load(loom_dir: &Path) -> Self {
+        Self::load_with_key(loom_dir, crate::constants::LICENSE_VERIFY_PUBLIC_KEY)
+    }
+
+    /// `load` with a caller-supplied verification key (tests, rotation).
+    pub fn load_with_key(loom_dir: &Path, public_key_hex: &str) -> Self {
+        match std::fs::read_to_string(license_store_path(loom_dir)) {
+            Ok(token) => Self::from_token(&token, public_key_hex),
+            Err(_) => Self {
+                payload: None,
+                invalid_reason: None,
+                verify_key: public_key_hex.to_string(),
+            },
+        }
+    }
+
+    /// Verify an in-memory key without touching the filesystem.
+    pub fn from_token(token: &str, public_key_hex: &str) -> Self {
+        match verify_license_key(token, public_key_hex) {
+            Ok(payload) => Self {
+                payload: Some(payload),
+                invalid_reason: None,
+                verify_key: public_key_hex.to_string(),
+            },
+            Err(err) => Self {
+                payload: None,
+                invalid_reason: Some(err.to_string()),
+                verify_key: public_key_hex.to_string(),
+            },
+        }
+    }
+
+    pub fn payload(&self) -> Option<&LicensePayload> {
+        self.payload.as_ref()
+    }
+
+    pub fn invalid_reason(&self) -> Option<&str> {
+        self.invalid_reason.as_deref()
+    }
+
+    /// Parsed expiry of a verified payload.
+    pub fn expires_at(&self) -> Option<DateTime<Utc>> {
+        self.payload
+            .as_ref()
+            .and_then(|p| DateTime::parse_from_rfc3339(&p.expires_at).ok())
+            .map(|e| e.with_timezone(&Utc))
+    }
+
+    /// End of the read-only grace window (expiry + [`LICENSE_GRACE_DAYS`]).
+    pub fn grace_until(&self) -> Option<DateTime<Utc>> {
+        self.expires_at()
+            .map(|e| e + chrono::Duration::days(LICENSE_GRACE_DAYS))
+    }
+
+    pub fn state_at(&self, now: DateTime<Utc>) -> LicenseState {
+        let Some(expires) = self.expires_at() else {
+            return if self.invalid_reason.is_some() {
+                LicenseState::Invalid
+            } else if self.payload.is_some() {
+                // signed payload whose expiry does not parse — treat as invalid
+                LicenseState::Invalid
+            } else {
+                LicenseState::Unlicensed
+            };
+        };
+        if now < expires {
+            LicenseState::Active
+        } else if now < expires + chrono::Duration::days(LICENSE_GRACE_DAYS) {
+            LicenseState::Grace
+        } else {
+            LicenseState::Expired
+        }
+    }
+
+    pub fn unlocks(&self, feature: TeamFeature) -> bool {
+        self.unlocks_at(feature, Utc::now())
+    }
+
+    /// Active unlocks every class; grace unlocks read-only surfaces only;
+    /// everything else unlocks nothing.
+    pub fn unlocks_at(&self, feature: TeamFeature, now: DateTime<Utc>) -> bool {
+        match self.state_at(now) {
+            LicenseState::Active => true,
+            LicenseState::Grace => feature.class == CapabilityClass::ReadOnly,
+            LicenseState::Unlicensed | LicenseState::Invalid | LicenseState::Expired => false,
+        }
+    }
+}
+
+/// The gate every Team surface calls. On refusal the error is the shared
+/// [`LICENSE_REQUIRED_MSG`](crate::constants::LICENSE_REQUIRED_MSG) verbatim.
+pub fn require_unlocked(
+    license: &License,
+    feature: TeamFeature,
+    now: DateTime<Utc>,
+) -> Result<()> {
+    if license.unlocks_at(feature, now) {
+        Ok(())
+    } else {
+        bail!(crate::constants::LICENSE_REQUIRED_MSG)
+    }
+}
+
+/// Path of the activated license key inside the loom dir.
+pub fn license_store_path(loom_dir: &Path) -> PathBuf {
+    loom_dir.join(LICENSE_STORE_FILE)
+}
+
+/// Write an activated license key to `{loom_dir}/license.json` (mode 0600) and
+/// return its path.
+pub fn write_license_store(loom_dir: &Path, token: &str) -> Result<PathBuf> {
+    let path = license_store_path(loom_dir);
+    std::fs::create_dir_all(loom_dir)
+        .with_context(|| format!("creating {}", loom_dir.display()))?;
+    std::fs::write(&path, token.trim()).with_context(|| format!("writing {}", path.display()))?;
+    restrict_permissions(&path)?;
+    Ok(path)
+}
+
+/// Load the activated license from `{loom_dir}/license.json` using the
+/// embedded verification key.
+pub fn load(loom_dir: &Path) -> License {
+    License::load(loom_dir)
+}
+
+/// Load the activated license from `{loom_dir}/license.json` using a
+/// caller-supplied verification key (tests, rotation).
+pub fn load_with_key(loom_dir: &Path, public_key_hex: &str) -> License {
+    License::load_with_key(loom_dir, public_key_hex)
 }
 
 #[cfg(test)]

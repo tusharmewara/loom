@@ -15,6 +15,7 @@ pub mod init;
 pub mod init_shell;
 pub mod issues;
 pub mod knowledge;
+pub mod license;
 pub mod lock;
 pub mod lsp;
 pub mod mcp;
