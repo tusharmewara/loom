@@ -241,18 +241,13 @@ pub struct McpGlobalConfig {
 }
 
 /// Transport for the MCP control plane: stdio, http, or grpc.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ControlPlaneTransport {
+    #[default]
     Stdio,
     Http,
     Grpc,
-}
-
-impl Default for ControlPlaneTransport {
-    fn default() -> Self {
-        ControlPlaneTransport::Stdio
-    }
 }
 
 /// Runtime configuration for the MCP control plane (feature-gated product).
@@ -294,20 +289,15 @@ pub struct RunResult {
 }
 
 /// Lifecycle of a control-plane run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum RunStatus {
+    #[default]
     Pending,
     Running,
     Completed,
     Failed,
     Cancelled,
-}
-
-impl Default for RunStatus {
-    fn default() -> Self {
-        RunStatus::Pending
-    }
 }
 
 /// Abstract store for persisting and retrieving control-plane run results.

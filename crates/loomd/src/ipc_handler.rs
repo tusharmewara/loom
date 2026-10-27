@@ -1,5 +1,4 @@
 use crate::Loomd;
-use anyhow;
 use loom_core::HealthCheck;
 use loom_core::{McpAcl, RunStore, SqliteRunStore};
 use loom_generic_adapter::GenericAdapter;
@@ -8,7 +7,6 @@ use loom_runtime::LaunchConfig;
 use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use uuid;
 
 pub struct LoomdIpcHandler {
     version: &'static str,
@@ -60,7 +58,7 @@ impl IpcHandler for LoomdIpcHandler {
             "exec.run" | "workflow.dispatch" | "skills.activate"
         );
         if state_changing && !self.mcp_acl.is_allowed(&req.command) {
-            let _ = self.auth.audit().log_denied_access(
+            self.auth.audit().log_denied_access(
                 &req.command,
                 "mcp_control_plane",
                 &format!("ACL denied: {}", req.command),
