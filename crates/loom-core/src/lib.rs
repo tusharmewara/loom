@@ -7,6 +7,7 @@ pub mod types;
 
 pub use config::*;
 pub use constants::*;
+pub use license::*;
 pub use types::*;
 
 use anyhow::Result;

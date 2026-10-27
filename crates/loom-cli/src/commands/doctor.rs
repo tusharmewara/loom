@@ -1,5 +1,8 @@
 use anyhow::{Context, Result};
+use chrono::Utc;
 use comfy_table::Table;
+use loom_core::constants::LICENSE_VERIFY_PUBLIC_KEY;
+use loom_core::license::{load_with_key, LicenseState};
 use loom_discovery::registry::SnapshotDb;
 use loom_ipc::IpcRequest;
 use std::collections::{BTreeMap, BTreeSet};
@@ -9,7 +12,7 @@ use std::process::Command;
 const DAEMON_SOCKET: &str = "loomd.sock";
 
 #[derive(Clone, Copy)]
-enum CheckStatus {
+pub enum CheckStatus {
     Pass,
     Warn,
     Fail,
@@ -25,11 +28,11 @@ impl CheckStatus {
     }
 }
 
-struct CheckRow {
-    name: String,
-    status: CheckStatus,
-    detail: String,
-    explanation: String,
+pub struct CheckRow {
+    pub name: String,
+    pub status: CheckStatus,
+    pub detail: String,
+    pub explanation: String,
 }
 
 impl CheckRow {
@@ -264,6 +267,9 @@ pub async fn run(loom_dir: &str, json: bool, fix: bool, verbose: bool) -> Result
         service_detail,
     ));
 
+    // License state check
+    rows.push(build_license_row(loom_dir));
+
     if json {
         print_json_report(loom_dir, &rows, verbose);
     } else {
@@ -354,6 +360,70 @@ fn skill_validation_row(skills_dir: &Path) -> CheckRow {
     .with_explanation(
         "A skill with a fatal defect (no description:, invalid frontmatter, a name that disagrees with its directory) is never synced into a native tool directory — the agent would ignore it silently. A warning (a missing referenced script, a duplicate name, a name that disagrees with a flat file) is reported but the skill is still linked.",
     )
+}
+
+/// Internal helper: build license row with a caller-supplied verification key.
+/// Public `build_license_row` uses the embedded key; tests can call this with
+/// a test keypair's public key.
+fn build_license_row_with_key(loom_dir: &str, public_key_hex: &str) -> CheckRow {
+    let license = load_with_key(Path::new(loom_dir), public_key_hex);
+    let now = Utc::now();
+    let state = license.state_at(now);
+
+    match state {
+        LicenseState::Unlicensed => CheckRow::new(
+            "License",
+            CheckStatus::Warn,
+            "license: unlicensed",
+        ).with_explanation(
+            "No Loom Team license is activated. Team surfaces are unavailable. Run `loom license activate <key>` to activate."
+        ),
+        LicenseState::Invalid => CheckRow::new(
+            "License",
+            CheckStatus::Fail,
+            format!("license: invalid — {}", license.invalid_reason().unwrap_or("unknown")),
+        ).with_explanation(
+            "A license key is stored but it failed verification (tampered, wrong key, or corrupt). Remove it with `loom license deactivate` and activate a valid key."
+        ),
+        LicenseState::Active => {
+            let p = license.payload().unwrap();
+            CheckRow::new(
+                "License",
+                CheckStatus::Pass,
+                format!("license: active ({}, {} seats, expires {})", p.tier, p.seats, p.expires_at),
+            ).with_explanation(
+                "Team license is active. All Team surfaces are available."
+            )
+        }
+        LicenseState::Grace => {
+            let p = license.payload().unwrap();
+            let grace = license.grace_until().unwrap();
+            CheckRow::new(
+                "License",
+                CheckStatus::Warn,
+                format!("license: grace (read-only until {}) — {}", grace, p.tier),
+            ).with_explanation(
+                "License has expired but is within the 30-day read-only grace window. Read-only Team surfaces remain available; mutating ones are refused. Renew to restore full access."
+            )
+        }
+        LicenseState::Expired => {
+            let p = license.payload().unwrap();
+            CheckRow::new(
+                "License",
+                CheckStatus::Fail,
+                format!("license: expired ({}) — {}", p.tier, p.expires_at),
+            ).with_explanation(
+                "License expired and the 30-day grace window has ended. All Team surfaces are refused. Run `loom license activate <key>` with a renewed key."
+            )
+        }
+    }
+}
+
+/// Build the license check row — pure function, no side effects, testable
+/// without running the full doctor. State reflects the license at the moment
+/// of the call (UTC now). Uses the embedded verification key.
+pub fn build_license_row(loom_dir: &str) -> CheckRow {
+    build_license_row_with_key(loom_dir, LICENSE_VERIFY_PUBLIC_KEY)
 }
 
 fn print_report(rows: &[CheckRow], verbose: bool) {
@@ -467,7 +537,7 @@ fn write_probe(dir: &Path) -> Result<()> {
     ));
 
     std::fs::write(&probe, b"loom-doctor-write-check")
-        .with_context(|| format!("write failed at {}", dir.display()))?;
+        .context(format!("write failed at {}", dir.display()))?;
     let _ = std::fs::remove_file(&probe);
     Ok(())
 }
@@ -687,5 +757,77 @@ mod tests {
         let row = skill_validation_row(&skills);
         assert!(matches!(row.status, CheckStatus::Pass));
         assert!(row.detail.contains("1 skill(s)"), "detail: {}", row.detail);
+    }
+
+    #[test]
+    fn license_row_unlicensed() {
+        let dir = tempfile::tempdir().unwrap();
+        let row = build_license_row(dir.path().to_str().unwrap());
+        assert_eq!(row.name, "License");
+        assert!(matches!(row.status, CheckStatus::Warn));
+        assert_eq!(row.detail, "license: unlicensed");
+    }
+
+    #[test]
+    fn license_row_invalid_key() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("license.json"), "not.a.valid.key").unwrap();
+        let row = build_license_row(dir.path().to_str().unwrap());
+        assert_eq!(row.name, "License");
+        assert!(matches!(row.status, CheckStatus::Fail));
+        assert!(row.detail.starts_with("license: invalid"));
+    }
+
+    #[test]
+    fn license_row_active_and_grace_and_expired() {
+        let dir = tempfile::tempdir().unwrap();
+        let keypair = loom_core::license::generate_keypair().unwrap();
+        let pk = keypair.1.clone();
+
+        // active: expires in future (use regular mint)
+        let active_payload = loom_core::license::LicensePayload {
+            org_id: "acme".into(),
+            tier: "team".into(),
+            seats: 10,
+            expires_at: (Utc::now() + chrono::Duration::days(180)).to_rfc3339(),
+            features: vec![],
+        };
+        let active_token = loom_core::license::mint_license(&active_payload, &keypair.0).unwrap();
+        loom_core::license::write_license_store(dir.path(), &active_token).unwrap();
+
+        let row = build_license_row_with_key(dir.path().to_str().unwrap(), &pk);
+        assert_eq!(row.name, "License");
+        assert!(matches!(row.status, CheckStatus::Pass));
+        assert!(row.detail.starts_with("license: active"));
+
+        // grace: expired 10 days ago (within 30-day grace) - use test mint
+        let grace_payload = loom_core::license::LicensePayload {
+            org_id: "acme".into(),
+            tier: "team".into(),
+            seats: 10,
+            expires_at: (Utc::now() - chrono::Duration::days(10)).to_rfc3339(),
+            features: vec![],
+        };
+        let grace_token = loom_core::license::mint_license_for_test(&grace_payload, &keypair.0).unwrap();
+        loom_core::license::write_license_store(dir.path(), &grace_token).unwrap();
+
+        let row = build_license_row_with_key(dir.path().to_str().unwrap(), &pk);
+        assert!(matches!(row.status, CheckStatus::Warn));
+        assert!(row.detail.starts_with("license: grace (read-only until"));
+
+        // expired: expired 40 days ago (past 30-day grace) - use test mint
+        let expired_payload = loom_core::license::LicensePayload {
+            org_id: "acme".into(),
+            tier: "team".into(),
+            seats: 10,
+            expires_at: (Utc::now() - chrono::Duration::days(40)).to_rfc3339(),
+            features: vec![],
+        };
+        let expired_token = loom_core::license::mint_license_for_test(&expired_payload, &keypair.0).unwrap();
+        loom_core::license::write_license_store(dir.path(), &expired_token).unwrap();
+
+        let row = build_license_row_with_key(dir.path().to_str().unwrap(), &pk);
+        assert!(matches!(row.status, CheckStatus::Fail));
+        assert!(row.detail.starts_with("license: expired"));
     }
 }

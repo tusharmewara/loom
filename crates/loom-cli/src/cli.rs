@@ -91,6 +91,11 @@ pub enum Command {
         #[command(subcommand)]
         action: AuthAction,
     },
+    /// Manage license (activate, status, deactivate)
+    License {
+        #[command(subcommand)]
+        action: crate::commands::license::LicenseAction,
+    },
     /// Manage hooks
     Hooks {
         #[command(subcommand)]
@@ -2004,6 +2009,7 @@ impl Cli {
                 crate::commands::sessions::run(&agents_path, &action).await
             }
             Command::Auth { action } => crate::commands::auth::run(&agents_path, &action).await,
+            Command::License { action } => crate::commands::license::run(&agents_path.to_string_lossy(), action).await,
             Command::Hooks { action } => crate::commands::hooks::run(&agents_path, &action).await,
             Command::Workflow { action } => {
                 crate::commands::workflow::run(&agents_path, &action).await
