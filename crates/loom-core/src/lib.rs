@@ -173,3 +173,164 @@ pub struct HealthStatus {
 pub trait HealthCheck {
     fn health(&self) -> Result<HealthStatus>;
 }
+
+/// SQLite-backed [`RunStore`] persisting run results to
+/// `<loom_dir>/control_plane/runs.db`.
+pub struct SqliteRunStore {
+    conn: std::sync::Mutex<rusqlite::Connection>,
+}
+
+impl SqliteRunStore {
+    pub fn open(loom_dir: &str) -> anyhow::Result<Self> {
+        use anyhow::Context;
+        let dir = std::path::Path::new(loom_dir).join("control_plane");
+        std::fs::create_dir_all(&dir)
+            .with_context(|| format!("Failed to create control plane dir at {}", dir.display()))?;
+        let path = dir.join("runs.db");
+        let conn = crate::db::open(&path)?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS runs (run_id TEXT PRIMARY KEY, tool TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', output TEXT, error TEXT, exit_code INTEGER, created_at TEXT NOT NULL, completed_at TEXT);",
+        )?;
+        Ok(Self {
+            conn: std::sync::Mutex::new(conn),
+        })
+    }
+
+    fn save_inner(&self, conn: &rusqlite::Connection, result: &RunResult) -> anyhow::Result<()> {
+        conn.execute(
+            "INSERT OR REPLACE INTO runs (run_id, tool, status, output, error, exit_code, created_at, completed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                result.run_id,
+                result.tool,
+                format!("{:?}", result.status).to_lowercase(),
+                result.output,
+                result.error,
+                result.exit_code,
+                result.created_at,
+                result.completed_at,
+            ],
+        )?;
+        Ok(())
+    }
+}
+
+impl RunStore for SqliteRunStore {
+    fn save(&self, result: &RunResult) -> anyhow::Result<()> {
+        let conn = lock_ok!(self.conn);
+        self.save_inner(&conn, result)
+    }
+
+    fn update(&self, _run_id: &str, result: &RunResult) -> anyhow::Result<()> {
+        let conn = lock_ok!(self.conn);
+        self.save_inner(&conn, result)
+    }
+
+    fn get(&self, run_id: &str) -> anyhow::Result<Option<RunResult>> {
+        let conn = lock_ok!(self.conn);
+        match conn.query_row(
+            "SELECT run_id, tool, status, output, error, exit_code, created_at, completed_at FROM runs WHERE run_id = ?1",
+            rusqlite::params![run_id],
+            |r| {
+                let status_str: String = r.get(2)?;
+                let status = match status_str.as_str() {
+                    "pending" => RunStatus::Pending,
+                    "running" => RunStatus::Running,
+                    "completed" => RunStatus::Completed,
+                    "failed" => RunStatus::Failed,
+                    "cancelled" => RunStatus::Cancelled,
+                    _ => return Err(rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, format!("invalid status: {}", status_str).into())),
+                };
+                Ok(RunResult {
+                    run_id: r.get(0)?,
+                    tool: r.get(1)?,
+                    status,
+                    output: r.get(3)?,
+                    error: r.get(4)?,
+                    exit_code: r.get(5)?,
+                    created_at: r.get(6)?,
+                    completed_at: r.get(7)?,
+                })
+            },
+        ) {
+            Ok(row) => Ok(Some(row)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    fn expire(&self, ttl_seconds: u64) -> anyhow::Result<u64> {
+        if ttl_seconds == 0 {
+            return Ok(0);
+        }
+        let conn = lock_ok!(self.conn);
+        let cutoff = (chrono::Utc::now()
+            - chrono::Duration::seconds(ttl_seconds as i64))
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let deleted = conn.execute(
+            "DELETE FROM runs WHERE created_at < ?1",
+            rusqlite::params![cutoff],
+        )?;
+        Ok(deleted as u64)
+    }
+}
+
+#[cfg(test)]
+mod run_store_tests {
+    use super::*;
+
+    #[test]
+    fn save_and_get_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SqliteRunStore::open(dir.path().to_str().unwrap()).unwrap();
+        let result = RunResult {
+            run_id: "run-1".to_string(),
+            tool: "loom_exec".to_string(),
+            status: RunStatus::Completed,
+            output: Some("ok".to_string()),
+            error: None,
+            exit_code: Some(0),
+            created_at: crate::rfc3339_now(),
+            completed_at: Some(crate::rfc3339_now()),
+        };
+        store.save(&result).unwrap();
+        let got = store.get("run-1").unwrap().unwrap();
+        assert_eq!(got.run_id, "run-1");
+        assert_eq!(got.status, RunStatus::Completed);
+        assert_eq!(got.output, Some("ok".to_string()));
+        assert_eq!(store.expire(0).unwrap(), 0);
+    }
+
+    #[test]
+    fn expire_removes_old_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SqliteRunStore::open(dir.path().to_str().unwrap()).unwrap();
+        let old = RunResult {
+            run_id: "run-old".to_string(),
+            tool: "loom_exec".to_string(),
+            status: RunStatus::Completed,
+            output: None,
+            error: None,
+            exit_code: None,
+            created_at: crate::rfc3339_days_ago(2),
+            completed_at: None,
+        };
+        let fresh = RunResult {
+            run_id: "run-fresh".to_string(),
+            tool: "loom_exec".to_string(),
+            status: RunStatus::Pending,
+            output: None,
+            error: None,
+            exit_code: None,
+            created_at: crate::rfc3339_now(),
+            completed_at: None,
+        };
+        store.save(&old).unwrap();
+        store.save(&fresh).unwrap();
+        // TTL of 1 day should expire the 2-day-old run.
+        let deleted = store.expire(86_400).unwrap();
+        assert_eq!(deleted, 1);
+        assert!(store.get("run-old").unwrap().is_none());
+        assert!(store.get("run-fresh").unwrap().is_some());
+    }
+}

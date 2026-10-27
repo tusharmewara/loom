@@ -2520,9 +2520,13 @@ dependencies = [
  "clap",
  "loom-auth",
  "loom-core",
+ "loom-ipc",
  "loom-mcp",
  "loom-skills",
  "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tonic",
 ]
 
 [[package]]

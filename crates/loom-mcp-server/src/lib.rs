@@ -209,6 +209,83 @@ impl LoomMcpServer {
                     "required": ["provider_id"]
                 }
             }),
+            #[cfg(feature = "mcp-control-plane")]
+            serde_json::json!({
+                "name": "loom_exec",
+                "description": "Launch agent tool(s) with full ecosystem integration (control plane)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "tool": {
+                            "type": "string",
+                            "description": "Tool binary to launch"
+                        },
+                        "args": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Arguments to pass to the tool"
+                        }
+                    },
+                    "required": ["tool"]
+                }
+            }),
+            #[cfg(feature = "mcp-control-plane")]
+            serde_json::json!({
+                "name": "loom_workflow_dispatch",
+                "description": "Dispatch a workflow task to an agent (control plane)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "Workflow task identifier"
+                        },
+                        "agent": {
+                            "type": "string",
+                            "description": "Agent to dispatch the task to"
+                        }
+                    },
+                    "required": ["task_id"]
+                }
+            }),
+            #[cfg(feature = "mcp-control-plane")]
+            serde_json::json!({
+                "name": "loom_skills_activate",
+                "description": "Activate a skill for a session or tool (control plane)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "skill": {
+                            "type": "string",
+                            "description": "Skill name to activate"
+                        },
+                        "session_id": {
+                            "type": "string",
+                            "description": "Optional session identifier"
+                        },
+                        "tool": {
+                            "type": "string",
+                            "description": "Optional tool identifier"
+                        }
+                    },
+                    "required": ["skill"]
+                }
+            }),
+            #[cfg(feature = "mcp-control-plane")]
+            serde_json::json!({
+                "name": "loom_get_run_result",
+                "description": "Retrieve the result of a control-plane run by run_id",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "run_id": {
+                            "type": "string",
+                            "description": "Run identifier"
+                        }
+                    },
+                    "required": ["run_id"]
+                }
+            }),
         ];
 
         jsonrpc_result(id, serde_json::json!({ "tools": tools }))
@@ -228,6 +305,14 @@ impl LoomMcpServer {
             "loom_list_providers" => self.call_list_providers(id),
             "loom_save_session" => self.call_save_session(id, &arguments),
             "loom_get_credential" => self.call_get_credential(id, &arguments),
+            #[cfg(feature = "mcp-control-plane")]
+            "loom_exec" => self.call_exec(id, &arguments),
+            #[cfg(feature = "mcp-control-plane")]
+            "loom_workflow_dispatch" => self.call_workflow_dispatch(id, &arguments),
+            #[cfg(feature = "mcp-control-plane")]
+            "loom_skills_activate" => self.call_skills_activate(id, &arguments),
+            #[cfg(feature = "mcp-control-plane")]
+            "loom_get_run_result" => self.call_get_run_result(id, &arguments),
             _ => jsonrpc_error(
                 id,
                 -32601,
@@ -444,6 +529,70 @@ impl LoomMcpServer {
                 &format!("No credential for provider '{provider_id}'"),
             ),
             Err(e) => jsonrpc_error(id, -32603, "Internal error", &e.to_string()),
+        }
+    }
+
+    #[cfg(feature = "mcp-control-plane")]
+    fn call_exec(&self, id: Option<Value>, args: &Value) -> Value {
+        let tool = match args.get("tool").and_then(|t| t.as_str()) {
+            Some(t) => t,
+            None => return jsonrpc_error(id, -32602, "Invalid params", "Missing 'tool'"),
+        };
+        let args_arr = args.get("args").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        self.forward_to_daemon(id, "exec.run", serde_json::json!({ "tool": tool, "args": args_arr }))
+    }
+
+    #[cfg(feature = "mcp-control-plane")]
+    fn call_workflow_dispatch(&self, id: Option<Value>, args: &Value) -> Value {
+        let task_id = match args.get("task_id").and_then(|t| t.as_str()) {
+            Some(t) => t,
+            None => return jsonrpc_error(id, -32602, "Invalid params", "Missing 'task_id'"),
+        };
+        let agent = args.get("agent").and_then(|v| v.as_str()).unwrap_or("");
+        self.forward_to_daemon(id, "workflow.dispatch", serde_json::json!({ "task_id": task_id, "agent": agent }))
+    }
+
+    #[cfg(feature = "mcp-control-plane")]
+    fn call_skills_activate(&self, id: Option<Value>, args: &Value) -> Value {
+        let skill = match args.get("skill").and_then(|s| s.as_str()) {
+            Some(s) => s,
+            None => return jsonrpc_error(id, -32602, "Invalid params", "Missing 'skill'"),
+        };
+        let session_id = args.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+        let tool = args.get("tool").and_then(|v| v.as_str()).unwrap_or("");
+        self.forward_to_daemon(id, "skills.activate", serde_json::json!({ "skill": skill, "session_id": session_id, "tool": tool }))
+    }
+
+    #[cfg(feature = "mcp-control-plane")]
+    fn call_get_run_result(&self, id: Option<Value>, args: &Value) -> Value {
+        let run_id = match args.get("run_id").and_then(|r| r.as_str()) {
+            Some(r) => r,
+            None => return jsonrpc_error(id, -32602, "Invalid params", "Missing 'run_id'"),
+        };
+        self.forward_to_daemon(id, "run.result.get", serde_json::json!({ "run_id": run_id }))
+    }
+
+    #[cfg(feature = "mcp-control-plane")]
+    fn forward_to_daemon(&self, id: Option<Value>, command: &str, params: Value) -> Value {
+        let socket_path = Path::new(&self.loom_dir).join("loomd.sock");
+        let socket_str = match socket_path.to_str() {
+            Some(s) => s.to_string(),
+            None => return jsonrpc_error(id, -32603, "Internal error", "Invalid socket path"),
+        };
+        let req = loom_ipc::protocol::IpcRequest::new(command).with_params(params);
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => return jsonrpc_error(id, -32603, "Internal error", &format!("tokio runtime failed: {e}")),
+        };
+        match rt.block_on(loom_ipc::client::send_command(&socket_str, req)) {
+            Ok(resp) => {
+                if resp.status == "ok" {
+                    jsonrpc_result(id, resp.data.unwrap_or(Value::Null))
+                } else {
+                    jsonrpc_error(id, -32603, "Daemon error", resp.error.unwrap_or_default().as_str())
+                }
+            }
+            Err(e) => jsonrpc_error(id, -32603, "IPC error", &e.to_string()),
         }
     }
 }

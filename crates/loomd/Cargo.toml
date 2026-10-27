@@ -45,6 +45,9 @@ loom-workflow = { path = "../loom-workflow" }
 
 [dev-dependencies]
 tempfile.workspace = true
+loom-ipc = { path = "../loom-ipc" }
+serde_json.workspace = true
+tokio.workspace = true
 
 [build-dependencies]
 tonic-build = { workspace = true }

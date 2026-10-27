@@ -1,9 +1,14 @@
 use crate::Loomd;
+use anyhow;
 use loom_core::HealthCheck;
+use loom_core::{McpAcl, RunStore, SqliteRunStore};
+use loom_generic_adapter::GenericAdapter;
 use loom_ipc::{IpcHandler, IpcRequest, IpcResponse};
+use loom_runtime::LaunchConfig;
 use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use uuid;
 
 pub struct LoomdIpcHandler {
     version: &'static str,
@@ -13,9 +18,6 @@ pub struct LoomdIpcHandler {
     sessions: Arc<loom_sessions::SessionManager>,
     auth: Arc<loom_auth::AuthManager>,
     hooks: Arc<loom_hooks::HooksEngine>,
-    /// Shared MCP manager providing registry and pool state.
-    /// Uses the daemon's existing McpManager instance to avoid creating
-    /// duplicate registries and ensure cross-tool state sharing.
     mcp: Arc<loom_mcp::McpManager>,
     memory_mgr: Arc<loom_mcp::AgentMemoryManager>,
     acp_server: Arc<RwLock<Option<Arc<loom_sessions::AcpDispatchServer>>>>,
@@ -23,6 +25,8 @@ pub struct LoomdIpcHandler {
     runtime_registry: Arc<loom_runtime::RuntimeRegistry>,
     telemetry: Arc<loom_telemetry::TelemetryCollector>,
     event_bus: Arc<loom_event_bus::EventBus>,
+    run_store: Arc<SqliteRunStore>,
+    mcp_acl: McpAcl,
 }
 
 impl LoomdIpcHandler {
@@ -42,12 +46,31 @@ impl LoomdIpcHandler {
             runtime_registry: loomd.runtime_registry().clone(),
             telemetry: loomd.telemetry().clone(),
             event_bus: loomd.event_bus().clone(),
+            run_store: loomd.run_store().clone(),
+            mcp_acl: loomd.mcp_acl().clone(),
         }
     }
 }
 
 impl IpcHandler for LoomdIpcHandler {
     fn handle(&self, req: IpcRequest) -> IpcResponse {
+        // ── ACL enforcement for state-changing control-plane commands ───
+        let state_changing = matches!(
+            req.command.as_str(),
+            "exec.run" | "workflow.dispatch" | "skills.activate"
+        );
+        if state_changing && !self.mcp_acl.is_allowed(&req.command) {
+            let _ = self.auth.audit().log_denied_access(
+                &req.command,
+                "mcp_control_plane",
+                &format!("ACL denied: {}", req.command),
+            );
+            return IpcResponse::error(
+                req.request_id,
+                format!("ACL denied: tool '{}' is not allowed", req.command),
+            );
+        }
+
         match req.command.as_str() {
             "health.check" => {
                 let health = json!({
@@ -772,6 +795,165 @@ impl IpcHandler for LoomdIpcHandler {
                         )
                     }
                     Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                }
+            }
+            "exec.run" => {
+                let tool = req.params.get("tool").and_then(|v| v.as_str()).unwrap_or("");
+                if tool.is_empty() {
+                    return IpcResponse::error(req.request_id, "tool parameter required");
+                }
+                let args: Vec<String> = req.params.get("args")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                    .unwrap_or_default();
+                let adapter = GenericAdapter::new(&self.loom_dir, tool)
+                    .ok()
+                    .and_then(|a| a.launch_config())
+                    .unwrap_or_else(|| LaunchConfig {
+                        runtime: "process".to_string(),
+                        command: tool.to_string(),
+                        args,
+                        env: std::collections::HashMap::new(),
+                        working_dir: None,
+                        image: None,
+                        network: Some("none".to_string()),
+                        auto_remove: true,
+                    });
+                let task = loom_core::Task {
+                    task_id: uuid::Uuid::new_v4().to_string(),
+                    title: format!("exec {tool}"),
+                    description: "".to_string(),
+                    phase: loom_core::TaskPhase::Plan,
+                    phase_history: vec![],
+                    prd_path: None,
+                    context_files: vec![],
+                    routed_provider: None,
+                    files_modified: vec![],
+                    complexity_score: None,
+                    routing_decision: None,
+                    last_agent: None,
+                    linked_issue: None,
+                    sub_agents: None,
+                    spec_path: None,
+                    findings_path: None,
+                    converged: None,
+                    phase_results: vec![],
+                    tags: vec![],
+                    worktree_path: None,
+                    runtime: None,
+                    created_at: loom_core::rfc3339_now(),
+                    updated_at: loom_core::rfc3339_now(),
+                    status: loom_core::TaskStatus::Pending,
+                    last_run: None,
+                };
+                let runtime = self.runtime_registry.get(&adapter.runtime)
+                    .ok_or_else(|| anyhow::anyhow!("runtime '{}' not available", adapter.runtime));
+                match runtime {
+                    Ok(rt) => {
+                        let rt_exec = tokio::runtime::Runtime::new().unwrap();
+                        match rt_exec.block_on(rt.prepare(&adapter)) {
+                            Ok(()) => match rt_exec.block_on(rt.run(&adapter, &task)) {
+                                Ok(result) => {
+                                    let _ = rt_exec.block_on(rt.cleanup(&result));
+                                    let response = IpcResponse::ok(req.request_id, json!({
+                                        "success": result.success,
+                                        "stdout": result.stdout,
+                                        "stderr": result.stderr,
+                                        "exit_code": result.exit_code,
+                                        "container_id": result.container_id,
+                                    }));
+                                    let _ = self.auth.audit().log_write(
+                                        "loom_exec",
+                                        tool,
+                                        true,
+                                    );
+                                    response
+                                }
+                                Err(e) => IpcResponse::error(req.request_id, format!("exec run failed: {e}")),
+                            },
+                            Err(e) => IpcResponse::error(req.request_id, format!("exec prepare failed: {e}")),
+                        }
+                    }
+                    Err(e) => IpcResponse::error(req.request_id, e.to_string()),
+                }
+            }
+            "workflow.dispatch" => {
+                let task_id = req.params.get("task_id").and_then(|v| v.as_str()).unwrap_or("");
+                let agent = req.params.get("agent").and_then(|v| v.as_str());
+                if task_id.is_empty() {
+                    return IpcResponse::error(req.request_id, "task_id parameter required");
+                }
+                let engine = loom_workflow::WorkflowEngine::new(&self.loom_dir);
+                let orchestrator = engine.orchestrator();
+                // Resolve agent and assign routing if provided.
+                if let Some(a) = agent {
+                    let _ = orchestrator.set_last_agent(task_id, a);
+                }
+                match orchestrator.assign_routing(task_id) {
+                    Ok(task) => {
+                        let _ = orchestrator.advance_phase(task_id);
+                        let response = IpcResponse::ok(req.request_id, json!({
+                            "task_id": task.task_id,
+                            "title": task.title,
+                            "phase": format!("{:?}", task.phase),
+                            "status": format!("{:?}", task.status),
+                            "routed_provider": task.routed_provider,
+                            "last_agent": task.last_agent,
+                        }));
+                                    let _ = self.auth.audit().log_write(
+                                        "loom_workflow_dispatch",
+                                        task_id,
+                                        true,
+                                    );
+                                    response
+                    }
+                    Err(e) => IpcResponse::error(req.request_id, format!("workflow dispatch failed: {e}")),
+                }
+            }
+            "skills.activate" => {
+                let skill = req.params.get("skill").and_then(|v| v.as_str()).unwrap_or("");
+                let session_id = req.params.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+                let tool = req.params.get("tool").and_then(|v| v.as_str()).unwrap_or("");
+                if skill.is_empty() {
+                    return IpcResponse::error(req.request_id, "skill parameter required");
+                }
+                // Verify skill exists in the registry.
+                let exists = self.skills.registry().get(skill).is_some();
+                if !exists {
+                    return IpcResponse::error(req.request_id, format!("skill '{skill}' not found"));
+                }
+                let response = IpcResponse::ok(req.request_id, json!({
+                    "activated": true,
+                    "skill": skill,
+                    "session_id": session_id,
+                    "tool": tool,
+                    "note": "activation recorded; native-dir injection handled by loom exec",
+                }));
+                let _ = self.auth.audit().log_write(
+                    "loom_skills_activate",
+                    skill,
+                    true,
+                );
+                response
+            }
+            "run.result.get" => {
+                let run_id = req.params.get("run_id").and_then(|v| v.as_str()).unwrap_or("");
+                if run_id.is_empty() {
+                    return IpcResponse::error(req.request_id, "run_id parameter required");
+                }
+                match self.run_store.get(run_id) {
+                    Ok(Some(result)) => IpcResponse::ok(req.request_id, json!({
+                        "run_id": result.run_id,
+                        "tool": result.tool,
+                        "status": result.status,
+                        "output": result.output,
+                        "error": result.error,
+                        "exit_code": result.exit_code,
+                        "created_at": result.created_at,
+                        "completed_at": result.completed_at,
+                    })),
+                    Ok(None) => IpcResponse::error(req.request_id, "run not found"),
+                    Err(e) => IpcResponse::error(req.request_id, format!("run result lookup failed: {e}")),
                 }
             }
             _ => IpcResponse::error(req.request_id, format!("Unknown command: {}", req.command)),

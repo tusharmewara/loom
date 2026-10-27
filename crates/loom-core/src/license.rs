@@ -191,6 +191,17 @@ pub fn read_license_private_key(dir: &Path) -> Result<String> {
         .with_context(|| format!("failed to read {} — run `loom-admin keygen` first", path.display()))
 }
 
+/// Derive the public key hex from a private key hex string.
+pub fn public_key_from_private(private_hex: &str) -> Result<String> {
+    let bytes = hex::decode(private_hex)
+        .with_context(|| "failed to decode private key hex")?;
+    let key_bytes: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("invalid private key length"))?;
+    let signing_key = SigningKey::from_bytes(&key_bytes);
+    Ok(hex::encode(signing_key.verifying_key().to_bytes()))
+}
+
 #[cfg(unix)]
 fn restrict_permissions(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;

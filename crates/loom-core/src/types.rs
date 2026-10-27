@@ -279,6 +279,72 @@ fn default_run_ttl_seconds() -> u64 {
     86_400 // 24 hours
 }
 
+/// A stored run result produced by a control-plane tool (exec, dispatch,
+/// skills activation). Keyed by `run_id` for client polling/retrieval.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunResult {
+    pub run_id: String,
+    pub tool: String,
+    pub status: RunStatus,
+    pub output: Option<String>,
+    pub error: Option<String>,
+    pub exit_code: Option<i32>,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+}
+
+/// Lifecycle of a control-plane run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RunStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl Default for RunStatus {
+    fn default() -> Self {
+        RunStatus::Pending
+    }
+}
+
+/// Abstract store for persisting and retrieving control-plane run results.
+/// SQLite-backed implementation lives in loom-core; callers open the
+/// connection via [`crate::db::open`].
+pub trait RunStore: Send + Sync {
+    /// Persist a new run result (initial status `Pending`).
+    fn save(&self, result: &RunResult) -> anyhow::Result<()>;
+    /// Update an existing run result (status, output, error, exit_code).
+    fn update(&self, run_id: &str, result: &RunResult) -> anyhow::Result<()>;
+    /// Retrieve a run result by id. Returns `Ok(None)` when not found.
+    fn get(&self, run_id: &str) -> anyhow::Result<Option<RunResult>>;
+    /// Drop results older than `ttl_seconds`; `0` keeps everything.
+    fn expire(&self, ttl_seconds: u64) -> anyhow::Result<u64>;
+}
+
+/// Runtime allow/deny list for control-plane MCP tools. Empty allowlist =
+/// allow all gated tools.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct McpAcl {
+    pub allow: Vec<String>,
+    pub deny: Vec<String>,
+}
+
+impl McpAcl {
+    /// Returns `true` when `tool` is permitted by the ACL.
+    pub fn is_allowed(&self, tool: &str) -> bool {
+        if self.deny.iter().any(|d| d == tool) {
+            return false;
+        }
+        if self.allow.is_empty() {
+            return true;
+        }
+        self.allow.iter().any(|a| a == tool)
+    }
+}
+
 fn default_health_interval() -> u64 {
     300
 }

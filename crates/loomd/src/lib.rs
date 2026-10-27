@@ -7,8 +7,11 @@ mod run_manager;
 use activity::{now_ms, ActivityHandler};
 use loom_core::{
     constants::{DAEMON_DEFAULT_IDLE_TIMEOUT_MS, DAEMON_IDLE_TIMEOUT_ENV},
-    HealthCheck, LoomEvent,
+    config::ConfigReader,
+    HealthCheck, LoomEvent, SqliteRunStore,
 };
+use loom_core::license::verify_license_key;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -30,6 +33,9 @@ pub struct Loomd {
     acp_server: Arc<RwLock<Option<Arc<loom_sessions::AcpDispatchServer>>>>,
     run_manager: Arc<Mutex<run_manager::RunManager>>,
     runtime_registry: Arc<loom_runtime::RuntimeRegistry>,
+    run_store: Arc<SqliteRunStore>,
+    mcp_acl: loom_core::McpAcl,
+    control_plane_enabled: bool,
     shutdown_tx: broadcast::Sender<()>,
 }
 
@@ -49,6 +55,68 @@ impl Loomd {
         let (shutdown_tx, _) = broadcast::channel(1);
 
         let memory_mgr = Arc::new(loom_mcp::AgentMemoryManager::new(loom_dir));
+        let run_store = Arc::new(SqliteRunStore::open(loom_dir)?);
+
+        // ── Control-plane gating (feature-gated product) ─────────────────
+        let config_reader = ConfigReader::new(loom_dir);
+        let config = config_reader
+            .load_with_options(loom_core::config::ConfigOptions::default())
+            .ok()
+            .and_then(|c| c.mcp)
+            .and_then(|m| m.control_plane);
+
+        let control_plane_enabled = config
+            .as_ref()
+            .map(|c| c.enabled)
+            .unwrap_or(false);
+
+        let mcp_acl = config
+            .as_ref()
+            .map(|c| loom_core::McpAcl {
+                allow: c.acl_allowlist.clone(),
+                deny: Vec::new(),
+            })
+            .unwrap_or_default();
+
+        if let Some(license_key) = config.as_ref().and_then(|c| c.license_key.clone()) {
+            // Derive public key from the stored private key for verification.
+            let admin_dir = Path::new(loom_dir).join("loom-admin");
+            let private_hex = loom_core::license::read_license_private_key(&admin_dir)
+                .ok();
+            let public_hex = private_hex
+                .as_deref()
+                .and_then(|pk| loom_core::license::public_key_from_private(pk).ok());
+            let public_hex = match public_hex {
+                Some(pk) => pk,
+                None => {
+                    tracing::error!(
+                        "  ❌ no license private key found at {}/license.key;\n       \
+                         Refusing to start loomd with mcp-control-plane enabled.",
+                        admin_dir.display()
+                    );
+                    return Err(anyhow::anyhow!(
+                        "control-plane license key not found — run `loom-admin keygen` first"
+                    ));
+                }
+            };
+            match verify_license_key(&license_key, &public_hex) {
+                Ok(_) => tracing::info!("  ✅ control-plane license verified"),
+                Err(e) => {
+                    tracing::error!(
+                        "  ❌ control-plane license invalid: {e}\n       \
+                         Refusing to start loomd with mcp-control-plane enabled."
+                    );
+                    return Err(anyhow::anyhow!(
+                        "control-plane license validation failed: {e}"
+                    ));
+                }
+            }
+        } else if control_plane_enabled {
+            tracing::warn!(
+                "  ⚠️  mcp-control-plane enabled but no license key configured;\n       \
+                 control-plane tools will be unavailable until a key is set."
+            );
+        }
 
         Ok(Self {
             loom_dir: loom_dir.to_string(),
@@ -83,6 +151,9 @@ impl Loomd {
                 }
                 Arc::new(registry)
             },
+            run_store,
+            mcp_acl,
+            control_plane_enabled,
             shutdown_tx,
         })
     }
@@ -134,6 +205,18 @@ impl Loomd {
 
     pub fn runtime_registry(&self) -> &Arc<loom_runtime::RuntimeRegistry> {
         &self.runtime_registry
+    }
+
+    pub fn run_store(&self) -> &Arc<SqliteRunStore> {
+        &self.run_store
+    }
+
+    pub fn mcp_acl(&self) -> &loom_core::McpAcl {
+        &self.mcp_acl
+    }
+
+    pub fn control_plane_enabled(&self) -> bool {
+        self.control_plane_enabled
     }
 
     pub fn telemetry(&self) -> &Arc<loom_telemetry::TelemetryCollector> {

@@ -11,8 +11,10 @@ loom-auth = { path = "../loom-auth" }
 anyhow.workspace = true
 serde_json.workspace = true
 clap.workspace = true
+loom-ipc = { path = "../loom-ipc" }
 tonic = { workspace = true, optional = true }
 tokio-stream = { workspace = true, optional = true, features = ["sync"] }
+tokio = { workspace = true, features = ["full"] }
 
 [features]
 default = []
