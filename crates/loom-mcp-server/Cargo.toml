@@ -11,6 +11,12 @@ loom-auth = { path = "../loom-auth" }
 anyhow.workspace = true
 serde_json.workspace = true
 clap.workspace = true
+tonic = { workspace = true, optional = true }
+tokio-stream = { workspace = true, optional = true, features = ["sync"] }
+
+[features]
+default = []
+mcp-control-plane = ["tonic", "tokio-stream"]
 
 [lints]
 workspace = true

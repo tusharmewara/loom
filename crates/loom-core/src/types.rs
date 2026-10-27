@@ -236,6 +236,47 @@ pub struct McpGlobalConfig {
     pub health_check_interval_seconds: u64,
     #[serde(default = "default_true")]
     pub auto_import: bool,
+    #[serde(default)]
+    pub control_plane: Option<ControlPlaneConfig>,
+}
+
+/// Transport for the MCP control plane: stdio, http, or grpc.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ControlPlaneTransport {
+    Stdio,
+    Http,
+    Grpc,
+}
+
+impl Default for ControlPlaneTransport {
+    fn default() -> Self {
+        ControlPlaneTransport::Stdio
+    }
+}
+
+/// Runtime configuration for the MCP control plane (feature-gated product).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ControlPlaneConfig {
+    /// Whether the control-plane surface is enabled at runtime.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Optional license key (Ed25519-signed) that unlocks the surface.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license_key: Option<String>,
+    /// Allowed MCP tool names (empty = allow all gated tools).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub acl_allowlist: Vec<String>,
+    /// TTL in seconds for stored run results (0 = keep forever).
+    #[serde(default = "default_run_ttl_seconds")]
+    pub run_ttl_seconds: u64,
+    /// Transport(s) the control-plane MCP server listens on.
+    #[serde(default)]
+    pub transport: Vec<ControlPlaneTransport>,
+}
+
+fn default_run_ttl_seconds() -> u64 {
+    86_400 // 24 hours
 }
 
 fn default_health_interval() -> u64 {

@@ -67,6 +67,7 @@ docker = ["loom-runtime/docker", "loom-workflow/docker"]
 podman = ["loom-runtime/podman", "loom-workflow/podman"]
 kubernetes = ["loom-runtime/kubernetes", "loom-workflow/kubernetes"]
 containers = ["loom-runtime/containers", "loom-workflow/containers"]
+mcp-control-plane = []
 
 [dev-dependencies]
 tempfile.workspace = true

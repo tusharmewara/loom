@@ -8,6 +8,7 @@ docker = ["loom-runtime/docker"]
 podman = ["loom-runtime/podman"]
 kubernetes = ["loom-runtime/kubernetes"]
 containers = ["loom-runtime/containers"]
+mcp-control-plane = []
 
 [dependencies]
 loom-core = { path = "../loom-core" }

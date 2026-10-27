@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Infinity MCP + Loom Integration</title>
+<!-- Design tokens: single source of truth (per design-system skill) -->
+<link rel="stylesheet" href="assets/design-tokens.css">
+<style>
+  :root {
+    /* Primitive */
+    --color-slate-900: #0f172a;
+    --color-slate-50: #f8fafc;
+    --color-blue-600: #2563eb;
+    --color-blue-50: #eff6ff;
+    --color-emerald-500: #10b981;
+    --color-amber-500: #f59e0b;
+    --color-rose-500: #f43f5e;
+    --typography-font-heading: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --typography-font-body: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --typography-scale-h1: 2.5rem;
+    --typography-scale-h2: 1.75rem;
+    --typography-scale-h3: 1.25rem;
+    --typography-scale-base: 1rem;
+    --spacing-4: 1rem;
+    --spacing-6: 1.5rem;
+    --spacing-8: 2rem;
+    --spacing-12: 3rem;
+    --radius-lg: 0.75rem;
+    --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.1);
+    /* Semantic */
+    --slide-bg: var(--color-slate-50);
+    --panel-bg: var(--color-slate-50);
+    --color-primary: var(--color-blue-600);
+    --color-primary-inverse: var(--color-slate-50);
+    --color-text: var(--color-slate-900);
+    --color-text-muted: #64748b;
+    --color-border: #e2e8f0;
+    --color-success: var(--color-emerald-500);
+    --color-warning: var(--color-amber-500);
+    --color-danger: var(--color-rose-500);
+    /* Component */
+    --slide-panel-bg: var(--color-slate-50);
+    --slide-panel-border: var(--color-border);
+    --slide-panel-shadow: var(--shadow-lg);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--typography-font-body);
+    background: var(--slide-bg);
+    color: var(--color-text);
+    font-size: var(--typography-scale-base);
+    line-height: 1.5;
+    overflow: hidden;
+  }
+  .deck { position: relative; width: 100vw; height: 100vh; display: flex; flex-direction: column; }
+  .deck .slides { position: relative; flex: 1; overflow: hidden; }
+  .slide {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    padding: var(--spacing-12) var(--spacing-12);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    transition: opacity 0.3s ease;
+  }
+  .slide.active { display: flex; opacity: 1; }
+  .slide.fade-out { opacity: 0; }
+  h1, h2, h3 { font-family: var(--typography-font-heading); font-weight: 700; color: var(--color-primary); }
+  h1 { font-size: var(--typography-scale-h1); }
+  h2 { font-size: var(--typography-scale-h2); margin-bottom: var(--spacing-6); }
+  h3 { font-size: var(--typography-scale-h3); margin-bottom: var(--spacing-4); }
+  p { color: var(--color-text-muted); max-width: 64ch; margin: 0 auto; }
+  .deck-nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--spacing-4) var(--spacing-12);
+    background: var(--panel-bg);
+    border-top: 1px solid var(--color-border);
+  }
+  .progress { width: 100%; height: 4px; background: var(--color-border); border-radius: 2px; overflow: hidden; }
+  .progress-bar { height: 100%; width: 0%; background: var(--color-primary); transition: width 0.3s ease; }
+  .controls { display: flex; gap: var(--spacing-4); }
+  .btn {
+    background: var(--color-primary);
+    color: var(--color-primary-inverse);
+    border: none;
+    padding: var(--spacing-4) var(--spacing-8);
+    border-radius: var(--radius-lg);
+    font-family: var(--typography-font-body);
+    font-size: var(--typography-scale-base);
+    cursor: pointer;
+    transition: opacity 0.2s ease;
+  }
+  .btn:hover { opacity: 0.9; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .slide-index { font-size: 0.875rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--spacing-6); width: 100%; max-width: 900px; margin-top: var(--spacing-8); }
+  .card { background: var(--slide-panel-bg); border: 1px solid var(--slide-panel-border); border-radius: var(--radius-lg); padding: var(--spacing-8); box-shadow: var(--slide-panel-shadow); text-align: left; }
+  .card h4 { font-size: var(--typography-scale-h3); color: var(--color-primary); margin-bottom: var(--spacing-4); }
+  .card ul { list-style: none; padding-left: 0; }
+  .card li { margin-bottom: var(--spacing-4); color: var(--color-text); }
+  .card li::before { content: "▹ "; color: var(--color-primary); font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; margin-top: var(--spacing-6); font-size: 0.875rem; }
+  th, td { text-align: left; padding: var(--spacing-4); border-bottom: 1px solid var(--color-border); }
+  th { color: var(--color-primary); font-weight: 700; }
+  .chart-wrap { width: 100%; max-width: 600px; margin: var(--spacing-8) auto 0; }
+  .tag { display: inline-block; background: var(--color-blue-50); color: var(--color-primary); border: 1px solid var(--color-border); border-radius: 9999px; padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 600; margin-right: var(--spacing-4); margin-bottom: var(--spacing-4); }
+  .footer-note { margin-top: var(--spacing-8); font-size: 0.75rem; color: var(--color-text-muted); }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="deck">
+  <div class="slides">
+    <!-- Slide 1: Title -->
+    <div class="slide active" id="slide-1">
+      <div class="tag">Integration Analysis</div>
+      <h1>Infinity MCP + Loom</h1>
+      <h2>Extending the Loom Ecosystem as an MCP Tool Source</h2>
+      <p style="margin-top: var(--spacing-6);">Connecting Infinity Code agents to Loom's shared skills, sessions, and auth via the stdio MCP server.</p>
+      <div class="footer-note">Loom v0.9.6 · Infinity Code (Hydro)</div>
+    </div>
+
+    <!-- Slide 2: Problem -->
+    <div class="slide" id="slide-2">
+      <h2>The Gap</h2>
+      <p style="max-width: 60ch;">Loom exposes a rich ecosystem (skills, MCP registry, sessions, auth vault) but only through its own CLI, daemon IPC, and TUI. Infinity Code agents cannot natively query or act on that state.</p>
+      <div class="card-grid">
+        <div class="card">
+          <h4>Loom surface</h4>
+          <ul>
+            <li>Shared skills registry</li>
+            <li>MCP server pool &amp; health</li>
+            <li>Session export / import</li>
+            <li>Auth providers &amp; grants</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>Infinity Code need</h4>
+          <ul>
+            <li>Tool sources via MCP</li>
+            <li>Background agent context</li>
+            <li>stdio server model</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Slide 3: Solution -->
+    <div class="slide" id="slide-3">
+      <h2>The Bridge</h2>
+      <p>Loom already ships <code>loom-mcp-server</code> — a stdio JSON-RPC 2.0 MCP server exposing the ecosystem as tools. No changes to Loom required.</p>
+      <div class="chart-wrap">
+        <canvas id="archChart"></canvas>
+      </div>
+      <div class="footer-note">stdio JSON-RPC 2.0 · protocolVersion 2024-11-05</div>
+    </div>
+
+    <!-- Slide 4: Config -->
+    <div class="slide" id="slide-4">
+      <h2>Configuration</h2>
+      <p>User-level <code>~/.infinity/rap.json</code> or project-level <code>.infinity/rap.json</code>, merged at startup.</p>
+      <pre style="text-align:left; background: var(--panel-bg); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--spacing-6}; overflow: auto; max-width: 700px; margin-top: var(--spacing-6); font-size: 0.875rem; color: var(--color-text);"><code>{</code>
+<span style="color:#64748b">  "tool_sets": [</span>
+<span style="color:#64748b">    {</span>
+<span style="color:#64748b">      "type": "mcp_server",</span>
+<span style="color:#64748b">      "name": "loom",</span>
+<span style="color:#64748b">      "command": ["loom-mcp-server", "--loom-dir", "~/.loom"],</span>
+<span style="color:#64748b">      "env": {} </span>
+<span style="color:#64748b">    }</span>
+<span style="color:#64748b">  ]</span>
+<code>}</code></pre>
+    </div>
+
+    <!-- Slide 5: Tools exposed -->
+    <div class="slide" id="slide-5">
+      <h2>Loom MCP Tools</h2>
+      <table>
+        <thead><tr><th>Tool</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td>loom_list_skills</td><td>List shared skills in the ecosystem</td></tr>
+          <tr><td>loom_get_skill</td><td>Get skill content by name</td></tr>
+          <tr><td>loom_list_mcp_servers</td><td>List shared MCP server configs</td></tr>
+          <tr><td>loom_get_mcp_config</td><td>Get merged MCP config</td></tr>
+          <tr><td>loom_save_session</td><td>Export a session</td></tr>
+          <tr><td>loom_list_providers</td><td>List auth providers</td></tr>
+          <tr><td>loom_get_credential</td><td>Get credential for a provider</td></tr>
+        </tbody>
+      </table>
+      <div class="footer-note">Methods: initialize, tools/list, tools/call</div>
+    </div>
+
+    <!-- Slide 6: Advantages -->
+    <div class="slide" id="slide-6">
+      <h2>Advantages</h2>
+      <div class="card-grid">
+        <div class="card"><h4>Zero Loom changes</h4><p style="font-size:0.875rem;">loom-mcp-server already exists (crates/loom-mcp-server/src/main.rs).</p></div>
+        <div class="card"><h4>Any MCP client</h4><p style="font-size:0.875rem;">jcode, claude-code, opencode can all consume Loom tools.</p></div>
+        <div class="card"><h4>User + project config</h4><p style="font-size:0.875rem;">Per-repo LOOM_AGENTS_DIR support via merged rap.json.</p></div>
+        <div class="card"><h4>Additive distribution</h4><p style="font-size:0.875rem;">Loom reachable from Infinity Code background agents.</p></div>
+      </div>
+    </div>
+
+    <!-- Slide 7: Disadvantages -->
+    <div class="slide" id="slide-7">
+      <h2>Disadvantages</h2>
+      <div class="card-grid">
+        <div class="card"><h4>Thin tool surface</h4><p style="font-size:0.875rem;">7 list/get tools only — no exec, daemon, or workflow dispatch.</p></div>
+        <div class="card"><h4>Credential exposure</h4><p style="font-size:0.875rem;">loom_get_credential leaks vault secrets to any agent with tool access.</p></div>
+        <div class="card"><h4>Two ecosystems</h4><p style="font-size:0.875rem;">Rust (Loom) + JS/TS (Infinity Code) runtimes to maintain.</p></div>
+        <div class="card"><h4>Redundancy</h4><p style="font-size:0.875rem;">Layers over Loom's own IPC/daemon rather than replacing it.</p></div>
+      </div>
+    </div>
+
+    <!-- Slide 8: Product impact -->
+    <div class="slide" id="slide-8">
+      <h2>Product Lineup Impact</h2>
+      <p style="max-width: 60ch;">Not a significant new product line. An additive integration point that makes Loom consumable as an MCP tool source for Infinity Code agents. The meaningful product play would be exposing Loom's full daemon/IPC (exec, dispatch, skills activation) through MCP — which the current server does not do.</p>
+      <div class="tag">Additive, not categorical</div>
+    </div>
+
+    <!-- Slide 9: Recommendation -->
+    <div class="slide" id="slide-9">
+      <h2>Recommendation</h2>
+      <div class="card-grid">
+        <div class="card"><h4>Adopt</h4><p style="font-size:0.875rem;">Wire loom-mcp-server into Infinity Code for skill/session/auth reads.</p></div>
+        <div class="card"><h4>Gate credentials</h4><p style="font-size:0.875rem;">Omit or scope loom_get_credential; add ACL before exposing vault data.</p></div>
+        <div class="card"><h4>Expand surface</h4><p style="font-size:0.875rem;">Add exec, dispatch, and skills-activation tools for write paths.</p></div>
+      </div>
+    </div>
+
+    <!-- Slide 10: CTA -->
+    <div class="slide" id="slide-10">
+      <h2>Next Steps</h2>
+      <div class="card" style="max-width: 500px; margin: 0 auto; text-align: center;">
+        <ol style="display: inline-block; text-align: left; font-size: 0.95rem; color: var(--color-text);">
+          <li>Add loom tool_set to ~/.infinity/rap.json</li>
+          <li>Verify tools/list returns Loom's 7 tools</li>
+          <li>Scope/remove loom_get_credential</li>
+          <li>File issue to expose exec/dispatch via MCP</li>
+        </ol>
+      </div>
+      <div class="footer-note" style="margin-top: var(--spacing-8);">Infinity MCP + Loom · Integration Analysis</div>
+    </div>
+  </div>
+
+  <nav class="deck-nav">
+    <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+    <div class="controls">
+      <button class="btn" id="prevBtn" disabled>Prev</button>
+      <button class="btn" id="nextBtn">Next</button>
+    </div>
+    <div class="slide-index" id="slideIndex">1 / 10</div>
+  </nav>
+</div>
+<script>
+const TOTAL = 10;
+let current = 1;
+const slides = document.querySelectorAll('.slide');
+const progressBar = document.getElementById('progressBar');
+const slideIndex = document.getElementById('slideIndex');
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+
+function show(n) {
+  slides.forEach((s, i) => {
+    s.classList.remove('active', 'fade-out');
+    if (i === n - 1) s.classList.add('active');
+    else if (i === current - 1) s.classList.add('fade-out');
+  });
+  current = n;
+  progressBar.style.width = ((n - 1) / (TOTAL - 1) * 100) + '%';
+  slideIndex.textContent = n + ' / ' + TOTAL;
+  prevBtn.disabled = n === 1;
+  nextBtn.disabled = n === TOTAL;
+}
+
+nextBtn.onclick = () => { if (current < TOTAL) show(current + 1); };
+prevBtn.onclick = () => { if (current > 1) show(current - 1); };
+window.onkeydown = (e) => {
+  if (e.key === 'ArrowRight' || e.key === ' ') nextBtn.onclick();
+  if (e.key === 'ArrowLeft') prevBtn.onclick();
+};
+
+// Chart on slide 3
+const ctx = document.getElementById('archChart');
+if (ctx) {
+  new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Loom ecosystem', 'Infinity Code agent', 'stdio MCP bridge'],
+      datasets: [{
+        data: [45, 35, 20],
+        backgroundColor: [
+          'var(--color-blue-600)',
+          'var(--color-emerald-500)',
+          'var(--color-amber-500)'
+        ],
+        borderColor: 'var(--slide-bg)',
+        borderWidth: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom', labels: { color: 'var(--color-text-muted)', font: { family: 'var(--typography-font-body)' } } } },
+      cutout: '70%'
+    }
+  });
+}
+</script>
+</body>
+</html>
