@@ -19,17 +19,18 @@ Only the content under "## Notes" is used; this comment block is ignored.
 
 ### Added
 
-- feat(review): the Verified Review Engine — new `loom-review` crate and `loom review` CLI (`run`, `status`, `findings`, `scoreboard`, `fix-pr`). A review run extracts a plan from a session, seats cross-family reviewer models over ACP, dedups findings, verifies each in an isolated git worktree via `loom-parallel` + `loom-runtime`, and labels every finding with what it established (`proven` / `suite_green` / `unverified` / `could_not_run` / `refuted`). `--seat` picks the agent per seat; lessons are written only for proven findings
-- feat(review): `loom review fix-pr` is a real git flow — branch, commit the verified patches, push, and open the PR via `GitHubTracker::create_pr` (`gh pr create`)
-- feat(telemetry): `loom exec` and every TUI task dispatch path (terminal launch, ACP dispatch, runtime dispatch) now record runs in the metered usage ledger (unavailable + `chars/4` forecast, provenance labelled)
-- feat(auth): `loom auth rotate-password [--vault-password <pw>] --new-password <pw>` re-encrypts every credential in place and invalidates all derived grants
-
-### Fixed
-
-- fix(acp): fail fast when the ACP agent child dies instead of sleeping out the full timeout
-- fix(acp): publish the vendored ACP registry and make `registry_url` configuration live
-- test(workflow): pin dispatch usage recording and document embedded-pane dispatch inheritance
+- feat(ffi): cross-language registration — `loom_register_tool`, `loom_register_skill`, `loom_unregister_tool` C-ABI exports (JSON in/out, panic-contained). One codepath: `ToolToml::write` and the skill-install flow moved into `loom-generic-adapter`/`loom-skills` so CLI and FFI cannot drift. Python ctypes example validated in `docs/adapter-contribution.md`
+- feat(runtime): the egress allowlist is **enforced** on Docker — new standalone `loom-egress-proxy` crate (CONNECT-tunnel proxy, host/CIDR allowlist from `LOOM_ALLOWED_HOSTS`, plain byte relay, no MITM). `restricted:<hosts>` composes an internal no-NAT network + proxy sidecar, injects `HTTP(S)_PROXY`/`NO_PROXY`; proxy failure fails the dispatch, never widens egress. Container CI job builds the image and asserts allow/deny
+- feat(admin): `loom-admin keygen` / `loom-admin licensemint` — offline Ed25519 license minting (`~/.loom-admin/license.key` 0600, claims = org/tier/seats/expiry, ≤1 year). `loom-core::license` carries the mint+verify pair the future control plane reuses
+- docs: `docs/adapter-contribution.md` (TOML-first contribution path, every command validated against a tempdir), ADRs 0001–0005 under `docs/decisions/`, and the pillar-4 commercialization plan + preflight plans under `blueprint/commercialization/`
 
 ### Changed
 
-- docs: close the embedded-pane live-TUI e2e item; retire the usage-metering gap list; add MIT LICENSE and badges
+- change(security): plugin Ed25519 verification is on by **default** (`security.require_signature` now true) — unsigned remote installs are refused with the opt-out named; local `loom plugin register` is unchanged. Enforcement moved inside the registry so an unsigned plugin can never land half-installed
+- change(security): key-continuity pins for plugin installs — `{loom_dir}/auth/plugin-pins.json` (0600) records the signing key per tool; a later install signed with a different key refuses until the pin entry is deleted
+- change(runtime): `restricted` posture docs/AGENTS.md now describe the enforced state; Podman and Kubernetes stay deny-all until their wiring lands (ADR 0002)
+- docs: README/STATUS/VISION/ROADMAP reconciled against the code — 32 workspace members (incl. the standalone egress-proxy image crate), 37 top-level subcommands, Homebrew tap and source-install wording
+
+### Fixed
+
+- fix(cli): post-merge test-module seams in `skills.rs` (`update_lock` import, `validate_skill_file` path)
