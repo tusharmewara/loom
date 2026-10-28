@@ -8,7 +8,7 @@ use super::CpResult;
 use super::EnrollmentPending;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::response::Json;
+use axum::response::{Html, Json};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use chrono::Utc;
@@ -16,6 +16,7 @@ use loom_core::constants::LICENSE_VERIFY_PUBLIC_KEY;
 use loom_core::license::verify_license_key;
 use serde::Deserialize;
 use serde_json::Value;
+use std::fmt::Write;
 
 // ---------------------------------------------------------------------------
 // Request / response shapes
@@ -336,46 +337,240 @@ pub async fn idp_connect_stub() -> CpResult<(StatusCode, Json<Value>)> {
 // ---------------------------------------------------------------------------
 // Dashboard (server-rendered HTML, no framework)
 // ---------------------------------------------------------------------------
+//
+// Minimal "clean developer tool" aesthetic: system-ui type, restrained gray
+// slate/indigo-ish color hierarchy, generous spacing, tables for the roster
+// and machine tables, status badges that carry text labels (never color
+// alone). Inline CSS strings only — no framework, no template engine.
+
+const DASHBOARD_CSS: &str = r#"* { box-sizing: border-box; }
+body {
+  color: #111827;
+  background: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+  padding: 48px 20px;
+}
+.shell { max-width: 700px; margin: 0 auto; }
+h1 {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 8px 0;
+}
+h2 {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 4px 0;
+}
+h3 {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #6b7280;
+  margin: 40px 0 12px 0;
+}
+p { color: #4b5563; margin: 0 0 16px 0; }
+.meta {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  font-size: 13px;
+  color: #6b7280;
+  margin: 16px 0 32px 0;
+}
+table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #9ca3af;
+  padding: 10px 12px;
+  border-bottom: 2px solid #e5e7eb;
+}
+td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 14px;
+  color: #111827;
+}
+tr:last-child > td { border-bottom: none; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  color: #111827;
+  background: #f3f4f6;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid;
+}
+.badge--active { background: #ecfdf5; color: #065f46; border-color: #86efac; }
+.badge--revoked { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+.dim { color: #6b7280; }
+.note { font-size: 12px; color: #6b7280; }
+"#;
 
 pub async fn dashboard(
     State(state): State<AppState>,
     Path(org_id): Path<String>,
-) -> CpResult<String> {
+) -> CpResult<Html<String>> {
     let db = state.db.lock().unwrap();
     let Some((name, tier, _)) = db::get_org(&db, &org_id)? else {
         return Err(CpError::NotFound(format!("org {org_id} not found")));
     };
     let humans = db::list_humans(&db, &org_id)?;
     let machines = db::list_machines(&db, &org_id)?;
-    let mut html = String::from(
-        "<!doctype html><html><head><meta charset='utf-8'><title>Loom — Org </title>",
-    );
-    html.push_str(&name);
-    html.push_str("</title><style>body{font-family:system-ui,sans-serif;max-width:900px;margin:2rem;padding:1rem;line-height:1.5}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:.5rem;text-align:left}th{background:#f5f5f5}.badge{display:inline-block;padding:.1rem .4rem;border-radius:.3rem;font-size:.85rem}.ok{background:#e7f7e7;color:#1b5e20}.no{background:#fdecea;color:#b3261e}</style></head><body>");
-    html.push_str(&format!("<h1>Loom Control Plane</h1><h2>{}</h2>", escape_html(&name)));
-    html.push_str(&format!("<p><strong>Tier:</strong> {} &nbsp; <strong>Org:</strong> {}</p>", escape_html(&tier), org_id));
-    html.push_str("<h3>Roster</h3><table><thead><tr><th>Email</th><th>Role</th></tr></thead><tbody>");
+
+    let mut roster = String::new();
     for (email, role) in &humans {
-        html.push_str(&format!("<tr><td>{}</td><td>{}</td></tr>", escape_html(email), escape_html(role)));
+        write!(
+            roster,
+            "<tr><td>{}</td><td>{}</td></tr>",
+            escape_html(email),
+            escape_html(role)
+        )
+        .unwrap();
     }
+
+    let mut machine_rows = String::new();
+    for (machine_pub, revoked) in &machines {
+        let (status, badge_class) = if *revoked {
+            ("revoked", "badge--revoked")
+        } else {
+            ("active", "badge--active")
+        };
+        write!(
+            machine_rows,
+            "<tr><td><code>{}</code></td><td><span class=\"badge {}\">{}</span></td></tr>",
+            escape_html(machine_pub),
+            badge_class,
+            status
+        )
+        .unwrap();
+    }
+
+    let mut html = String::new();
+    write!(
+        html,
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Loom — {}</title><style>",
+        escape_html(&name)
+    )
+    .unwrap();
+    html.push_str(DASHBOARD_CSS);
+    html.push_str("</style></head><body><div class='shell'>");
+    write!(
+        html,
+        "<h1>Loom Control Plane</h1><h2>{}</h2>",
+        escape_html(&name)
+    )
+    .unwrap();
+    write!(
+        html,
+        "<p class='meta'><span class='dim'>Tier</span> {} &middot; <span class='dim'>Org</span> {}</p>",
+        escape_html(&tier),
+        escape_html(&org_id)
+    )
+    .unwrap();
+    html.push_str("<h3>Roster</h3><table><thead><tr><th>Email</th><th>Role</th></tr></thead><tbody>");
+    html.push_str(&roster);
     html.push_str("</tbody></table>");
     html.push_str("<h3>Enrolled Machines</h3><table><thead><tr><th>Machine public key</th><th>Status</th></tr></thead><tbody>");
-    for (machine_pub, revoked) in &machines {
-        let status = if *revoked { "revoked" } else { "active" };
-        let badge = if *revoked { "no" } else { "ok" };
-        html.push_str(&format!(
-            "<tr><td><code>{}</code></td><td><span class='badge {}'>{}</span></td></tr>",
-            escape_html(machine_pub),
-            badge,
-            status
-        ));
-    }
+    html.push_str(&machine_rows);
     html.push_str("</tbody></table>");
-    html.push_str("<p><em>Machines enroll via POST /api/v1/machine/enroll with an Ed25519 key and DPoP-signed challenge.</em></p>");
-    html.push_str("</body></html>");
-    Ok(html)
+    html.push_str("<p class='note'>Machines enroll via POST /api/v1/machine/enroll with an Ed25519 key and DPoP-signed challenge.</p>");
+    html.push_str("</div></body></html>");
+    Ok(Html(html))
 }
 
 fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{db, AppState, dashboard};
+    use axum::extract::{Path, State};
+    use axum::http::{header::CONTENT_TYPE, StatusCode};
+    use axum::response::{Html, IntoResponse};
+    use rusqlite::params;
+    use tempfile::{tempdir, TempDir};
+
+    async fn seed_state() -> (AppState, TempDir) {
+        let dir = tempdir().expect("create temp dir");
+        let db_path = dir.path().join("dashboard.db");
+        let state = AppState::new(dir.path(), &db_path)
+            .await
+            .expect("open control-plane state");
+        (state, dir)
+    }
+
+    #[tokio::test]
+    async fn dashboard_returns_html_with_org_roster_and_machine_status() {
+        let (state, _dir) = seed_state().await;
+        let org_id = "org-demo";
+
+        {
+            let db = state.db.lock().unwrap();
+            db::insert_org(&db, org_id, "Demo Org").unwrap();
+            db::insert_human(&db, org_id, "alice@example.com", "admin").unwrap();
+            db::insert_human(&db, org_id, "bob@example.com", "member").unwrap();
+            db::insert_machine_key(&db, org_id, "machine-pub-active").unwrap();
+            db::insert_machine_key(&db, org_id, "machine-pub-revoked").unwrap();
+            db.execute(
+                "UPDATE machine_keys SET revoked = 1 WHERE machine_pub = ?1",
+                params!["machine-pub-revoked"],
+            )
+            .unwrap();
+        }
+
+        let Html(html) = dashboard(State(state.clone()), Path(org_id.to_owned()))
+            .await
+            .expect("dashboard returns Ok(html)");
+
+        // 200 text/html contract.
+        let response = Html(html.clone()).into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[CONTENT_TYPE],
+            "text/html; charset=utf-8"
+        );
+
+        // Org identity, roster emails + roles, machine public keys.
+        assert!(html.contains("<title>Loom — Demo Org</title>"));
+        assert!(html.contains("Demo Org"));
+        assert!(html.contains("alice@example.com"));
+        assert!(html.contains("bob@example.com"));
+        assert!(html.contains("admin"));
+        assert!(html.contains("member"));
+        assert!(html.contains("machine-pub-active"));
+        assert!(html.contains("machine-pub-revoked"));
+
+        // Status strings per machine, text labels present (not color alone).
+        assert!(html.contains(">active<"));
+        assert!(html.contains(">revoked<"));
+
+        // Semantic tables for roster and machines.
+        assert_eq!(html.matches("<table").count(), 2);
+
+        // Status cells carry text labels; no inline color-only styling.
+        assert!(!html.contains("style="));
+        assert!(html.contains("badge--active"));
+        assert!(html.contains("badge--revoked"));
+    }
 }
