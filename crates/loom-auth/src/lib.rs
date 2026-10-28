@@ -4,6 +4,7 @@ pub mod export;
 pub mod grant;
 pub mod import;
 pub mod providers;
+pub mod role_store;
 pub mod vault;
 
 pub use audit::AuditLogger;
@@ -13,7 +14,9 @@ pub use export::{
 };
 
 use anyhow::Result;
-use loom_core::{AuthProviderTrait, EncryptedCredential, HealthCheck, HealthStatus, ProviderEntry};
+use loom_core::{
+    AuthProviderTrait, AuditEntry, EncryptedCredential, HealthCheck, HealthStatus, ProviderEntry,
+};
 use std::path::Path;
 use std::sync::Arc;
 use tracing::warn;
@@ -36,6 +39,7 @@ pub struct AuthManager {
     providers: providers::ProviderRegistry,
     importer: import::AutoImporter,
     grants: grant::GrantStore,
+    role_store: role_store::RoleStore,
 }
 
 impl AuthManager {
@@ -55,6 +59,7 @@ impl AuthManager {
         let providers = providers::ProviderRegistry::new(loom_dir);
         let importer = import::AutoImporter::new(loom_dir);
         let grants = grant::GrantStore::new(loom_dir);
+        let role_store = role_store::RoleStore::new(loom_dir);
 
         Self {
             vault,
@@ -63,6 +68,7 @@ impl AuthManager {
             providers,
             importer,
             grants,
+            role_store,
         }
     }
 
@@ -98,6 +104,33 @@ impl AuthManager {
     /// Reference to the ACL engine.
     pub fn acl(&self) -> &acl::AclEngine {
         &self.acl
+    }
+
+    /// Reference to the role store (admin/member RBAC).
+    pub fn role_store(&self) -> &role_store::RoleStore {
+        &self.role_store
+    }
+
+    /// `true` when `identity` resolves to `Admin`.
+    pub fn is_admin(&self, identity: &str) -> bool {
+        self.role_store.is_admin(identity)
+    }
+
+    /// `true` when `identity` resolves to `Member`.
+    pub fn is_member(&self, identity: &str) -> bool {
+        self.role_store.is_member(identity)
+    }
+
+    /// Require `identity` to be `Admin`; returns an error otherwise.
+    pub fn require_admin(&self, identity: &str) -> Result<()> {
+        if self.role_store.is_admin(identity) {
+            Ok(())
+        } else {
+            anyhow::bail!(
+                "admin required: identity '{}' is not an admin",
+                identity
+            );
+        }
     }
 
     /// Check if a requesting tool has access to a target tool/provider.
@@ -375,6 +408,149 @@ impl AuthManager {
     pub fn list_grants(&self) -> Vec<GrantRecord> {
         self.grants.reload_if_changed();
         self.grants.list()
+    }
+
+    /// List grants visible to `identity`.
+    ///
+    /// Admin → all grants.  Member → only grants scoped to `identity` as the
+    /// requesting tool (a member sees their own grants, never another
+    /// member's).
+    pub fn list_grants_for(&self, identity: &str) -> Vec<GrantRecord> {
+        self.grants.reload_if_changed();
+        if self.role_store.is_admin(identity) {
+            return self.grants.list();
+        }
+        self.grants
+            .list()
+            .into_iter()
+            .filter(|record| record.tool == identity)
+            .collect()
+    }
+
+    /// Export a credential with role-based access control.
+    ///
+    /// Admin → proceeds if the ACL allows.  Member → proceeds only when
+    /// `requesting_tool == identity` and the ACL allows; otherwise denied.
+    pub fn export_credential_for(
+        &self,
+        provider_id: &str,
+        requesting_tool: &str,
+        identity: &str,
+    ) -> Result<EncryptedCredential> {
+        if self.vault.is_locked() {
+            anyhow::bail!("vault is locked");
+        }
+
+        // Role gate: members may only export their own credentials.
+        if !self.role_store.is_admin(identity) && requesting_tool != identity {
+            self.audit
+                .log_denied_access(requesting_tool, provider_id, "export denied by role");
+            anyhow::bail!(
+                "access denied: member '{}' may not export credential for '{}'",
+                identity,
+                provider_id
+            );
+        }
+
+        // ACL gate (same as export_credential).
+        if !self.acl.check_access(provider_id, requesting_tool) {
+            self.audit
+                .log_denied_access(requesting_tool, provider_id, "export denied by ACL");
+            anyhow::bail!(
+                "access denied: tool '{}' not authorized to export credential for '{}'",
+                requesting_tool,
+                provider_id
+            );
+        }
+
+        if let Err(e) = self.audit.log_read(requesting_tool, provider_id, true) {
+            tracing::warn!(error = %e, "failed to audit credential export");
+        }
+
+        let plaintext = self
+            .vault
+            .get_credential(provider_id)?
+            .ok_or_else(|| anyhow::anyhow!("no credential found for provider: {provider_id}"))?;
+
+        let (encrypted_data, nonce) = self.vault.encrypt_for_export(&plaintext)?;
+
+        Ok(EncryptedCredential {
+            provider_id: provider_id.to_string(),
+            encrypted_data,
+            nonce,
+            created_at: loom_core::rfc3339_now(),
+        })
+    }
+
+    /// Redeem a grant with role-based access control.
+    ///
+    /// Admin → proceeds if `verify_grant` passes.  Member → proceeds only
+    /// when `tool == identity` and `verify_grant` passes.
+    pub fn redeem_grant_for(
+        &self,
+        token: &str,
+        tool: &str,
+        run_id: &str,
+        identity: &str,
+    ) -> Result<String> {
+        let record = self.verify_grant(token, tool, run_id)?;
+
+        // Role gate: members may only redeem their own grants.
+        if !self.role_store.is_admin(identity) && tool != identity {
+            self.audit.log_denied_access(
+                tool,
+                &record.provider_id,
+                "grant redemption denied by role",
+            );
+            anyhow::bail!(
+                "access denied: member '{}' may not redeem grant for tool '{}'",
+                identity,
+                tool
+            );
+        }
+
+        // ACL re-check (same as redeem_grant).
+        if !self.acl.check_access(&record.provider_id, tool) {
+            self.audit.log_denied_access(
+                tool,
+                &record.provider_id,
+                "grant redemption denied by ACL",
+            );
+            anyhow::bail!(
+                "access denied: tool '{}' not authorized for provider '{}'",
+                tool,
+                record.provider_id
+            );
+        }
+
+        let plaintext = self
+            .vault
+            .get_credential(&record.provider_id)?
+            .ok_or_else(|| {
+                anyhow::anyhow!("no credential found for provider: {}", record.provider_id)
+            })?;
+        self.audit_grant(
+            "grant.redeem",
+            tool,
+            &record.provider_id,
+            &record,
+            "granted",
+        )?;
+        Ok(plaintext)
+    }
+
+    /// List audit entries visible to `identity`.
+    ///
+    /// Admin → all entries.  Member → only entries where
+    /// `requesting_tool == identity` (their own actions).
+    pub fn audit_entries_for(&self, identity: &str) -> Vec<AuditEntry> {
+        let all = self.audit.list().unwrap_or_default();
+        if self.role_store.is_admin(identity) {
+            return all;
+        }
+        all.into_iter()
+            .filter(|entry| entry.requesting_tool == identity)
+            .collect()
     }
 
     /// Record a grant lifecycle event in the existing hash-chained audit log.
@@ -663,5 +839,277 @@ credential = "sk-imported"
         let result = manager.export_credential("openai", "test-tool");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("vault is locked"));
+    }
+
+    // ─── Phase 4: vault broker v1 (RBAC roles) ─────────────────────
+
+    #[test]
+    fn test_role_admin_member_default() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let manager = AuthManager::new(dir.path().to_str().unwrap());
+
+        // No roles.json, no org.toml → everyone is Member by default.
+        assert!(manager.is_member("alice"));
+        assert!(!manager.is_admin("alice"));
+        assert!(manager.is_member("bob"));
+        assert!(!manager.is_admin("bob"));
+
+        // require_admin rejects non-admin.
+        assert!(manager.require_admin("alice").is_err());
+    }
+
+    #[test]
+    fn test_role_explicit_roles_json_wins() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("auth")).unwrap();
+        std::fs::write(
+            dir.path().join("auth").join("roles.json"),
+            r#"{"roles": {"alice": "admin", "bob": "member"}}"#,
+        )
+        .unwrap();
+
+        let manager = AuthManager::new(dir.path().to_str().unwrap());
+
+        assert!(manager.is_admin("alice"));
+        assert!(!manager.is_member("alice"));
+        assert!(manager.is_member("bob"));
+        assert!(!manager.is_admin("bob"));
+
+        // require_admin passes for admin.
+        assert!(manager.require_admin("alice").is_ok());
+        assert!(manager.require_admin("bob").is_err());
+    }
+
+    #[test]
+    fn test_role_org_toml_offline_interim() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(
+            dir.path().join("config").join("org.toml"),
+            r#"[org]
+members = ["alice", "bob"]
+admins = ["alice"]
+"#,
+        )
+        .unwrap();
+
+        let manager = AuthManager::new(dir.path().to_str().unwrap());
+
+        assert!(manager.is_admin("alice"));
+        assert!(manager.is_member("bob"));
+        assert!(!manager.is_admin("bob"));
+        assert!(manager.is_member("carol")); // default member
+    }
+
+    #[test]
+    fn test_role_cp_membership_takes_precedence_over_org_toml() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::create_dir_all(dir.path().join("org")).unwrap();
+
+        // org.toml says carol is a plain member.
+        std::fs::write(
+            dir.path().join("config").join("org.toml"),
+            r#"[org]
+members = ["carol"]
+admins = []
+"#,
+        )
+        .unwrap();
+
+        // CP membership says carol is an admin.
+        std::fs::write(
+            dir.path().join("org").join("membership.json"),
+            r#"{"org": {"id": "org-1", "name": "Test", "tier": "free", "admins": ["carol"]}}"#,
+        )
+        .unwrap();
+
+        let manager = AuthManager::new(dir.path().to_str().unwrap());
+
+        assert!(manager.is_admin("carol"));
+    }
+
+    #[test]
+    fn test_list_grants_for_member_scoped() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut manager = AuthManager::new(dir.path().to_str().unwrap());
+        manager.unlock_vault("master-pass").unwrap();
+
+        // Set credentials so grants can be issued.
+        manager.vault().set_credential("openai", "sk-a").unwrap();
+        manager.vault().set_credential("anthropic", "sk-b").unwrap();
+
+        // Two members each get a grant.
+        manager
+            .issue_grant("openai", "run-1", "member-a", 900)
+            .unwrap();
+        manager
+            .issue_grant("anthropic", "run-2", "member-b", 900)
+            .unwrap();
+
+        // member-a sees only their own grant.
+        let a_grants = manager.list_grants_for("member-a");
+        assert_eq!(a_grants.len(), 1);
+        assert_eq!(a_grants[0].tool, "member-a");
+        assert_eq!(a_grants[0].provider_id, "openai");
+
+        // member-b sees only their own grant.
+        let b_grants = manager.list_grants_for("member-b");
+        assert_eq!(b_grants.len(), 1);
+        assert_eq!(b_grants[0].tool, "member-b");
+        assert_eq!(b_grants[0].provider_id, "anthropic");
+
+        // Admin (via roles.json) sees all — separate dir so we don't see
+        // grants persisted by `manager` above.
+        let dir2 = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir2.path().join("auth")).unwrap();
+        std::fs::write(
+            dir2.path().join("auth").join("roles.json"),
+            r#"{"roles": {"admin-1": "admin"}}"#,
+        )
+        .unwrap();
+        let mut manager2 = AuthManager::new(dir2.path().to_str().unwrap());
+        manager2.unlock_vault("master-pass").unwrap();
+        manager2.vault().set_credential("openai", "sk-a").unwrap();
+        manager2.vault().set_credential("anthropic", "sk-b").unwrap();
+        manager2
+            .issue_grant("openai", "run-1", "member-a", 900)
+            .unwrap();
+        manager2
+            .issue_grant("anthropic", "run-2", "member-b", 900)
+            .unwrap();
+
+        let all = manager2.list_grants_for("admin-1");
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn test_export_credential_for_member_denied_other_provider() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut manager = AuthManager::new(dir.path().to_str().unwrap());
+        manager.unlock_vault("master-pass").unwrap();
+        manager.vault().set_credential("openai", "sk-secret").unwrap();
+
+        // member-a tries to export openai credential — not their own tool.
+        let result = manager.export_credential_for("openai", "loom-cli", "member-a");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("may not export credential"));
+    }
+
+    #[test]
+    fn test_export_credential_for_admin_allowed() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("auth")).unwrap();
+        std::fs::write(
+            dir.path().join("auth").join("roles.json"),
+            r#"{"roles": {"admin-1": "admin"}}"#,
+        )
+        .unwrap();
+
+        let mut manager = AuthManager::new(dir.path().to_str().unwrap());
+        manager.unlock_vault("master-pass").unwrap();
+        manager.vault().set_credential("openai", "sk-secret").unwrap();
+
+        // Admin can export any credential (ACL allows by default).
+        let exported = manager.export_credential_for("openai", "loom-cli", "admin-1");
+        assert!(exported.is_ok());
+        assert_eq!(exported.unwrap().provider_id, "openai");
+    }
+
+    #[test]
+    fn test_redeem_grant_for_member_denied_other_tool() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut manager = AuthManager::new(dir.path().to_str().unwrap());
+        manager.unlock_vault("master-pass").unwrap();
+        manager.vault().set_credential("openai", "sk-secret").unwrap();
+
+        // member-a gets a grant scoped to their own tool.
+        let issued = manager
+            .issue_grant("openai", "run-1", "member-a", 900)
+            .unwrap();
+
+        // member-b tries to redeem member-a's grant — denied by role.
+        let result = manager.redeem_grant_for(&issued.token, "member-a", "run-1", "member-b");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("may not redeem grant"));
+    }
+
+    #[test]
+    fn test_redeem_grant_for_admin_allowed() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("auth")).unwrap();
+        std::fs::write(
+            dir.path().join("auth").join("roles.json"),
+            r#"{"roles": {"admin-1": "admin"}}"#,
+        )
+        .unwrap();
+
+        let mut manager = AuthManager::new(dir.path().to_str().unwrap());
+        manager.unlock_vault("master-pass").unwrap();
+        manager.vault().set_credential("openai", "sk-secret").unwrap();
+
+        let issued = manager
+            .issue_grant("openai", "run-1", "member-a", 900)
+            .unwrap();
+
+        // Admin can redeem any grant (ACL allows by default).
+        let plaintext = manager
+            .redeem_grant_for(&issued.token, "member-a", "run-1", "admin-1")
+            .unwrap();
+        assert_eq!(plaintext, "sk-secret");
+    }
+
+    #[test]
+    fn test_audit_entries_for_member_scoped() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut manager = AuthManager::new(dir.path().to_str().unwrap());
+        manager.unlock_vault("master-pass").unwrap();
+        manager.vault().set_credential("openai", "sk-secret").unwrap();
+
+        // member-a does a grant issue + redeem (audited with requesting_tool).
+        let issued = manager
+            .issue_grant("openai", "run-1", "member-a", 900)
+            .unwrap();
+        let _ = manager.redeem_grant(&issued.token, "member-a", "run-1").unwrap();
+
+        // member-b does a grant issue (audited with member-b).
+        manager.vault().set_credential("anthropic", "sk-b").unwrap();
+        let _ = manager.issue_grant("anthropic", "run-2", "member-b", 900).unwrap();
+
+        // member-a sees only their own entries.
+        let a_entries = manager.audit_entries_for("member-a");
+        assert!(!a_entries.is_empty());
+        assert!(a_entries.iter().all(|e| e.requesting_tool == "member-a"));
+
+        // member-b sees only their own entries.
+        let b_entries = manager.audit_entries_for("member-b");
+        assert!(!b_entries.is_empty());
+        assert!(b_entries.iter().all(|e| e.requesting_tool == "member-b"));
+
+        // Admin (via roles.json) sees all.
+        std::fs::write(
+            dir.path().join("auth").join("roles.json"),
+            r#"{"roles": {"admin-1": "admin"}}"#,
+        )
+        .unwrap();
+        let mut manager2 = AuthManager::new(dir.path().to_str().unwrap());
+        manager2.unlock_vault("master-pass").unwrap();
+        manager2.vault().set_credential("openai", "sk-secret").unwrap();
+        manager2.vault().set_credential("anthropic", "sk-b").unwrap();
+        manager2
+            .issue_grant("openai", "run-1", "member-a", 900)
+            .unwrap();
+        manager2
+            .issue_grant("anthropic", "run-2", "member-b", 900)
+            .unwrap();
+
+        let all = manager2.audit_entries_for("admin-1");
+        assert!(all.len() >= 4); // 4 grant issue events
     }
 }
