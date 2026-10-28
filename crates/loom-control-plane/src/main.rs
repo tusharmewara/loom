@@ -26,6 +26,14 @@ struct Args {
     /// Loom ecosystem directory (overrides `LOOM_AGENTS_DIR` / `~/.loom`)
     #[arg(long)]
     loom_dir: Option<String>,
+
+    /// Stripe API key for checkout session creation (sk_test_... or sk_live_...)
+    #[arg(long)]
+    stripe_api_key: Option<String>,
+
+    /// Stripe webhook signing secret (whsec_...)
+    #[arg(long)]
+    stripe_webhook_secret: Option<String>,
 }
 
 #[tokio::main]
@@ -51,7 +59,13 @@ async fn main() -> Result<()> {
         std::path::PathBuf::from(db)
     };
 
-    let state = AppState::new(Path::new(&loom_dir), &db).await?;
+    let state = AppState::new(
+        Path::new(&loom_dir),
+        &db,
+        args.stripe_api_key,
+        args.stripe_webhook_secret,
+    )
+    .await?;
     let app = build_app(state);
 
     let listener = tokio::net::TcpListener::bind(args.addr)

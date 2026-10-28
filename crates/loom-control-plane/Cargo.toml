@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 loom-core = { path = "../loom-core" }
+loom-billing = { path = "../loom-billing" }
 axum = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 serde = { workspace = true }
@@ -23,6 +24,7 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 shellexpand = { workspace = true }
+http = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

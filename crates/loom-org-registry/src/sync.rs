@@ -540,7 +540,13 @@ mod tests {
 
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test_cp.db");
-        let state = AppState::new(dir.path(), &db_path).await.expect("cp state");
+        let state = AppState::new(
+            dir.path(),
+            &db_path,
+            None,
+            None,
+        )
+        .await.expect("cp state");
 
         // Seed orgs with registry entries directly in AppState's org_registry.
         {

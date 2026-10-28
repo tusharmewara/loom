@@ -1,0 +1,28 @@
+[package]
+name = "loom-billing"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true }
+hex = { workspace = true }
+loom-core = { path = "../loom-core" }
+thiserror = { workspace = true }
+ureq = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
+
+# axum, tower, hyper, http come in via axum; invisible to cargo-machete's source scan.
+[package.metadata.cargo-machete]
+ignored = ["tower", "hyper", "http"]

@@ -15,7 +15,9 @@ use base64::Engine;
 use chrono::Utc;
 use loom_core::constants::LICENSE_VERIFY_PUBLIC_KEY;
 use loom_core::license::verify_license_key;
+use loom_billing::StripeClient;
 use serde::Deserialize;
+use serde::Serialize;
 use serde_json::Value;
 use std::fmt::Write;
 
@@ -50,6 +52,17 @@ pub struct EnrollChallenge {
 pub struct EnrollConfirm {
     pub machine_pub: Value, // JWK OKP Ed25519
     pub signature: String,   // hex Ed25519 signature over machine_pub_bytes || nonce_bytes
+}
+
+#[derive(Deserialize)]
+pub struct CheckoutRequest {
+    pub seats: Option<u32>,
+}
+
+#[derive(Serialize)]
+pub struct CheckoutResponse {
+    pub session_id: String,
+    pub url: String,
 }
 
 fn default_role() -> String {
@@ -333,6 +346,76 @@ pub async fn idp_connect_stub() -> CpResult<(StatusCode, Json<Value>)> {
             "message": "IdP federation not yet wired — see phase 4"
         })),
     ))
+}
+
+// ---------------------------------------------------------------------------
+// Stripe billing (phase 6) — checkout + webhook.
+// ---------------------------------------------------------------------------
+
+pub async fn checkout(
+    State(state): State<AppState>,
+    Path(org_id): Path<String>,
+    Json(payload): Json<CheckoutRequest>,
+) -> CpResult<Json<CheckoutResponse>> {
+    let stripe_api_key = state
+        .stripe_api_key
+        .as_ref()
+        .ok_or_else(|| CpError::BadRequest("billing not configured".into()))?;
+
+    let stripe_client = StripeClient::new(stripe_api_key.clone());
+    let seats = payload.seats.unwrap_or(1);
+    let session = stripe_client.create_checkout_session(&org_id, (seats * 2000) as u64)?;
+
+    Ok(Json(CheckoutResponse {
+        session_id: session.session_id,
+        url: session.url,
+    }))
+}
+
+pub async fn stripe_webhook(
+    State(state): State<AppState>,
+    Json(payload): Json<Value>,
+) -> CpResult<Json<Value>> {
+    let billing = state
+        .billing
+        .as_ref()
+        .ok_or_else(|| CpError::BadRequest("billing not configured".into()))?;
+
+    let event_type = payload["type"]
+        .as_str()
+        .ok_or_else(|| CpError::BadRequest("missing event type".into()))?
+        .to_string();
+
+    // Only handle checkout.session.completed
+    if event_type != "checkout.session.completed" {
+        return Ok(Json(serde_json::json!({
+            "received": true,
+            "event_type": event_type,
+            "action": "ignored"
+        })));
+    }
+
+    // Parse the checkout session from the payload
+    let session_id = payload["data"]["object"]["id"]
+        .as_str()
+        .ok_or_else(|| CpError::BadRequest("missing checkout session id".into()))?
+        .to_string();
+    let org_id = payload["data"]["object"]["metadata"]["org_id"]
+        .as_str()
+        .ok_or_else(|| CpError::BadRequest("missing org_id in session metadata".into()))?
+        .to_string();
+
+    // Issue a paid license (1 seat for now)
+    let license_key = billing.issue_license_for_session(&org_id, 1, &session_id)?;
+
+    Ok(Json(serde_json::json!({
+        "received": true,
+        "event_type": event_type,
+        "action": "license_issued",
+        "org_id": org_id,
+        "session_id": session_id,
+        "license_key_prefix": &license_key[..8.min(license_key.len())],
+    })))
 }
 
 // ---------------------------------------------------------------------------
@@ -624,9 +707,14 @@ mod tests {
     async fn seed_state() -> (AppState, TempDir) {
         let dir = tempdir().expect("create temp dir");
         let db_path = dir.path().join("dashboard.db");
-        let state = AppState::new(dir.path(), &db_path)
-            .await
-            .expect("open control-plane state");
+        let state = AppState::new(
+            dir.path(),
+            &db_path,
+            None,
+            None,
+        )
+        .await
+        .expect("open control-plane state");
         (state, dir)
     }
 

@@ -19,7 +19,12 @@ use tokio::net::TcpListener;
 async fn spawn_cp() -> u16 {
     let dir = tempdir().unwrap();
     let db = dir.path().join("cp.db");
-    let state = AppState::new(dir.path(), &db)
+    let state = AppState::new(
+            dir.path(),
+            &db,
+            None,
+            None,
+        )
         .await
         .expect("cp state");
     let app = build_app(state);

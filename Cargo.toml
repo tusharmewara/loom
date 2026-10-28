@@ -23,6 +23,7 @@ members = [
     "crates/loom-tui",
     "crates/loom-mcp-server",
     "crates/loom-org-registry",
+    "crates/loom-billing",
     "crates/loom-trackers",
     "crates/loom-parallel", "crates/loom-knowledge",
     "crates/loom-remote",
@@ -78,6 +79,7 @@ semver = "1"
 tonic = "0.13"
 prost = "0.13"
 tonic-build = "0.13"
+http = "1"
 async-stream = "0.3"
 axum = "0.8"
 tokio-stream = { version = "0.1" }

@@ -39,6 +39,11 @@ pub struct AppState {
     /// Org registries: org_id -> {skills, mcps, templates}.
     /// Client-side pull-through (phase 5) reads this via GET /api/v1/org/{id}/registry.
     pub org_registry: Arc<Mutex<HashMap<String, OrgRegistryData>>>,
+    /// Billing handler: Stripe webhook verification + license issuance.
+    /// None if no Stripe webhook secret configured (billing disabled).
+    pub billing: Option<Arc<loom_billing::WebhookHandler>>,
+    /// Stripe API key for creating checkout sessions.
+    pub stripe_api_key: Option<String>,
 }
 
 /// Org registry data served at GET /api/v1/org/{id}/registry.
@@ -50,7 +55,12 @@ pub struct OrgRegistryData {
 }
 
 impl AppState {
-    pub async fn new(loom_dir: &Path, db_path: &Path) -> anyhow::Result<Self> {
+    pub async fn new(
+        loom_dir: &Path,
+        db_path: &Path,
+        stripe_api_key: Option<String>,
+        stripe_webhook_secret: Option<String>,
+    ) -> anyhow::Result<Self> {
         std::fs::create_dir_all(db_path.parent().unwrap_or(loom_dir))
             .with_context(|| format!("creating org dir {:?}", db_path.parent()))?;
         let conn = rusqlite::Connection::open(db_path)
@@ -58,11 +68,25 @@ impl AppState {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         db::init_schema(&conn)?;
 
+        let billing = match (&stripe_api_key, &stripe_webhook_secret) {
+            (Some(api_key), Some(webhook_secret)) => {
+                let issuer = loom_billing::LicenseIssuer::new(api_key)
+                    .map_err(|e| anyhow::anyhow!("invalid billing key: {e}"))?;
+                Some(Arc::new(loom_billing::WebhookHandler::new(
+                    webhook_secret,
+                    issuer,
+                )))
+            }
+            _ => None,
+        };
+
         Ok(Self {
             db: Arc::new(Mutex::new(conn)),
             pending_enrollments: Arc::new(Mutex::new(HashMap::new())),
             jtis: Arc::new(Mutex::new(HashSet::new())),
             org_registry: Arc::new(Mutex::new(HashMap::new())),
+            billing,
+            stripe_api_key: stripe_api_key.clone(),
         })
     }
 }
@@ -91,6 +115,16 @@ pub fn build_app(state: AppState) -> Router {
         .route(
             "/api/v1/machine/enroll/confirm",
             post(handlers::enroll_confirm),
+        )
+        // Checkout (public — customer initiates purchase)
+        .route(
+            "/api/v1/org/{org_id}/checkout",
+            get(handlers::checkout),
+        )
+        // Stripe webhook (public — Stripe sends events here)
+        .route(
+            "/api/v1/webhooks/stripe",
+            post(handlers::stripe_webhook),
         )
         .with_state(state.clone());
 
@@ -168,6 +202,12 @@ impl IntoResponse for CpError {
 
 impl From<anyhow::Error> for CpError {
     fn from(e: anyhow::Error) -> Self {
+        CpError::Internal(e.to_string())
+    }
+}
+
+impl From<loom_billing::issuance::IssuanceError> for CpError {
+    fn from(e: loom_billing::issuance::IssuanceError) -> Self {
         CpError::Internal(e.to_string())
     }
 }
