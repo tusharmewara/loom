@@ -2211,7 +2211,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "loom"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2263,7 +2263,7 @@ dependencies = [
 
 [[package]]
 name = "loom-adapters"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "loom-auth",
@@ -2279,7 +2279,7 @@ dependencies = [
 
 [[package]]
 name = "loom-analytics"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2292,7 +2292,7 @@ dependencies = [
 
 [[package]]
 name = "loom-ast"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "serde",
  "streaming-iterator",
@@ -2308,7 +2308,7 @@ dependencies = [
 
 [[package]]
 name = "loom-auth"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -2328,7 +2328,7 @@ dependencies = [
 
 [[package]]
 name = "loom-billing"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2346,7 +2346,7 @@ dependencies = [
 
 [[package]]
 name = "loom-conflict"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "serde",
  "tempfile",
@@ -2354,7 +2354,7 @@ dependencies = [
 
 [[package]]
 name = "loom-control-plane"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2383,7 +2383,7 @@ dependencies = [
 
 [[package]]
 name = "loom-core"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2406,7 +2406,7 @@ dependencies = [
 
 [[package]]
 name = "loom-debug"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -2415,7 +2415,7 @@ dependencies = [
 
 [[package]]
 name = "loom-discovery"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "loom-core",
@@ -2432,7 +2432,7 @@ dependencies = [
 
 [[package]]
 name = "loom-event-bus"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "criterion",
@@ -2446,7 +2446,7 @@ dependencies = [
 
 [[package]]
 name = "loom-ffi"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "loom-core",
@@ -2461,7 +2461,7 @@ dependencies = [
 
 [[package]]
 name = "loom-generic-adapter"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "loom-core",
@@ -2476,7 +2476,7 @@ dependencies = [
 
 [[package]]
 name = "loom-hindsight"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2490,7 +2490,7 @@ dependencies = [
 
 [[package]]
 name = "loom-hooks"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2505,7 +2505,7 @@ dependencies = [
 
 [[package]]
 name = "loom-integration-tests"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2533,7 +2533,7 @@ dependencies = [
 
 [[package]]
 name = "loom-ipc"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -2546,7 +2546,7 @@ dependencies = [
 
 [[package]]
 name = "loom-knowledge"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2561,7 +2561,7 @@ dependencies = [
 
 [[package]]
 name = "loom-lsp"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "lsp-types",
@@ -2571,7 +2571,7 @@ dependencies = [
 
 [[package]]
 name = "loom-mcp"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "loom-core",
@@ -2587,7 +2587,7 @@ dependencies = [
 
 [[package]]
 name = "loom-mcp-server"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2604,7 +2604,7 @@ dependencies = [
 
 [[package]]
 name = "loom-org-registry"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2623,7 +2623,7 @@ dependencies = [
 
 [[package]]
 name = "loom-parallel"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2634,7 +2634,7 @@ dependencies = [
 
 [[package]]
 name = "loom-remote"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "shellexpand",
@@ -2642,7 +2642,7 @@ dependencies = [
 
 [[package]]
 name = "loom-review"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2658,7 +2658,7 @@ dependencies = [
 
 [[package]]
 name = "loom-routing"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "loom-core",
@@ -2673,7 +2673,7 @@ dependencies = [
 
 [[package]]
 name = "loom-rules"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2688,7 +2688,7 @@ dependencies = [
 
 [[package]]
 name = "loom-runtime"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2706,7 +2706,7 @@ dependencies = [
 
 [[package]]
 name = "loom-sessions"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2729,7 +2729,7 @@ dependencies = [
 
 [[package]]
 name = "loom-skills"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "hex",
@@ -2747,7 +2747,7 @@ dependencies = [
 
 [[package]]
 name = "loom-telemetry"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "loom-core",
@@ -2760,7 +2760,7 @@ dependencies = [
 
 [[package]]
 name = "loom-trackers"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2774,7 +2774,7 @@ dependencies = [
 
 [[package]]
 name = "loom-tui"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2794,7 +2794,7 @@ dependencies = [
 
 [[package]]
 name = "loom-workflow"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2823,7 +2823,7 @@ dependencies = [
 
 [[package]]
 name = "loomd"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "async-stream",
