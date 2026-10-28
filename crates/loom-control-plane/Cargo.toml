@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 loom-core = { path = "../loom-core" }
 loom-billing = { path = "../loom-billing" }
+loom-analytics = { path = "../loom-analytics" }
 axum = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 serde = { workspace = true }

@@ -16,6 +16,7 @@ path = "src/bin/loom-admin.rs"
 
 [dependencies]
 loom-core = { path = "../loom-core" }
+loom-analytics = { path = "../loom-analytics" }
 loom-discovery = { path = "../loom-discovery" }
 loom-generic-adapter = { path = "../loom-generic-adapter" }
 loom-ipc = { path = "../loom-ipc" }
