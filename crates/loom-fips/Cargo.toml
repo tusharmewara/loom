@@ -1,0 +1,21 @@
+[package]
+name = "loom-fips"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+anyhow = { workspace = true }
+ring = { version = "0.17", features = ["fips"] }
+ed25519-dalek = { workspace = true, optional = true }
+rand_core = { workspace = true }
+zeroize = { workspace = true }
+
+[features]
+default = []
+fips = ["ring/fips"]
+non-fips = ["ed25519-dalek"]
+
+[lints]
+workspace = true

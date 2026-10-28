@@ -1,0 +1,24 @@
+[package]
+name = "loom-sso"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+openidconnect = { version = "4", features = ["chrono"] }
+xmlsec = { version = "0.3" }
+x509-parser = { version = "0.16" }
+base64 = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+mockito = { version = "1", features = ["chrono"] }
+
+[lints]
+workspace = true
