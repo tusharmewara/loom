@@ -17,6 +17,7 @@ pub mod issues;
 pub mod knowledge;
 pub mod license;
 pub mod lock;
+pub mod org;
 pub mod lsp;
 pub mod mcp;
 pub mod memory;

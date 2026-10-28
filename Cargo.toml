@@ -51,7 +51,7 @@ anyhow = "1"
 thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["json"] }
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
 rusqlite = { version = "0.31", features = ["bundled"] }
@@ -78,6 +78,7 @@ tonic = "0.13"
 prost = "0.13"
 tonic-build = "0.13"
 async-stream = "0.3"
+axum = "0.8"
 tokio-stream = { version = "0.1" }
 bollard = { version = "0.18", features = ["tokio-stream"] }
 async-trait = "0.1"

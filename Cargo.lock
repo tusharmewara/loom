@@ -194,10 +194,13 @@ checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
 dependencies = [
  "axum-core",
  "bytes",
+ "form_urlencoded",
  "futures-util",
  "http",
  "http-body",
  "http-body-util",
+ "hyper",
+ "hyper-util",
  "itoa",
  "matchit",
  "memchr",
@@ -205,10 +208,15 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "serde_core",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_urlencoded",
  "sync_wrapper",
+ "tokio",
  "tower 0.5.3",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -227,6 +235,7 @@ dependencies = [
  "sync_wrapper",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -2312,6 +2321,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "loom-control-plane"
+version = "0.11.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "clap",
+ "ed25519-dalek",
+ "hex",
+ "loom-core",
+ "rand_core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "shellexpand",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "loom-core"
 version = "0.11.0"
 dependencies = [
@@ -2438,9 +2473,11 @@ name = "loom-integration-tests"
 version = "0.11.0"
 dependencies = [
  "anyhow",
+ "axum",
  "chrono",
  "loom-adapters",
  "loom-auth",
+ "loom-control-plane",
  "loom-core",
  "loom-hooks",
  "loom-ipc",
@@ -2456,6 +2493,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml",
+ "ureq",
 ]
 
 [[package]]
@@ -3830,6 +3868,17 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "serde_path_to_error"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10a9ff822e371bb5403e391ecd83e182e0e77ba7f6fe0160b795797109d1b457"
+dependencies = [
+ "itoa",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]

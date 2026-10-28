@@ -2,6 +2,7 @@ pub mod config;
 pub mod constants;
 pub mod license;
 pub mod lock;
+pub mod org;
 pub mod plugin_registry;
 pub mod types;
 

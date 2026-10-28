@@ -1286,7 +1286,7 @@ mod docker_client {
                 .client
                 .create_container(
                     Some(CreateContainerOptions {
-                        name: proxy_name.clone(),
+                        name: proxy_name,
                         platform: None,
                     }),
                     proxy,
@@ -1305,7 +1305,7 @@ mod docker_client {
                     .connect_network(
                         "bridge",
                         bollard::network::ConnectNetworkOptions {
-                            container: proxy_name.clone(),
+                            container: proxy_name,
                             endpoint_config: bollard::models::EndpointSettings::default(),
                         },
                     )
