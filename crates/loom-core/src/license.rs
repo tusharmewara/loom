@@ -296,8 +296,6 @@ impl LicenseState {
 pub struct License {
     payload: Option<LicensePayload>,
     invalid_reason: Option<String>,
-    #[allow(dead_code)]
-    verify_key: String,
 }
 
 impl License {
@@ -313,7 +311,6 @@ impl License {
             Err(_) => Self {
                 payload: None,
                 invalid_reason: None,
-                verify_key: public_key_hex.to_string(),
             },
         }
     }
@@ -324,12 +321,10 @@ impl License {
             Ok(payload) => Self {
                 payload: Some(payload),
                 invalid_reason: None,
-                verify_key: public_key_hex.to_string(),
             },
             Err(err) => Self {
                 payload: None,
                 invalid_reason: Some(err.to_string()),
-                verify_key: public_key_hex.to_string(),
             },
         }
     }

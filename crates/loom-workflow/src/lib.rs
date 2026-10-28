@@ -15,15 +15,12 @@ pub use task_manager::TaskManager;
 pub use template_manager::TemplateManager;
 
 pub struct WorkflowEngine {
-    #[allow(dead_code)]
-    loom_dir: String,
     orchestrator: TaskOrchestrator,
 }
 
 impl WorkflowEngine {
     pub fn new(loom_dir: &str) -> Self {
         Self {
-            loom_dir: loom_dir.to_string(),
             orchestrator: TaskOrchestrator::new(loom_dir),
         }
     }

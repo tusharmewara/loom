@@ -19,7 +19,6 @@ use tokio::sync::{broadcast, RwLock};
 
 pub struct Loomd {
     loom_dir: String,
-    #[allow(dead_code)]
     event_bus: Arc<loom_event_bus::EventBus>,
     discovery: Arc<loom_discovery::DiscoveryEngine>,
     #[allow(clippy::arc_with_non_send_sync)]

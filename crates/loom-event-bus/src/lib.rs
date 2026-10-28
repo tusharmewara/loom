@@ -72,10 +72,6 @@ pub struct EventBus {
     metrics: Arc<BusMetrics>,
     /// Start instant for uptime tracking.
     started_at: Instant,
-    /// Cross-process endpoint path (for re-creation after socket file cleanup).
-    #[cfg(feature = "cross-process")]
-    #[allow(dead_code)]
-    xproc_endpoint: Option<String>,
 }
 
 impl EventBus {
@@ -88,7 +84,7 @@ impl EventBus {
         let metrics = Arc::new(BusMetrics::new());
 
         #[cfg(feature = "cross-process")]
-        let (xproc_pub, xproc_endpoint) = {
+        let xproc_pub = {
             let endpoint = format!("ipc://{}/.loom-events", loom_dir.trim_end_matches('/'));
             // Remove stale socket file
             let sock_path = endpoint.strip_prefix("ipc://").unwrap_or(&endpoint);
@@ -98,10 +94,10 @@ impl EventBus {
                 Ok(sock) => {
                     if let Err(e) = sock.bind(&endpoint) {
                         tracing::warn!("ZeroMQ bind failed: {} (cross-process disabled)", e);
-                        (None, None)
+                        None
                     } else {
                         tracing::info!("ZeroMQ publisher bound to {}", endpoint);
-                        (Some(Arc::new(SendSocket::new(sock))), Some(endpoint))
+                        Some(Arc::new(SendSocket::new(sock)))
                     }
                 }
                 Err(e) => {
@@ -109,7 +105,7 @@ impl EventBus {
                         "ZeroMQ socket creation failed: {} (cross-process disabled)",
                         e
                     );
-                    (None, None)
+                    None
                 }
             }
         };
@@ -120,8 +116,6 @@ impl EventBus {
             xproc_pub,
             metrics,
             started_at: Instant::now(),
-            #[cfg(feature = "cross-process")]
-            xproc_endpoint,
         }
     }
 

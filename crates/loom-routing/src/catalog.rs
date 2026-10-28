@@ -419,28 +419,3 @@ fn write_catalog(loom_dir: &str, catalog: &ModelCatalog) -> Result<()> {
     Ok(())
 }
 
-/// Filter catalog entries to providers that are active in the registry.
-pub fn filter_active_providers(
-    catalog: &ModelCatalog,
-    active_provider_ids: &[String],
-) -> ModelCatalog {
-    if active_provider_ids.is_empty() {
-        return catalog.clone();
-    }
-    ModelCatalog {
-        models: catalog
-            .models
-            .iter()
-            .filter(|m| active_provider_ids.contains(&m.provider_id))
-            .cloned()
-            .collect(),
-    }
-}
-
-/// Placeholder for provider status filtering when no live registry is attached.
-pub fn filter_by_status(
-    catalog: &ModelCatalog,
-    _status: loom_core::ProviderStatus,
-) -> ModelCatalog {
-    catalog.clone()
-}

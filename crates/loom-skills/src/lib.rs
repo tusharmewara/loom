@@ -23,8 +23,6 @@ use loom_core::HealthCheck;
 use std::sync::Arc;
 
 pub struct SkillsEngine {
-    #[allow(dead_code)]
-    loom_dir: String,
     registry: registry::SkillRegistry,
     loader: SkillLoader,
 }
@@ -32,7 +30,6 @@ pub struct SkillsEngine {
 impl SkillsEngine {
     pub fn new(loom_dir: &str) -> anyhow::Result<Self> {
         Ok(Self {
-            loom_dir: loom_dir.to_string(),
             registry: registry::SkillRegistry::new(loom_dir)?,
             loader: SkillLoader::new(loom_dir),
         })
