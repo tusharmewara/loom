@@ -986,13 +986,40 @@ fn parse_session_content(content: &str) -> Vec<loom_core::Message> {
     Vec::new()
 }
 
+/// Parse a tag filter from a JSON value. The IPC layer accepts tags as
+/// either a JSON array of strings (`["rust", "go"]`), a single string
+/// (`"rust"`), or a comma-separated string (`"rust,go"`). Returns
+/// `None` if the input is missing or null (caller should treat as
+/// "no filter"). Returns `Some(Vec::new())` for an explicit empty
+/// array (caller should treat as "filter that matches nothing").
+fn parse_tag_filter(v: Option<&serde_json::Value>) -> Option<Vec<String>> {
+    let v = v?;
+    match v {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(s) => {
+            // Comma-separated is the only string form; empty string
+            // means "no filter" (so users can pass an env var that
+            // resolves to "" without breaking the call).
+            if s.is_empty() {
+                None
+            } else {
+                Some(s.split(',').map(|p| p.trim().to_string()).collect())
+            }
+        }
+        serde_json::Value::Array(arr) => Some(
+            arr.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
     use chrono::Utc;
     use loom_core::license::{
-        verify_license_key, load_with_key, write_license_store, License, TeamFeature,
-        CapabilityClass, LICENSE_GRACE_DAYS,
+        load_with_key, write_license_store, License, TeamFeature, LICENSE_GRACE_DAYS,
     };
     use loom_core::constants::LICENSE_REQUIRED_MSG;
     use std::path::Path;
@@ -1094,34 +1121,5 @@ mod tests {
         let result = loom_core::license::require_unlocked(&license, test_read(), now);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), LICENSE_REQUIRED_MSG);
-    }
-}
-
-/// Parse a tag filter from a JSON value. The IPC layer accepts tags as
-/// either a JSON array of strings (`["rust", "go"]`), a single string
-/// (`"rust"`), or a comma-separated string (`"rust,go"`). Returns
-/// `None` if the input is missing or null (caller should treat as
-/// "no filter"). Returns `Some(Vec::new())` for an explicit empty
-/// array (caller should treat as "filter that matches nothing").
-fn parse_tag_filter(v: Option<&serde_json::Value>) -> Option<Vec<String>> {
-    let v = v?;
-    match v {
-        serde_json::Value::Null => None,
-        serde_json::Value::String(s) => {
-            // Comma-separated is the only string form; empty string
-            // means "no filter" (so users can pass an env var that
-            // resolves to "" without breaking the call).
-            if s.is_empty() {
-                None
-            } else {
-                Some(s.split(',').map(|p| p.trim().to_string()).collect())
-            }
-        }
-        serde_json::Value::Array(arr) => Some(
-            arr.iter()
-                .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                .collect(),
-        ),
-        _ => None,
     }
 }
