@@ -19,18 +19,33 @@ Only the content under "## Notes" is used; this comment block is ignored.
 
 ### Added
 
-- feat(ffi): cross-language registration — `loom_register_tool`, `loom_register_skill`, `loom_unregister_tool` C-ABI exports (JSON in/out, panic-contained). One codepath: `ToolToml::write` and the skill-install flow moved into `loom-generic-adapter`/`loom-skills` so CLI and FFI cannot drift. Python ctypes example validated in `docs/adapter-contribution.md`
-- feat(runtime): the egress allowlist is **enforced** on Docker — new standalone `loom-egress-proxy` crate (CONNECT-tunnel proxy, host/CIDR allowlist from `LOOM_ALLOWED_HOSTS`, plain byte relay, no MITM). `restricted:<hosts>` composes an internal no-NAT network + proxy sidecar, injects `HTTP(S)_PROXY`/`NO_PROXY`; proxy failure fails the dispatch, never widens egress. Container CI job builds the image and asserts allow/deny
-- feat(admin): `loom-admin keygen` / `loom-admin licensemint` — offline Ed25519 license minting (`~/.loom-admin/license.key` 0600, claims = org/tier/seats/expiry, ≤1 year). `loom-core::license` carries the mint+verify pair the future control plane reuses
-- docs: `docs/adapter-contribution.md` (TOML-first contribution path, every command validated against a tempdir), ADRs 0001–0005 under `docs/decisions/`, and the pillar-4 commercialization plan + preflight plans under `blueprint/commercialization/`
+- feat(analytics): `loom-analytics` crate — push-only aggregated analytics (org, tool, day buckets) with privacy invariant (no per-run rows on control plane). SQLite storage at `{loom_dir}/control-plane/analytics.db`
+- feat(control-plane): `POST /api/v1/org/{org_id}/analytics/push` and `GET /api/v1/org/{org_id}/analytics` endpoints for org analytics ingestion and rollup
+- feat(cli): `loom org analytics` / `scorecard` / `cost` / `calibration` — org-level rollup, per-tool breakdown, cost-only view, calibration ratios (measured vs estimated)
+- feat(enterprise): `loom-sso` crate — OIDC (openidconnect) + SAML (xmlsec) federation for Entra ID, Okta, Google Workspace, ADFS. SP-initiated SAML ACS, OIDC auth code + PKCE, device code flow
+- feat(enterprise): `loom-fips` crate — FIPS mode via `ring` (Ed25519, AES-256-GCM), air-gap flag (`LOOM_AIR_GAP=1` disables all outbound), config encryption for secrets at rest
+- feat(enterprise): `loom-audit` crate — structured audit logging to SQLite (`{loom_dir}/control-plane/audit.db`) with actor, action, resource, outcome, timestamp; query endpoint with filters
+- feat(control-plane): SSO config CRUD (`GET/PUT /api/v1/org/{org_id}/sso`), SAML metadata/ACS (`/api/v1/saml/metadata`, `/api/v1/saml/acs`), OIDC authorize/callback (`/api/v1/oidc/authorize`, `/api/v1/oidc/callback`), JIT human provisioning with seat cap enforcement
+- feat(control-plane): `/health/ready` readiness probe (DB + Stripe connectivity), FIPS/air-gap status flags
+- feat(cli): `loom org connect --sso` — initiates OIDC device code or browser flow against control plane
+- feat(control-plane): `loom-cp config encrypt/decrypt` — AES-256-GCM config encryption for on-prem deployments
+- docs: SLA scaffolding under `docs/enterprise/` (SLA.md, DATA_RESIDENCY.md, SUPPORT_TIERS.md)
+- docs: ADR 0008 (enterprise SSO/on-prem decisions) under `docs/decisions/`
 
 ### Changed
 
-- change(security): plugin Ed25519 verification is on by **default** (`security.require_signature` now true) — unsigned remote installs are refused with the opt-out named; local `loom plugin register` is unchanged. Enforcement moved inside the registry so an unsigned plugin can never land half-installed
-- change(security): key-continuity pins for plugin installs — `{loom_dir}/auth/plugin-pins.json` (0600) records the signing key per tool; a later install signed with a different key refuses until the pin entry is deleted
-- change(runtime): `restricted` posture docs/AGENTS.md now describe the enforced state; Podman and Kubernetes stay deny-all until their wiring lands (ADR 0002)
-- docs: README/STATUS/VISION/ROADMAP reconciled against the code — 32 workspace members (incl. the standalone egress-proxy image crate), 37 top-level subcommands, Homebrew tap and source-install wording
+- change(control-plane): `AppState` extended with SSO configs, OIDC/SAML client caches, audit logger, FIPS/air-gap flags
+- change(analytics): push-only model — hosts push pre-aggregated buckets; control plane never stores per-run data (privacy invariant structural)
+- change(billing): trial anti-abuse enforced — per-org one-trial rule tracked in-memory in control plane
+- change(security): config encryption for Stripe secrets and SAML certs at rest (AES-256-GCM)
 
 ### Fixed
 
-- fix(cli): post-merge test-module seams in `skills.rs` (`update_lock` import, `validate_skill_file` path)
+- fix(cli): test module ordering in `org.rs` (tests after implementation)
+- fix(control-plane): `build_app` return type fix (removed unneeded `return` statement for clippy)
+
+### Security
+
+- sec(enterprise): FIPS mode uses only FIPS-approved algorithms (ring); non-FIPS `ed25519-dalek` disabled when `LOOM_FIPS=1`
+- sec(enterprise): air-gap mode blocks all outbound calls (Stripe, registry fetch, update checks) at the control plane
+- sec(audit): structured audit log for all admin mutating actions (SSO config, roster, license, registry)
