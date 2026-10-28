@@ -1,0 +1,18 @@
+[package]
+name = "loom-audit"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+loom-core = { path = "../loom-core" }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+rusqlite = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

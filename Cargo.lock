@@ -2220,6 +2220,7 @@ dependencies = [
  "comfy-table",
  "hex",
  "loom-adapters",
+ "loom-analytics",
  "loom-ast",
  "loom-auth",
  "loom-conflict",
@@ -2274,6 +2275,19 @@ dependencies = [
  "tempfile",
  "toml",
  "tracing",
+]
+
+[[package]]
+name = "loom-analytics"
+version = "0.11.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "loom-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -2350,6 +2364,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "http",
+ "loom-analytics",
  "loom-billing",
  "loom-core",
  "rand_core",
