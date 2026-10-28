@@ -294,7 +294,7 @@ pub async fn enroll_confirm(
         })?
     };
 
-    if !auth::verify_enrollment_signature(&payload.machine_pub, &payload.signature, &pending.nonce)? {
+    if !auth::verify_enrollment_signature(&vk, &payload.signature, &pending.nonce)? {
         return Err(CpError::Unauthorized("enrollment signature verification failed".into()));
     }
     let org_id = pending.org_id;

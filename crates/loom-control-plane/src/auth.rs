@@ -26,11 +26,10 @@ impl From<String> for super::CpError {
 
 /// Verify an enrollment signature: signature over `machine_pub_bytes || nonce_bytes`.
 pub fn verify_enrollment_signature(
-    jwk: &Value,
+    vk: &VerifyingKey,
     signature_hex: &str,
     nonce_hex: &str,
 ) -> Result<bool, String> {
-    let vk = verifying_key_from_jwk(jwk)?;
     let pub_bytes = vk.to_bytes();
     let nonce_bytes = hex::decode(nonce_hex).map_err(|e| format!("invalid nonce hex: {e}"))?;
     let sig_bytes = hex::decode(signature_hex).map_err(|e| format!("invalid sig hex: {e}"))?;
@@ -60,13 +59,6 @@ pub fn verifying_key_from_jwk(jwk: &Value) -> Result<VerifyingKey, String> {
         .try_into()
         .map_err(|_| "x must be 32 bytes".to_string())?;
     VerifyingKey::from_bytes(&bytes).map_err(|e| format!("invalid verifying key: {e}"))
-}
-
-/// JWK OKP Ed25519 from a verifying key.
-#[allow(dead_code)]
-pub fn jwk_from_verifying_key(vk: &VerifyingKey) -> Value {
-    let x = URL_SAFE_NO_PAD.encode(vk.to_bytes());
-    serde_json::json!({"kty": "OKP", "crv": "Ed25519", "x": x})
 }
 
 /// JWK thumbprint = base64url(SHA-256(canonical JWK)), RFC 7638.
@@ -126,12 +118,10 @@ pub fn resolve_token(state: &AppState, token: &str) -> super::CpResult<(String, 
 pub fn verify_dpop_proof(
     state: &AppState,
     machine_pub_key: &VerifyingKey,
-    _org_id: &str,
     proof: &str,
     method: &str,
     uri: &str,
 ) -> super::CpResult<()> {
-    let _ = _org_id; // bound to machine_pub_key via token lookup; kept for future binding check
     let expected_jkt = jwk_thumbprint(machine_pub_key);
 
     let parts: Vec<&str> = proof.split('.').collect();
@@ -251,7 +241,7 @@ pub async fn require_machine_auth(
 
     let method = request.method().as_str();
     let uri = request.uri().path().to_string();
-    verify_dpop_proof(&state, &machine_pub_key, &org_id, proof, method, &uri)?;
+    verify_dpop_proof(&state, &machine_pub_key, proof, method, &uri)?;
 
     request.extensions_mut().insert(machine_pub.to_string());
     request.extensions_mut().insert(org_id.to_string());
@@ -265,24 +255,17 @@ mod tests {
     use ed25519_dalek::{Signer, SigningKey};
     use serde_json::json;
 
-    /// Build a JWK OKP Ed25519 from a verifying key (test-only helper).
-    fn jwk_from_verifying_key(vk: &VerifyingKey) -> Value {
-        let x = URL_SAFE_NO_PAD.encode(vk.to_bytes());
-        serde_json::json!({"kty": "OKP", "crv": "Ed25519", "x": x})
-    }
-
     #[test]
     fn enrollment_signature_roundtrip() {
         let sk = SigningKey::generate(&mut rand_core::OsRng);
         let vk = sk.verifying_key();
-        let jwk = jwk_from_verifying_key(&vk);
         let nonce = new_nonce_hex();
         let mut signed = vk.to_bytes().to_vec();
         signed.extend_from_slice(&hex::decode(&nonce).unwrap());
         let sig = sk.sign(&signed);
-        assert!(verify_enrollment_signature(&jwk, &hex::encode(sig.to_bytes()), &nonce).unwrap());
+        assert!(verify_enrollment_signature(&vk, &hex::encode(sig.to_bytes()), &nonce).unwrap());
         // wrong nonce fails
-        assert!(!verify_enrollment_signature(&jwk, &hex::encode(sig.to_bytes()), "deadbeef").unwrap());
+        assert!(!verify_enrollment_signature(&vk, &hex::encode(sig.to_bytes()), "deadbeef").unwrap());
     }
 
     #[test]
@@ -305,7 +288,6 @@ mod tests {
     fn enroll_challenge_and_confirm_roundtrip() {
         let sk = SigningKey::generate(&mut rand_core::OsRng);
         let vk = sk.verifying_key();
-        let jwk = jwk_from_verifying_key(&vk);
         let machine_pub = URL_SAFE_NO_PAD.encode(vk.to_bytes());
 
         // Server side: issue a challenge nonce bound to the machine key.
@@ -317,10 +299,10 @@ mod tests {
         let sig = sk.sign(&signed);
 
         // Server side: verify.
-        assert!(verify_enrollment_signature(&jwk, &hex::encode(sig.to_bytes()), &nonce).unwrap());
+        assert!(verify_enrollment_signature(&vk, &hex::encode(sig.to_bytes()), &nonce).unwrap());
 
         // Wrong nonce must fail.
-        assert!(!verify_enrollment_signature(&jwk, &hex::encode(sig.to_bytes()), "deadbeef").unwrap());
+        assert!(!verify_enrollment_signature(&vk, &hex::encode(sig.to_bytes()), "deadbeef").unwrap());
 
         // _machine_pub is the lookup key for the pending challenge.
         let _ = machine_pub;

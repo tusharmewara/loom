@@ -17,10 +17,8 @@ use axum::{
     Router,
 };
 use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use tracing::info;
 
 /// An enrollment challenge bound to one machine key + one org.
 #[derive(Clone, Debug)]
@@ -111,16 +109,6 @@ pub fn build_app(state: AppState) -> Router {
         .with_state(state.clone());
 
     public.merge(protected).with_state(state)
-}
-
-pub async fn bind(addr: SocketAddr, state: AppState) -> Result<SocketAddr> {
-    let app = build_app(state);
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .with_context(|| format!("binding to {addr}"))?;
-    info!("loom-cp listening on {}", addr);
-    axum::serve(listener, app).await.context("control-plane server exited")?;
-    Ok(addr)
 }
 
 #[derive(Debug, thiserror::Error)]

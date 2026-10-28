@@ -43,10 +43,6 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
             created_at TEXT NOT NULL,
             FOREIGN KEY(machine_pub) REFERENCES machine_keys(machine_pub)
         );
-        CREATE TABLE IF NOT EXISTS used_jti (
-            jti TEXT PRIMARY KEY,
-            created_at TEXT NOT NULL
-        );
         ",
     )?;
     Ok(())
