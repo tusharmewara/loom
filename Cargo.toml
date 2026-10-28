@@ -24,6 +24,7 @@ members = [
     "crates/loom-mcp-server",
     "crates/loom-org-registry",
     "crates/loom-billing",
+    "crates/loom-analytics",
     "crates/loom-trackers",
     "crates/loom-parallel", "crates/loom-knowledge",
     "crates/loom-remote",

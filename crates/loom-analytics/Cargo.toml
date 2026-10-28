@@ -1,0 +1,19 @@
+[package]
+name = "loom-analytics"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+loom-core = { path = "../loom-core" }
+anyhow = { workspace = true }
+rusqlite = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
