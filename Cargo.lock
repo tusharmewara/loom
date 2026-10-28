@@ -2568,6 +2568,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "loom-org-registry"
+version = "0.11.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "loom-control-plane",
+ "loom-core",
+ "loom-mcp",
+ "loom-skills",
+ "loom-workflow",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "ureq",
+]
+
+[[package]]
 name = "loom-parallel"
 version = "0.11.0"
 dependencies = [

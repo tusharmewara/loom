@@ -36,6 +36,17 @@ pub struct AppState {
     pub pending_enrollments: Arc<Mutex<HashMap<String, EnrollmentPending>>>,
     /// DPoP `jti` anti-replay (in-process, single-process MVP).
     pub jtis: Arc<Mutex<HashSet<String>>>,
+    /// Org registries: org_id -> {skills, mcps, templates}.
+    /// Client-side pull-through (phase 5) reads this via GET /api/v1/org/{id}/registry.
+    pub org_registry: Arc<Mutex<HashMap<String, OrgRegistryData>>>,
+}
+
+/// Org registry data served at GET /api/v1/org/{id}/registry.
+#[derive(Debug, Clone, Default)]
+pub struct OrgRegistryData {
+    pub skills: Vec<loom_core::SkillEntry>,
+    pub mcps: Vec<loom_core::McpServerEntry>,
+    pub templates: Vec<loom_core::WorkflowTemplate>,
 }
 
 impl AppState {
@@ -51,6 +62,7 @@ impl AppState {
             db: Arc::new(Mutex::new(conn)),
             pending_enrollments: Arc::new(Mutex::new(HashMap::new())),
             jtis: Arc::new(Mutex::new(HashSet::new())),
+            org_registry: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 }
@@ -106,6 +118,18 @@ pub fn build_app(state: AppState) -> Router {
             state.clone(),
             auth::require_machine_auth,
         ))
+        .with_state(state.clone());
+
+    // Org registry read — public (client pull-through, no auth required).
+    let public = public
+        .route(
+            "/api/v1/org/{org_id}/registry",
+            get(handlers::get_org_registry),
+        )
+        .route(
+            "/api/v1/org/{org_id}/registry",
+            post(handlers::set_org_registry),
+        )
         .with_state(state.clone());
 
     public.merge(protected).with_state(state)

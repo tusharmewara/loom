@@ -6,6 +6,7 @@ use super::AppState;
 use super::CpError;
 use super::CpResult;
 use super::EnrollmentPending;
+use super::OrgRegistryData;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{Html, Json};
@@ -332,6 +333,115 @@ pub async fn idp_connect_stub() -> CpResult<(StatusCode, Json<Value>)> {
             "message": "IdP federation not yet wired — see phase 4"
         })),
     ))
+}
+
+// ---------------------------------------------------------------------------
+// Org registry (phase 5) — client pull-through + admin write.
+// ---------------------------------------------------------------------------
+
+pub async fn get_org_registry(
+    State(state): State<AppState>,
+    Path(org_id): Path<String>,
+) -> CpResult<Json<Value>> {
+    let registry = state.org_registry.lock().unwrap();
+    let data = registry.get(&org_id).cloned().unwrap_or_default();
+
+    let entries: Vec<Value> = data
+        .skills
+        .into_iter()
+        .map(|s| {
+            serde_json::json!({
+                "kind": "skill",
+                "id": s.name,
+                "content": serde_json::to_value(&s).unwrap_or(Value::Null),
+                "updated_at": s.last_modified,
+            })
+        })
+        .chain(
+            data.mcps
+                .into_iter()
+                .map(|m| {
+                    serde_json::json!({
+                        "kind": "mcp",
+                        "id": m.id,
+                        "content": serde_json::to_value(&m).unwrap_or(Value::Null),
+                        "updated_at": m.last_health_check,
+                    })
+                })
+        )
+        .chain(
+            data.templates
+                .into_iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "kind": "template",
+                        "id": t.name,
+                        "content": serde_json::to_value(&t).unwrap_or(Value::Null),
+                        "updated_at": chrono::Utc::now().to_rfc3339(),
+                    })
+                })
+        )
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "org_id": org_id,
+        "entries": entries,
+        "synced_at": chrono::Utc::now().to_rfc3339(),
+    })))
+}
+
+pub async fn set_org_registry(
+    State(state): State<AppState>,
+    Path(org_id): Path<String>,
+    Json(payload): Json<Value>,
+) -> CpResult<Json<Value>> {
+    let entries = payload
+        .get("entries")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut skills = Vec::new();
+    let mut mcps = Vec::new();
+    let mut templates = Vec::new();
+
+    for entry in entries {
+        let kind = entry.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        let content = entry.get("content").cloned().unwrap_or(Value::Null);
+
+        match kind {
+            "skill" => {
+                if let Ok(skill) = serde_json::from_value::<loom_core::SkillEntry>(content) {
+                    skills.push(skill);
+                }
+            }
+            "mcp" => {
+                if let Ok(mcp) = serde_json::from_value::<loom_core::McpServerEntry>(content) {
+                    mcps.push(mcp);
+                }
+            }
+            "template" => {
+                if let Ok(template) =
+                    serde_json::from_value::<loom_core::WorkflowTemplate>(content)
+                {
+                    templates.push(template);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut registry = state.org_registry.lock().unwrap();
+    registry.insert(
+        org_id,
+        OrgRegistryData {
+            skills,
+            mcps,
+            templates,
+        },
+    );
+
+    Ok(Json(serde_json::json!({"stored": true})))
 }
 
 // ---------------------------------------------------------------------------

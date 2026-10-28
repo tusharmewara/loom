@@ -22,6 +22,7 @@ members = [
     "crates/loom-adapters",
     "crates/loom-tui",
     "crates/loom-mcp-server",
+    "crates/loom-org-registry",
     "crates/loom-trackers",
     "crates/loom-parallel", "crates/loom-knowledge",
     "crates/loom-remote",

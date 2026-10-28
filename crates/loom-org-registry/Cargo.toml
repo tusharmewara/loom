@@ -1,0 +1,29 @@
+[package]
+name = "loom-org-registry"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+ureq = { workspace = true }
+loom-core = { path = "../loom-core" }
+loom-skills = { path = "../loom-skills" }
+loom-mcp = { path = "../loom-mcp" }
+loom-workflow = { path = "../loom-workflow" }
+
+[dev-dependencies]
+loom-control-plane = { path = "../loom-control-plane" }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true
+
+# axum, tower, hyper, http come in via axum; invisible to cargo-machete's source scan.
+[package.metadata.cargo-machete]
+ignored = ["tower", "hyper", "http"]
