@@ -21,17 +21,17 @@ At its heart is the `loomd` **daemon**: a long-lived background process that own
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#f5f5f5', 'primaryTextColor': '#2d3142', 'primaryBorderColor': '#2d3142', 'lineColor': '#4f5d75', 'secondaryColor': '#ececec', 'tertiaryColor': '#bf4520'}}}%%
 flowchart LR
-    subgraph CP["loomd — daemon center (Phase 2–8)"]
+    subgraph CP["loomd - daemon center (Phase 2-8)"]
         direction TB
-        CP1[("loom CLI<br/>loom bin · 37 subcommands")]
-        CP2[("loomd<br/>IPC socket · auto-start")]
-        CP3[("License gate<br/>Ed25519 · unlocks()")]
-        CP4[("Vault RBAC<br/>admin/member · grants")]
-        CP5[("Org registry<br/>sync · retired-by-org")]
-        CP6[("Control plane<br/>DPoP · enrollment · HTTP")]
-        CP7[("Stripe billing<br/>checkout · webhook · trials")]
-        CP8[("Analytics<br/>scorecard · cost · calibration")]
-        CP9[("SSO / FIPS / Audit<br/>OIDC·SAML · FIPS · audit log")]
+        CP1[("loom CLI<br/>loom bin - 37 subcommands")]
+        CP2[("loomd<br/>IPC socket - auto-start")]
+        CP3[("License gate<br/>Ed25519 - unlocks()")]
+        CP4[("Vault RBAC<br/>admin/member - grants")]
+        CP5[("Org registry<br/>sync - retired-by-org")]
+        CP6[("Control plane<br/>DPoP - enrollment - HTTP")]
+        CP7[("Stripe billing<br/>checkout - webhook - trials")]
+        CP8[("Analytics<br/>scorecard - cost - calibration")]
+        CP9[("SSO / FIPS / Audit<br/>OIDC SAML - FIPS - audit log")]
     end
 
     CP1 -->|control| CP2
@@ -42,10 +42,10 @@ flowchart LR
     CP6 -->|webhook/license| CP7
     CP7 -->|license_issued| CP2
     CP2 -->|push aggregates| CP8
-    CP2 -.->|OIDC·SAML·FIPS·audit| CP9
+    CP2 -.->|OIDC SAML FIPS audit| CP9
 
-    classDef daemon fill:#f5f5f5,stroke:#2d3142,stroke-width:1px,color:#2d3142,font-family:Geist,sans-serif
-    classDef focal fill:rgba(191,69,32,0.08),stroke:#bf4520,stroke-width:1.4px,color:#2d3142,font-family:Geist,sans-serif
+    classDef daemon fill:#f5f5f5,stroke:#2d3142,stroke-width:1px,color:#2d3142,font-family:sans-serif
+    classDef focal fill:#fdeee8,stroke:#bf4520,stroke-width:1px,color:#2d3142,font-family:sans-serif
     class CP1,CP3,CP4,CP5,CP6,CP7,CP8 daemon
     class CP2,CP9 focal
 ```
