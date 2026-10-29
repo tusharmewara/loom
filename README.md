@@ -2,6 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.88+-orange.svg)](https://www.rust-lang.org/)
+[![Version](https://api.unorouter.com/v1/media/AAAAAGrr9JhodHRwczovL2ltZy5zaGllbGRzLmlvL2JhZGdlL3ZlcnNpb24tMC4xMi4wLWJsdWUuc3Zn.gKs3yidHkW3fb3igFmSrGvxi0oujeefnNs0aTPQ3nkc)](https://github.com/tusharmewara/loom/releases/tag/v0.12.0)
 
 Loom is a unified agentic ecosystem built in Rust. It lets multiple AI coding agents — `claude-code`, `codex`, `opencode`, `goose`, `aider`, `cursor`, `gemini-cli`, `kiro`, `juno`, `crush`, `jcode`, `github-copilot` — **share skills, sessions, MCP servers, hooks, workflows, and credentials** so a task started in one tool can be continued, reviewed, and finished in another without losing context.
 
@@ -55,6 +56,8 @@ loom daemon start               # or let the CLI auto-launch it for you
 
 > **macOS:** `brew tap tusharmewara/loom && brew install loom` (`packages/homebrew/loom.rb`).  
 > **Cargo (source only):** `cargo install --path crates/loom-cli` (the project is not published to crates.io yet).
+
+> **Current release:** `0.12.0` — [`CHANGELOG.md`](CHANGELOG.md) · [GitHub release](https://github.com/tusharmewara/loom/releases/tag/v0.12.0)
 
 ---
 
