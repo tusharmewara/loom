@@ -13,5 +13,7 @@ RUN rustup target add x86_64-unknown-linux-musl \
     && cargo build --release --target x86_64-unknown-linux-musl
 
 FROM alpine:3
+RUN adduser -D -S non-root
 COPY --from=build /src/target/x86_64-unknown-linux-musl/release/loom-egress-proxy /usr/local/bin/loom-egress-proxy
+USER non-root
 ENTRYPOINT ["loom-egress-proxy"]

@@ -22,12 +22,12 @@ jobs:
       codename: ${{ steps.os_version.outputs.codename }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 0
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
 
@@ -40,8 +40,9 @@ jobs:
 
       - name: Extract version
         id: extract_version
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version || github.ref_name }}
         run: |
-          VERSION_INPUT="${{ github.event.inputs.version || github.ref_name }}"
           V=$(echo "$VERSION_INPUT" | sed 's/^v//')
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Using version: v$V"
@@ -123,7 +124,7 @@ jobs:
           ls -lh *.bottle.tar.gz
 
       - name: Upload macOS bottles to loom release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@5113cdc90fd4d541c801c55356214017bf5ae34b
         with:
           files: loom-*.bottle.tar.gz
           tag_name: v${{ steps.extract_version.outputs.version }}
@@ -135,12 +136,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 0
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
 
       - name: Install system dependencies
         run: |
@@ -149,8 +150,9 @@ jobs:
 
       - name: Extract version
         id: extract_version
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version || github.ref_name }}
         run: |
-          VERSION_INPUT="${{ github.event.inputs.version || github.ref_name }}"
           V=$(echo "$VERSION_INPUT" | sed 's/^v//')
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Using version: v$V"
@@ -195,7 +197,7 @@ jobs:
           ls -lh *.bottle.tar.gz
 
       - name: Upload Linux bottle to loom release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@5113cdc90fd4d541c801c55356214017bf5ae34b
         with:
           files: loom-*.bottle.tar.gz
           tag_name: v${{ steps.extract_version.outputs.version }}
@@ -208,7 +210,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 0
 
