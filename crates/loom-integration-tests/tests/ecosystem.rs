@@ -132,6 +132,7 @@ async fn hook_enforcement_blocks_pretooluse() {
         tool_name: Some("bash".into()),
     };
     let results = loom_hooks::execute_hooks(
+        dir.path().to_str().unwrap(),
         &registry,
         loom_core::HookEventType::PreToolUse.to_string().as_str(),
         &ctx,

@@ -267,10 +267,10 @@ impl ConfigReader {
             return Ok(());
         };
 
-        if !remote_url.starts_with("https://") {
-            // Same restriction as `loom config fetch`; silently skip
-            // non-HTTPS URLs at merge time (validate-time should catch
-            // this in `loom config validate`).
+        // HTTPS-only and SSRF-guarded: reject private/loopback hosts
+        // before any cache lookup or merge. Fail-closed.
+        if let Err(e) = crate::plugin_registry::validate_outbound_url(&remote_url) {
+            tracing::warn!("skipping remote_config_url '{remote_url}': {e}");
             return Ok(());
         }
 

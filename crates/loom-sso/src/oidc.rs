@@ -24,6 +24,10 @@ impl OidcClient {
     pub async fn new(config: OidcConfig) -> Result<Self> {
         let issuer_url = IssuerUrl::new(config.issuer_url.clone())
             .context("invalid issuer URL")?;
+        // SSRF guard: reject private/loopback issuer URLs before discovery
+        // follows redirects. Fail-closed.
+        loom_core::plugin_registry::validate_outbound_url(&config.issuer_url)
+            .with_context(|| format!("issuer URL rejected: {}", config.issuer_url))?;
         let provider_metadata = CoreProviderMetadata::discover_async(issuer_url, openidconnect::reqwest::async_http_client)
             .await
             .context("failed to discover OIDC provider metadata")?;
@@ -122,5 +126,25 @@ mod tests {
         let client = OidcClient::new(config).await.unwrap();
         let (url, _csrf, _pkce) = client.authorize_url();
         assert!(url.to_string().contains("http://mock-idp/authorize"));
+    }
+
+    #[tokio::test]
+    async fn oidc_issuer_rejects_private_url() {
+        use loom_core::plugin_registry::validate_outbound_url;
+
+        for bad in [
+            "https://127.0.0.1/",
+            "https://169.254.169.254/latest/meta-data/",
+            "https://[::1]/",
+            "https://10.0.0.5/",
+        ] {
+            let err = validate_outbound_url(bad).unwrap_err();
+            assert!(
+                err.to_string().contains("private/loopback"),
+                "expected block for {bad}, got: {err}"
+            );
+        }
+        // Public issuers pass validation
+        validate_outbound_url("https://accounts.example.com/").unwrap();
     }
 }

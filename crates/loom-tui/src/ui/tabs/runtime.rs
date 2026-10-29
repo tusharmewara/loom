@@ -126,7 +126,7 @@ pub fn draw_runtime(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, t
             .borders(Borders::ALL)
             .border_style(Style::default().fg(theme.border)),
     )
-    .highlight_style(
+    .row_highlight_style(
         Style::default()
             .fg(theme.primary)
             .add_modifier(Modifier::BOLD),

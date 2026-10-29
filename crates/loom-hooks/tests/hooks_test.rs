@@ -45,6 +45,7 @@ async fn test_hook_runner_executes_script() {
         tool_name: Some("bash".into()),
     };
     let results = loom_hooks::execute_hooks(
+        agents,
         registry,
         HookEventType::PreToolUse.to_string().as_str(),
         &ctx,
@@ -81,6 +82,7 @@ async fn test_hook_blocks_on_nonzero_exit() {
         tool_name: Some("bash".into()),
     };
     let results = loom_hooks::execute_hooks(
+        agents,
         registry,
         HookEventType::PreToolUse.to_string().as_str(),
         &ctx,

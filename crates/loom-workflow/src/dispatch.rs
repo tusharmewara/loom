@@ -463,6 +463,7 @@ pub async fn fire_post_phase_hooks(
         return;
     }
     match loom_hooks::run_post_phase_hooks(
+        loom_dir,
         &registry,
         task_id,
         phase_name,

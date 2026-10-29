@@ -22,6 +22,7 @@ members = [
     "crates/loom-adapters",
     "crates/loom-tui",
     "crates/loom-mcp-server",
+    "crates/loom-control-plane",
     "crates/loom-org-registry",
     "crates/loom-billing",
     "crates/loom-analytics",
@@ -97,7 +98,7 @@ tree-sitter-python = "0.25.0"
 tree-sitter-javascript = "0.25.0"
 tree-sitter-json = "0.24.8"
 tree-sitter-go = "0.25.0"
-ratatui = { version = "0.28", default-features = false, features = ["crossterm"] }
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 crossterm = "0.28"
 nix = { version = "0.31", features = ["process"] }
 

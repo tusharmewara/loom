@@ -207,7 +207,7 @@ pub fn draw_cost(frame: &mut Frame, area: ratatui::layout::Rect, app: &App, them
             .title(" Recent runs ")
             .title_style(bold),
     )
-    .highlight_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD));
+    .row_highlight_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD));
 
     frame.render_widget(table, chunks[1]);
 }

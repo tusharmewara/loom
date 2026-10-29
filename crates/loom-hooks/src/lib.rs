@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -95,6 +96,7 @@ impl HooksEngine {
         context: &HookContext,
     ) -> anyhow::Result<Vec<HookResult>> {
         execute_hooks(
+            &self.loom_dir,
             &self.registry,
             event_type,
             context,
@@ -172,6 +174,7 @@ impl HookRegistry {
 /// loom dir's config (see [`require_signature`]); when true, unsigned
 /// hooks are skipped.
 pub async fn execute_hooks(
+    loom_dir: &str,
     registry: &HookRegistry,
     event_type: &str,
     context: &HookContext,
@@ -202,7 +205,7 @@ pub async fn execute_hooks(
             }
 
             // Execute the hook script
-            match execute_hook_script(&hook.script_path, context).await {
+            match execute_hook_script(loom_dir, &hook.script_path, context).await {
                 Ok((success, output)) => {
                     results.push(HookResult {
                         hook_id: hook.id.clone(),
@@ -241,13 +244,34 @@ pub struct HookResult {
 }
 
 /// Execute a hook script using the HookRunner
-async fn execute_hook_script(script_path: &str, context: &HookContext) -> Result<(bool, String)> {
+async fn execute_hook_script(
+    loom_dir: &str,
+    script_path: &str,
+    context: &HookContext,
+) -> Result<(bool, String)> {
     use std::process::Stdio;
     use tokio::process::Command;
     use tokio::time::timeout;
 
-    let loom_dir = loom_core::loom_dir();
+    let loom_dir_path = PathBuf::from(loom_dir);
     let script = Path::new(script_path);
+    // Path containment: the resolved script must live inside loom_dir.
+    // Rejects `..` traversal and absolute paths outside loom_dir.
+    let resolved = if script.is_absolute() {
+        script.to_path_buf()
+    } else {
+        loom_dir_path.join(script_path)
+    };
+    if !path_is_inside(&resolved, &loom_dir_path) {
+        return Ok((
+            false,
+            format!(
+                "hook script path escapes loom_dir: '{script_path}' resolves to '{}' outside '{}'",
+                resolved.display(),
+                loom_dir_path.display()
+            ),
+        ));
+    }
     if !script.exists() {
         return Ok((
             false,
@@ -299,6 +323,35 @@ async fn execute_hook_script(script_path: &str, context: &HookContext) -> Result
     Ok((success, stdout))
 }
 
+/// Check that `path` (which may not exist) is contained inside `dir` (which must exist).
+/// Handles `..` traversal lexically for non-existent paths; uses canonicalize
+/// (symlink-aware) for paths that exist.
+fn path_is_inside(path: &Path, dir: &Path) -> bool {
+    // Path exists: canonicalize handles symlinks on both sides.
+    if let Ok(p) = path.canonicalize() {
+        if let Ok(d) = dir.canonicalize() {
+            return p.starts_with(&d);
+        }
+    }
+    // Path doesn't exist: normalize `..` lexically, compare against dir as-is.
+    let mut normalized = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            std::path::Component::Prefix(_) | std::path::Component::RootDir => {
+                normalized.push(comp);
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            std::path::Component::Normal(c) => {
+                normalized.push(c);
+            }
+        }
+    }
+    normalized.starts_with(dir)
+}
+
 /// Sign a hook for security verification
 pub fn sign_hook(hook: &Hook) -> String {
     let mut hasher = Sha256::new();
@@ -326,6 +379,7 @@ fn verify_signature(hook: &Hook, signature: &str) -> Result<bool> {
 /// propagated — the workflow chain should keep going even if a hook script
 /// fails. The agent process and the workflow loop are unaffected.
 pub async fn run_post_phase_hooks(
+    loom_dir: &str,
     registry: &HookRegistry,
     task_id: &str,
     phase_name: &str,
@@ -343,7 +397,7 @@ pub async fn run_post_phase_hooks(
         }),
         tool_name: Some(agent.to_string()),
     };
-    let results = execute_hooks(registry, "PostPhase", &context, require_signature).await?;
+    let results = execute_hooks(loom_dir, registry, "PostPhase", &context, require_signature).await?;
     Ok(results.len())
 }
 
@@ -406,11 +460,23 @@ mod tests {
 
     #[tokio::test]
     async fn test_hook_execution() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("LOOM_AGENTS_DIR", tmp.path());
+        let script = tmp.path().join("echo.sh");
+        std::fs::write(&script, "#!/bin/sh\necho hello\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&script).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&script, perms).unwrap();
+        }
+
         let registry = HookRegistry::new();
         let hook = Hook {
             id: "test-hook".to_string(),
             event_type: "skill.added".to_string(),
-            script_path: "/bin/echo".to_string(),
+            script_path: script.to_string_lossy().to_string(),
             enabled: true,
             priority: HookPriority::Ecosystem,
             signature: None,
@@ -425,21 +491,40 @@ mod tests {
             tool_name: Some("jcode".to_string()),
         };
 
-        let results = execute_hooks(&registry, "skill.added", &context, false)
-            .await
-            .unwrap();
+        let results = execute_hooks(
+            tmp.path().to_str().unwrap(),
+            &registry,
+            "skill.added",
+            &context,
+            false,
+        )
+        .await
+        .unwrap();
         assert_eq!(results.len(), 1);
         assert!(results[0].success);
+        assert!(results[0].output.contains("hello"));
     }
 
     #[tokio::test]
     async fn test_unsigned_hook_skipped_when_required() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("LOOM_AGENTS_DIR", tmp.path());
+        let script = tmp.path().join("echo.sh");
+        std::fs::write(&script, "#!/bin/sh\necho hello\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&script).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&script, perms).unwrap();
+        }
+
         let registry = HookRegistry::new();
         registry
             .register(Hook {
                 id: "unsigned".to_string(),
                 event_type: "skill.added".to_string(),
-                script_path: "/bin/echo".to_string(),
+                script_path: script.to_string_lossy().to_string(),
                 enabled: true,
                 priority: HookPriority::Ecosystem,
                 signature: None,
@@ -455,15 +540,27 @@ mod tests {
         };
 
         // Historic default: unsigned hooks run.
-        let results = execute_hooks(&registry, "skill.added", &context, false)
-            .await
-            .unwrap();
+        let results = execute_hooks(
+            tmp.path().to_str().unwrap(),
+            &registry,
+            "skill.added",
+            &context,
+            false,
+        )
+        .await
+        .unwrap();
         assert_eq!(results.len(), 1);
 
         // security.require_signature = true: unsigned hooks are skipped.
-        let results = execute_hooks(&registry, "skill.added", &context, true)
-            .await
-            .unwrap();
+        let results = execute_hooks(
+            tmp.path().to_str().unwrap(),
+            &registry,
+            "skill.added",
+            &context,
+            true,
+        )
+        .await
+        .unwrap();
         assert_eq!(results.len(), 0);
     }
 
@@ -481,5 +578,26 @@ mod tests {
 
         let signature = sign_hook(&hook);
         assert!(!signature.is_empty());
+    }
+
+    #[test]
+    fn test_path_is_inside_rejects_traversal() {
+        let tmp = tempfile::tempdir().unwrap();
+        let loom_dir = tmp.path().to_path_buf();
+
+        // Inside → OK.
+        assert!(path_is_inside(&loom_dir.join("scripts/hook.sh"), &loom_dir));
+        // `..` traversal → rejected.
+        assert!(!path_is_inside(
+            &loom_dir.join("../../../etc/passwd"),
+            &loom_dir
+        ));
+        // Mixed traversal → rejected.
+        assert!(!path_is_inside(
+            &loom_dir.join("scripts/../../../etc/passwd"),
+            &loom_dir
+        ));
+        // Absolute external path → rejected.
+        assert!(!path_is_inside(&PathBuf::from("/etc/passwd"), &loom_dir));
     }
 }

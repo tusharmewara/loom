@@ -2,18 +2,126 @@ use crate::PluginManifest;
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 
-/// Plugin downloads are HTTPS-only, mirroring remote-config loading
-/// (config.rs). Rejects http://, ftp://, and other schemes before any
-/// network I/O (routing-debt.md Step 5).
-fn validate_https_url(url: &str) -> Result<()> {
+/// Validate that a URL is safe for outbound fetching: HTTPS scheme only,
+/// and the host must not resolve to a private or loopback IP address.
+///
+/// Blocks RFC 1918 (10/8, 172.16/12, 192.168/16), loopback (127/8, ::1),
+/// link-local (169.254/16, fe80::/10), unique-local (fc00::/7), multicast,
+/// reserved, and IPv4-mapped IPv6 forms.  Decimal/octal/hex IP literals
+/// (e.g. `2130706433`, `0177.0.0.1`) are not parseable by `IpAddr`, so
+/// they fall through to DNS lookup and fail there — not a practical SSRF
+/// vector against modern HTTP clients.
+///
+/// Fail-closed: returns `Err` on any non-HTTPS or private/loopback host.
+/// Callers must treat the error as fatal (no silent-skip).
+pub fn validate_outbound_url(url: &str) -> Result<()> {
+    validate_https_scheme(url)?;
+    let host = extract_host(url).ok_or_else(|| {
+        anyhow::anyhow!("invalid URL: no host in '{url}'")
+    })?;
+
+    if host.is_empty() {
+        anyhow::bail!("refusing outbound URL with empty host in '{url}'");
+    }
+
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        if is_private_or_loopback(ip) {
+            anyhow::bail!(
+                "refusing outbound URL to private/loopback host '{host}' in '{url}'"
+            );
+        }
+        return Ok(());
+    }
+
+    let resolved = (host, 443)
+        .to_socket_addrs()
+        .map_err(|_| anyhow::anyhow!("invalid URL host '{host}' in '{url}'"))?;
+    for addr in resolved {
+        if is_private_or_loopback(addr.ip()) {
+            anyhow::bail!(
+                "refusing outbound URL to private/loopback host '{host}' in '{url}'"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// HTTPS scheme check only (kept for callers that don't need IP blocking).
+fn validate_https_scheme(url: &str) -> Result<()> {
     if !url.starts_with("https://") {
         anyhow::bail!(
-            "refusing non-HTTPS plugin URL '{url}': plugin downloads are HTTPS-only, like remote-config loading"
+            "refusing non-HTTPS URL '{url}': outbound fetches are HTTPS-only"
         );
     }
     Ok(())
+}
+
+/// Extract the host portion from an `https://` URL.
+/// Handles `[ipv6]:port`, `host:port`, and bare `host`.
+fn extract_host(url: &str) -> Option<&str> {
+    let rest = url.strip_prefix("https://")?;
+let end = rest.find(|c| c == '/' || c == '?' || c == '#').unwrap_or(rest.len());
+    let host_port = &rest[..end];
+    if let Some(bracketed) = host_port.strip_prefix('[') {
+        return bracketed.split(']').next();
+    }
+    host_port.split(':').next()
+}
+
+/// Check whether an IP address is private, loopback, link-local, or
+/// otherwise non-routable on the public internet.
+fn is_private_or_loopback(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            // 0.0.0.0/8, 10.0.0.0/8, 127.0.0.0/8 loopback
+            if o[0] == 0 || o[0] == 10 || o[0] == 127 {
+                return true;
+            }
+            // 169.254.0.0/16 link-local (AWS metadata)
+            if o[0] == 169 && o[1] == 254 {
+                return true;
+            }
+            // 172.16.0.0/12
+            if o[0] == 172 && (16..=31).contains(&o[1]) {
+                return true;
+            }
+            // 192.168.0.0/16
+            if o[0] == 192 && o[1] == 168 {
+                return true;
+            }
+            // 224.0.0.0/4 multicast, 240.0.0.0/4 reserved
+            if o[0] >= 224 {
+                return true;
+            }
+            false
+        }
+        IpAddr::V6(v6) => {
+            if v6.is_loopback() || v6.is_unicast_link_local() || v6.is_unique_local() {
+                return true;
+            }
+            // IPv4-mapped IPv6: ::ffff:a.b.c.d → segs[0..5]=0, segs[5]=0xffff
+            let segs = v6.segments();
+            if segs[0] == 0
+                && segs[1] == 0
+                && segs[2] == 0
+                && segs[3] == 0
+                && segs[4] == 0
+                && segs[5] == 0xffff
+            {
+                let a = (segs[6] >> 8) as u8;
+                let b = (segs[6] & 0xff) as u8;
+                let c = (segs[7] >> 8) as u8;
+                let d = (segs[7] & 0xff) as u8;
+                return is_private_or_loopback(IpAddr::V4(Ipv4Addr::new(a, b, c, d)));
+            }
+            false
+        }
+    }
 }
 
 /// Verify a plugin tool TOML's Ed25519 signature.
@@ -256,8 +364,8 @@ impl PluginRegistry {
         version: Option<&str>,
         require_signature: bool,
     ) -> Result<PluginManifest> {
-        // Plugin downloads are HTTPS-only (routing-debt.md Step 5)
-        validate_https_url(url)?;
+        // Plugin downloads are HTTPS-only and SSRF-guarded (routing-debt.md Step 5)
+        validate_outbound_url(url)?;
 
         // Attempt to download the tool TOML
         let response = ureq::get(url)
@@ -408,8 +516,8 @@ impl PluginRegistry {
             anyhow::anyhow!("Plugin '{}' has no tool_toml_url to update from", name)
         })?;
 
-        // Plugin downloads are HTTPS-only (routing-debt.md Step 5)
-        validate_https_url(url)?;
+        // Plugin downloads are HTTPS-only and SSRF-guarded (routing-debt.md Step 5)
+        validate_outbound_url(url)?;
 
         // Download new version
         let response = ureq::get(url)
@@ -718,5 +826,51 @@ mod tests {
             .install_from_content("x", valid_url(), &unsigned_content(), None, false)
             .unwrap();
         assert!(!pins_path(tmp.path().to_str().unwrap()).exists());
+    }
+
+    #[test]
+    fn validate_outbound_url_rejects_private_ips() {
+        // IPv4 private / loopback / link-local / metadata
+        for bad in [
+            "https://127.0.0.1/",
+            "https://127.0.0.1:8080/x",
+            "https://10.0.0.5/",
+            "https://172.16.0.1/",
+            "https://172.31.255.255/",
+            "https://192.168.1.1/",
+            "https://169.254.169.254/latest/meta-data/",
+            "https://0.0.0.0/",
+            "https://224.0.0.1/",
+        ] {
+            let err = validate_outbound_url(bad).unwrap_err();
+            assert!(
+                err.to_string().contains("private/loopback"),
+                "expected private/loopback error for {bad}, got: {err}"
+            );
+        }
+        // IPv6 loopback / link-local / unique-local / IPv4-mapped
+        for bad in [
+            "https://[::1]/",
+            "https://[::ffff:127.0.0.1]/",
+            "https://[fe80::1]/",
+            "https://[fc00::1]/",
+        ] {
+            let err = validate_outbound_url(bad).unwrap_err();
+            assert!(
+                err.to_string().contains("private/loopback"),
+                "expected private/loopback error for {bad}, got: {err}"
+            );
+        }
+        // Non-HTTPS still rejected
+        let err = validate_outbound_url("http://127.0.0.1/").unwrap_err();
+        assert!(err.to_string().contains("HTTPS"), "got: {err}");
+        // Public HTTPS URLs are allowed (no download attempted — just validation)
+        for good in [
+            "https://example.com/x.toml",
+            "https://example.com/",
+            "https://www.example.org/path?query=1",
+        ] {
+            validate_outbound_url(good).expect("public HTTPS URL should pass: {good}");
+        }
     }
 }
