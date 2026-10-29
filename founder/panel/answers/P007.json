@@ -1,0 +1,13 @@
+{
+  "id": "P007",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "The shared-context pitch fits how I work — three coding agents, no lock-in sounds great — but I read every review and check GitHub issues before installing anything, and there's nothing to check yet. My first thought is what happens if Loom shuts down and my context is locked in. $30/seat isn't the problem; the lock-in is.",
+  "objection": "What happens if Loom shuts down? My context is locked in, and there's no track record I can verify before installing.",
+  "would_change_my_mind": "a guaranteed export path so my context is never locked in if Loom shuts down",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 60,
+  "price_too_expensive": 150
+}

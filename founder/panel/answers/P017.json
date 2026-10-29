@@ -1,0 +1,13 @@
+{
+  "id": "P017",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "I run three AI agents and context switching does hurt, but Cursor and Copilot already share context inside their own editor, and as a compliance buyer I need SSO, audit log, and FIPS before anything touches our code — the pitch promises none of that. I'm not handing session data to an unknown vendor at $30/seat on day one.",
+  "objection": "No SSO, audit log, or FIPS mentioned anywhere; I can't buy a tool that doesn't clear our compliance baseline, and no one I trust is vouching for it yet.",
+  "would_change_my_mind": "SOC 2, SSO, audit logging, and FIPS support, or an engineering lead I already trust vouching for it.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 75,
+  "price_too_expensive": 150
+}

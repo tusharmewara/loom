@@ -1,0 +1,13 @@
+{
+  "id": "P014",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "price",
+  "reason": "The shared daemon and free-first-five-humans fit my multi-agent setup, but $30/seat adds up fast and I won't pay to be the first person vetting a tool with no Reddit, GitHub, or Twitter signal — my agents' credentials aren't a guinea pig.",
+  "objection": "No reviews, no GitHub issues, no social proof; I'm not trusting an unproven local daemon with my credentials at $30/seat.",
+  "would_change_my_mind": "A peer I trust vouches for it after using it, and it shows up in real GitHub issues/discussions.",
+  "price_too_cheap": 5,
+  "price_cheap": 12,
+  "price_expensive": 40,
+  "price_too_expensive": 100
+}

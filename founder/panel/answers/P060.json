@@ -1,0 +1,6 @@
+{
+  "id": "P060",
+  "buys": false,
+  "reason_code": "trust",
+  "reason": "The multi-agent shared layer is exactly what my team needs and $30/seat is cheap, but this is the first time I've heard of Loom and I don't trust an unknown vendor with my code and session data — I'd want to see reviews, a Reddit thread, and GitHub issue history before I install a daemon that touches everything."
+}

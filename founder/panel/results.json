@@ -1,0 +1,226 @@
+{
+ "business": "Loom — shared agentic ecosystem for AI coding teams",
+ "seed": 7,
+ "dealt": 100,
+ "answered": 98,
+ "skipped": [
+  [
+   "P028",
+   "not valid JSON"
+  ],
+  [
+   "P032",
+   "not valid JSON"
+  ]
+ ],
+ "buys": 11,
+ "passes": 87,
+ "buy_rate": 0.11224489795918367,
+ "by_segment": [
+  [
+   "Mid-market software team",
+   34,
+   0.17647058823529413
+  ],
+  [
+   "Enterprise dev-ops / platform team",
+   15,
+   0.13333333333333333
+  ],
+  [
+   "Freelance / solo polyglot developer",
+   10,
+   0.1
+  ],
+  [
+   "Early-stage AI-native startup",
+   39,
+   0.05128205128205128
+  ]
+ ],
+ "by_behaviour": [
+  [
+   "Daily regular",
+   29,
+   0.3448275862068966
+  ],
+  [
+   "Reads every review",
+   24,
+   0.041666666666666664
+  ],
+  [
+   "Deal hunter",
+   20,
+   0.0
+  ],
+  [
+   "Compliance buyer",
+   10,
+   0.0
+  ],
+  [
+   "Loyal to a competitor",
+   15,
+   0.0
+  ]
+ ],
+ "by_income": [
+  [
+   "under $126,000",
+   32,
+   0.125
+  ],
+  [
+   "$126,000 to $160,000",
+   33,
+   0.12121212121212122
+  ],
+  [
+   "$160,000 and up",
+   33,
+   0.09090909090909091
+  ]
+ ],
+ "why_not": [
+  [
+   "trust",
+   40,
+   [
+    "The context-switching pain is real — I run three AI agents a day and re-explaining context kills me — but I'm not handing my code and session data to a vendor I've never heard of on a launch day. The local daemon helps, but there's no track record, no audit, and no one I trust vouching for it yet. $30/seat is cheap enough; trust isn't.",
+    "I can't buy software without SSO, an audit log, and FIPS — none of that's in the pitch — and I'm not installing a new daemon from a tap I've never heard of until I see it discussed on Reddit and GitHub issues. If Loom shuts down, my team's shared context is locked in with no exit."
+   ],
+   [
+    "P001",
+    "P005"
+   ]
+  ],
+  [
+   "price",
+   23,
+   [
+    "I'm a freelancer paying out of my own pocket, and $30/month is a recurring charge for a tool I'd open a few times a week. I hunt deals and jump to free tiers, so a seat fee feels like money down the drain when I'm solo and don't even have a team to share sessions with.",
+    "I'm a deal hunter who compares every AI tool on price per seat and bails for free tiers, so $30/seat/month doesn't clear my bar. On top of that I can't force my team onto one agent, so the shared-layer pitch doesn't land for me."
+   ],
+   [
+    "P003",
+    "P004"
+   ]
+  ],
+  [
+   "habit",
+   12,
+   [
+    "I run three-plus AI agents a day and losing context between tools is genuinely annoying, but we already pay for GitHub Copilot Enterprise and I'm not adding another $30-per-seat monthly bill for an unproven local daemon from an unknown founder. The first five humans are free, so I'd kick the tires on launch day — try, not buy.",
+    "No. I already pay for GitHub Copilot Enterprise and Cursor, I don't need another local daemon just to share context between agents, and I'm not installing a brew tap from an unknown publisher without seeing it vetted on GitHub or Reddit first."
+   ],
+   [
+    "P013",
+    "P015"
+   ]
+  ],
+  [
+   "need",
+   11,
+   [
+    "I run three agents a day and context does get lost switching between them, but Cursor and Copilot already keep context inside my editor, so I'm not paying thirty dollars a month for a new local daemon I haven't vetted on GitHub or Reddit — I'd use the free five humans first and probably never convert.",
+    "I live in one editor and Cursor/Copilot already share context inside it. I'm not juggling enough agents across tools to justify installing another daemon, and I don't buy dev tools without checking Reddit and GitHub issues first — this is too new with no track record."
+   ],
+   [
+    "P002",
+    "P010"
+   ]
+  ],
+  [
+   "convenience",
+   1,
+   [
+    "I run 3+ AI agents daily and losing context when switching tools is a real pain, but my first reaction to Loom was that a local daemon plus adapters and MCP servers is more infrastructure than I want to maintain right now — I'd rather keep paying the context-switching tax than babysit another piece of setup until it's proven dead simple."
+   ],
+   [
+    "P024"
+   ]
+  ]
+ ],
+ "why_yes": [
+  [
+   "need",
+   10,
+   [
+    "I run three or more AI agents every day and lose context every time I switch between them — that's a real, daily tax Loom is built to remove. The first five humans are free, so there's almost no cost to try it, and $30/seat later is a rounding error at my salary. My hesitation is that we already pay for GitHub Copilot Enterprise, so Loom has to prove it adds something Copilot doesn't rather than being another layer to manage.",
+    "I run three-plus AI agents daily and lose context every time I switch tools; Loom's shared session and skills layer fixes that exact pain without forcing my team onto one agent, and $30 a seat with the first five humans free is cheap enough to pilot."
+   ],
+   [
+    "P011",
+    "P016"
+   ]
+  ],
+  [
+   "trust",
+   1,
+   [
+    "I run three AI agents and context silos between them are real, but my first instinct is not to trust a new vendor with my code. Loom runs a local daemon on a Unix socket so nothing leaves my machine — that local-first design is exactly what earns my buy-in at $30/seat with the first five humans free."
+   ],
+   [
+    "P058"
+   ]
+  ]
+ ],
+ "flip": [
+  "A third-party security audit plus public source/self-host option, or an engineering lead I already trust vouching for it.",
+  "Seeing teams like mine vouch for it on Reddit/GitHub and a free trial that actually proves cross-tool context saves me time.",
+  "A permanent free tier for solo developers.",
+  "SSO, audit log, and FIPS support",
+  "a guaranteed export path so my context is never locked in if Loom shuts down",
+  "A permanent free tier for individuals, or charging only once I add teammates.",
+  "Independent reviews showing a real cross-agent context problem my editor can't solve, plus a free trial so I can test it without committing.",
+  "A teammate using it daily for a month and confirming the shared-context benefit is real.",
+  "A peer I trust vouches for it after using it, and it shows up in real GitHub issues/discussions.",
+  "A peer I trust runs it in production with zero context loss across Cursor and Codex.",
+  "SOC 2, SSO, audit logging, and FIPS support, or an engineering lead I already trust vouching for it.",
+  "If my team standardized on one agent and the daemon proved it never sees or stores our credentials.",
+  "A one-command install plus positive threads from other platform teams on Reddit or GitHub.",
+  "Seeing real teams discuss it on GitHub Issues or Reddit, plus an install path that doesn't require building from source or adding a personal brew tap.",
+  "SSO, audit log, and FIPS compliance plus a guaranteed data export if the vendor shuts down.",
+  "A third-party security audit, public source or self-host option, or an engineering lead I already trust vouching for it in production.",
+  "Trusted peers on Reddit/GitHub actually using it in production, or a truly free tier with no seat ceiling.",
+  "Plain-file export of everything (sessions, skills, MCP config, credentials) so my context is mine and usable without the daemon — or a genuinely free solo tier.",
+  "If my sessions and skills lived in plain local files I could take with me instead of being locked into their daemon.",
+  "A peer engineering lead I trust uses it for a month and shows me a real cross-agent handoff that saved them hours.",
+  "An open-source daemon proven not to phone home, publicly vetted for months on GitHub and Reddit with no data-leak incidents.",
+  "Real team reviews on Reddit/GitHub plus a free pilot I can script against before committing.",
+  "Data export/portability or self-hosting so nothing is locked in, plus SSO, audit log, and FIPS support.",
+  "A third-party security audit, public source or a self-host option, or an engineering lead I already trust vouching for it.",
+  "A one-command install that drops into my existing Cursor setup with zero daemon babysitting, or my team actually running 3+ agents and hitting real context-silo pain.",
+  "A genuinely free tier I could start with alone, no daemon to manage.",
+  "Seeing real Reddit/GitHub praise from teams running 3+ agents, or growing past the 5-human free limit and feeling the value firsthand.",
+  "If I were managing a team of six-plus humans where sharing skills, credentials, and sessions across agents actually saved billable time.",
+  "If I could actually feel context getting lost between my agents day to day instead of it sounding hypothetical.",
+  "If my whole small team was under the five free humans and it stayed free, or if context switching actually started costing me billable hours.",
+  "Verified reviews from teams running multiple agents showing it saves real time, plus proof it isn't redundant with Copilot.",
+  "Independent reviews from engineering leads actually running it in production on Reddit or GitHub, plus a free trial before I pay.",
+  "If context genuinely broke between Cursor and Codex on a real task and I felt the pain myself.",
+  "If my team standardized on three or more different agents and context actually broke between them, so Loom solved a live friction instead of a hypothetical one.",
+  "Real user reviews from teams like mine, plus a way to try it without handing over all my credentials to a new daemon.",
+  "Real reviews from developers like me, plus proof the daemon is open source or auditable so I'm not locking my credentials into an unknown vendor.",
+  "A genuinely free solo tier.",
+  "SSO, audit log, and FIPS support, plus a real security track record on GitHub and Reddit.",
+  "SSO, audit log, and FIPS compliance (SOC 2) plus real team reviews on GitHub or Reddit.",
+  "Verified reviews from real teams on Reddit or GitHub showing Loom works alongside Copilot Enterprise and actually saves time.",
+  "If the daemon were open source and self-auditable, or free forever for small teams.",
+  "a credible third-party security audit confirming the daemon is local-only and never sends code, sessions, or credentials to the vendor.",
+  "a free tier that beats my current stack with zero daemon setup",
+  "A third-party security audit, public source or a self-host option, and real reviews from engineers I know confirming the cross-agent handoff actually works.",
+  "If I actually started running Claude Code, Codex, and Cursor side by side and lost context every time I switched between them.",
+  "A trusted reviewer I follow publishes a real long-term daily-use review, or I actually start running three-plus agents across different tools.",
+  "SOC 2 Type II with SSO (SAML/OIDC), audit log, FIPS support, plus a guaranteed open export of sessions and skills if Loom shuts down.",
+  "A portability guarantee — my sessions and skills live in open files I own and keep working without the daemon.",
+  "Local-first export — every skill, session, MCP server, and credential exportable to plain files so I own the context and can run it without loomd.",
+  "If my team actually standardized on a single agent so the shared layer had something to share.",
+  "A public security audit plus months of real-team discussion on Reddit/GitHub, or a way to run it so no data goes to the vendor.",
+  "A free team-wide pilot (beyond 5 humans) that proves cross-agent context sharing works with zero config before I pay.",
+  "A third-party security audit, public source or self-host option, and an engineering lead I already trust vouching for it, plus a free trial my team can test before paying."
+ ],
+ "purchases_first_month_per_buyer": 0.8333333333333334,
+ "price_answers": 59
+}

@@ -258,6 +258,13 @@ pub enum Command {
         #[command(subcommand)]
         action: TelemetryAction,
     },
+    /// Export all skills, sessions, MCP config, credentials, and analytics
+    /// to plain files in `{loom_dir}/export/`. Works without the daemon.
+    Export {
+        /// Copy all data as plain files (SQLite databases, JSON, etc.)
+        #[arg(long)]
+        plain_files: bool,
+    },
     /// Review session findings (evidence pipeline)
     Review {
         #[command(subcommand)]
@@ -2078,6 +2085,9 @@ impl Cli {
             Command::Ast { action } => crate::commands::ast::run(&action).await,
             Command::Telemetry { action } => {
                 crate::commands::telemetry::run(&loom_dir, &action).await
+            }
+            Command::Export { plain_files } => {
+                crate::commands::export::run(&loom_dir, plain_files)
             }
             Command::Review { action } => crate::commands::review::run(&loom_dir, action).await,
             Command::Conflict { action } => {

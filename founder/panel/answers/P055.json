@@ -1,0 +1,13 @@
+{
+  "id": "P055",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "need",
+  "reason": "I'm a solo freelancer — one human — so I land in the free tier and wouldn't pay $30 anyway. Even setting that aside, context switching between my own agents isn't painful enough to justify $360 a year; I can paste context between them, and Cursor/Copilot already keep context inside my editor.",
+  "objection": "It's one local daemon that every agent depends on — if it breaks or the project stalls (it's a pre-sale with three pilot teams), my whole agent workflow dies, and as a one-person shop I can't afford that dependency.",
+  "would_change_my_mind": "If I were managing a team of six-plus humans where sharing skills, credentials, and sessions across agents actually saved billable time.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 50,
+  "price_too_expensive": 100
+}

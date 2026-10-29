@@ -1,0 +1,13 @@
+{
+  "id": "P093",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "The context-sharing pitch fits my day — I run three agents and hate losing context when I switch tools. But my first thought was lock-in: if Loom shuts down, my context is trapped in its daemon. I evaluate launch-day tools constantly and most don't stick; I won't pay $30/seat to build my workflow on something I can't take with me.",
+  "objection": "If Loom shuts down or gets acquired, my agents' shared sessions, skills, and credentials are locked in a local daemon I don't control.",
+  "would_change_my_mind": "A portability guarantee — my sessions and skills live in open files I own and keep working without the daemon.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 45,
+  "price_too_expensive": 100
+}

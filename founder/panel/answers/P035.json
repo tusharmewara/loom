@@ -1,0 +1,6 @@
+{
+  "id": "P035",
+  "buys": false,
+  "reason_code": "trust",
+  "reason": "I'm the target persona—I run multiple AI coding agents and want them to stop siloing context—but I buy by reading Reddit, GitHub issues, and Twitter first, and this thing has no footprint anywhere yet. A local daemon that owns every agent's sessions and credentials is a huge trust ask with nothing to vet, and my first reaction stands: we already pay for GitHub Copilot Enterprise, so why add another layer?"
+}

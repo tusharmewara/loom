@@ -1,0 +1,13 @@
+{
+  "id": "P070",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "The shared-context pitch fits how I work — I run three agents and hate context silos — but I never buy a dev tool without checking Reddit, GitHub issues, and Twitter first, and there's nothing to check yet. Handing a brand-new local daemon my credentials across every agent at $30/seat before anyone I trust has vetted it is a no.",
+  "objection": "No track record — no Reddit threads, GitHub issues, or Twitter takes to vet, and I'd be giving a brand-new local daemon access to every agent's credentials and context at once.",
+  "would_change_my_mind": "Real user reviews from teams like mine, plus a way to try it without handing over all my credentials to a new daemon.",
+  "price_too_cheap": 5,
+  "price_cheap": 10,
+  "price_expensive": 40,
+  "price_too_expensive": 100
+}

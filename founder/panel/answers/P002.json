@@ -1,0 +1,13 @@
+{
+  "id": "P002",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "need",
+  "reason": "I run three agents a day and context does get lost switching between them, but Cursor and Copilot already keep context inside my editor, so I'm not paying thirty dollars a month for a new local daemon I haven't vetted on GitHub or Reddit — I'd use the free five humans first and probably never convert.",
+  "objection": "Cursor/Copilot already do context sharing within my own editor, and I don't trust a brand-new daemon enough to install it and pay for it without seeing it discussed on Reddit and GitHub issues first.",
+  "would_change_my_mind": "Seeing teams like mine vouch for it on Reddit/GitHub and a free trial that actually proves cross-tool context saves me time.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 60,
+  "price_too_expensive": 120
+}

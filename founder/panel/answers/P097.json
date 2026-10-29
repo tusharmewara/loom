@@ -1,0 +1,13 @@
+{
+  "id": "P097",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "I don't trust a new vendor with my code and session data, and there are no Reddit or GitHub issues to vet yet. loomd would see every agent's sessions, skills, and credentials, so I'm not paying $30/seat/month for an unknown.",
+  "objection": "Brand-new vendor with no track record — I'd be giving it my code, sessions, and credentials with zero public vetting.",
+  "would_change_my_mind": "A public security audit plus months of real-team discussion on Reddit/GitHub, or a way to run it so no data goes to the vendor.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 50,
+  "price_too_expensive": 120
+}

@@ -1,0 +1,13 @@
+{
+  "id": "P078",
+  "buys": true,
+  "purchases_first_month": 1,
+  "reason_code": "need",
+  "reason": "I run three AI agents every day and lose context every time I switch between them — that lost time costs me far more than $30 a month. One seat covers every agent I connect, so at my salary it's a no-brainer if it actually keeps sessions shared across Claude Code, Cursor, and Codex; the first five humans being free lets my team pilot it risk-free.",
+  "objection": "We already pay for GitHub Copilot Enterprise — why add another tool, and if the local daemon (loomd) crashes it takes down shared context for all my agents at once.",
+  "would_change_my_mind": "If loomd sent agent context off my machine or became a single point of failure that killed all my agents at once.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 75,
+  "price_too_expensive": 200
+}

@@ -1,0 +1,13 @@
+{
+  "id": "P065",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "I don't buy dev tools without checking Reddit, GitHub issues, and Twitter first, and Loom is brand new—no reviews, no track record, just a founding-member pre-sale and a personal homebrew tap. The shared-context pitch fits my 3+ agent setup, but I'm not paying $30 a seat for something I can't vet, and running another local daemon is one more thing that can break.",
+  "objection": "It's too new and unproven; I read every review before buying and there's nothing to read, plus I'd have to run and manage loomd myself.",
+  "would_change_my_mind": "Independent reviews from engineering leads actually running it in production on Reddit or GitHub, plus a free trial before I pay.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 60,
+  "price_too_expensive": 120
+}

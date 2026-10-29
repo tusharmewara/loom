@@ -1,0 +1,13 @@
+{
+  "id": "P084",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "I don't trust a new vendor with my code and session data — running tusharmewara/loom as a local daemon that touches every agent's credentials and sessions is too much surface area for $30/seat/month, and as a deal hunter I'd rather stay on free tiers than pay a vendor I haven't vetted.",
+  "objection": "I don't trust a new vendor with my code and session data.",
+  "would_change_my_mind": "a credible third-party security audit confirming the daemon is local-only and never sends code, sessions, or credentials to the vendor.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 50,
+  "price_too_expensive": 100
+}

@@ -1,0 +1,13 @@
+{
+  "id": "P039",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "price",
+  "reason": "The shared-agent-layer need is real for my team, but $30/seat adds up fast with 10+ agents, and I never buy a dev tool on first exposure — I read every review and check Reddit, GitHub issues, and Twitter first, and there's nothing to check yet.",
+  "objection": "$30/seat adds up fast when I have 10+ agents, and I have no community signal — no reviews, no GitHub issues, no Reddit threads — to validate it.",
+  "would_change_my_mind": "Real team reviews on Reddit/GitHub plus a free pilot I can script against before committing.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 40,
+  "price_too_expensive": 75
+}

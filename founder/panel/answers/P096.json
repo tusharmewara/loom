@@ -1,0 +1,13 @@
+{
+  "id": "P096",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "habit",
+  "reason": "No. My team runs different agents and I can't force them onto one; I already pay for Cursor/Copilot and I'm reluctant to add another tool. The shared-layer pitch fits my situation, but loyalty to what we already use wins and I won't pay $30 a seat for something my team won't adopt.",
+  "objection": "My team uses different agents; I can't force them all onto one, and I already pay for Cursor/Copilot.",
+  "would_change_my_mind": "If my team actually standardized on a single agent so the shared layer had something to share.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 45,
+  "price_too_expensive": 90
+}

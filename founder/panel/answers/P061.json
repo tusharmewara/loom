@@ -1,0 +1,6 @@
+{
+  "id": "P061",
+  "buys": false,
+  "reason_code": "trust",
+  "reason": "I don't trust a new vendor with my code and session data. Before I install a daemon that touches every agent I use, I need to see Reddit threads, GitHub issues, and real reviews — and right now there's nothing to vet."
+}

@@ -1,0 +1,13 @@
+{
+  "id": "P099",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "The context-switching pain is real — I run three AI agents a day and re-explaining context kills me — and $30 with five free seats is affordable. But I'm not handing my agents, credentials, and session data to a day-one daemon from a vendor with no track record, and I can't force my team onto one agent anyway.",
+  "objection": "I don't trust an unknown vendor with my code, credentials, and session data — no audit, no reputation, no one I know vouching for it, and it's a pre-sale pilot, not a proven tool.",
+  "would_change_my_mind": "A third-party security audit, public source or self-host option, and an engineering lead I already trust vouching for it, plus a free trial my team can test before paying.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 75,
+  "price_too_expensive": 150
+}

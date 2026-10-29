@@ -1,0 +1,31 @@
+{
+  "business": "Loom (shared agentic ecosystem for AI coding agents)",
+  "unit": "seat/month",
+  "price": 30.00,
+  "variable": [
+    {"label": "Compute & API calls per seat", "cost": 0.80},
+    {"label": "Storage & bandwidth", "cost": 0.40},
+    {"label": "Card processing (Stripe ~2.9%+30¢)", "cost": 1.17},
+    {"label": "Support & success per seat", "cost": 0.63}
+  ],
+  "fixed_monthly": [
+    {"label": "Cloud infrastructure (AWS/Cloudflare)", "cost": 4000},
+    {"label": "Engineering salaries (2 engineers)", "cost": 12000},
+    {"label": "Software & SaaS tools (Linear, Sentry, Postmark)", "cost": 1500},
+    {"label": "Insurance (cyber + E&O)", "cost": 800},
+    {"label": "Accountant & legal retainer", "cost": 1200},
+    {"label": "Apple Developer + code-signing cert", "cost": 500}
+  ],
+  "startup": [
+    {"label": "Delaware C-Corp + EIN", "cost": 500},
+    {"label": "Legal entity setup", "cost": 2000},
+    {"label": "Trademark search & filing", "cost": 1000},
+    {"label": "Initial marketing & launch ads", "cost": 5000},
+    {"label": "Accounting software setup", "cost": 500},
+    {"label": "Contingency (10%)", "cost": 5000}
+  ],
+  "days_per_month": 30,
+  "capacity_per_day": 500,
+  "plan_per_day": 30,
+  "ramp_per_day": [5, 8, 12, 18, 25, 30, 30, 30, 30, 30, 30, 30]
+}

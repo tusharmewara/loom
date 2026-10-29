@@ -1,0 +1,13 @@
+{
+  "id": "P074",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "need",
+  "reason": "I can't buy anything without SSO, an audit log, and FIPS, and Loom's pitch doesn't mention any of them — a tool that shares my credentials across agents with no audit trail is a compliance non-starter, and Cursor/Copilot already share context inside the editor anyway.",
+  "objection": "No SSO, audit log, or FIPS; I can't let a compliance team audit shared credentials they can't see.",
+  "would_change_my_mind": "SSO, audit log, and FIPS support, plus a real security track record on GitHub and Reddit.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 50,
+  "price_too_expensive": 100
+}

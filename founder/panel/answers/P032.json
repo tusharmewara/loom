@@ -1,0 +1,13 @@
+{
+  "id": "P032",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "The pitch fits my day exactly — I juggle three AI agents and losing context between them is painful — but my first instinct was "I don't trust a new vendor with my code and session data," and nothing in the offer changes that. $30/seat with five free humans is fair pricing; the problem is there's no audit, no track record, and no engineer I already know vouching for it, so I'm not installing a daemon that owns every credential and session on my machine.",
+  "objection": "I don't trust a new vendor with my code and session data — unknown security, no audit, no reputation, and my code is the company.",
+  "would_change_my_mind": "A third-party security audit plus public source or a self-host option, or an engineering lead I already trust vouching for it.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 60,
+  "price_too_expensive": 120
+}

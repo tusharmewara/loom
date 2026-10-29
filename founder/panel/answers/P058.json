@@ -1,0 +1,13 @@
+{
+  "id": "P058",
+  "buys": true,
+  "purchases_first_month": 1,
+  "reason_code": "trust",
+  "reason": "I run three AI agents and context silos between them are real, but my first instinct is not to trust a new vendor with my code. Loom runs a local daemon on a Unix socket so nothing leaves my machine — that local-first design is exactly what earns my buy-in at $30/seat with the first five humans free.",
+  "objection": "It's a brand-new vendor with no Reddit/GitHub track record yet, and my habit is to read every review before touching a dev tool.",
+  "would_change_my_mind": "Independent engineers vouching for it on Reddit or GitHub Issues.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 50,
+  "price_too_expensive": 100
+}

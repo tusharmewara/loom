@@ -1,0 +1,13 @@
+{
+  "id": "P054",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "price",
+  "reason": "I run 3+ agents a day and context switching between tools is real pain, but $30/seat adds up fast once the team grows, and I haven't verified Loom on Reddit or GitHub yet. The first five humans are free, so I'd trial it solo before I'd ever pull out my card.",
+  "objection": "$30/seat adds up fast with 10+ agents, and I don't know if it's actually reliable yet.",
+  "would_change_my_mind": "Seeing real Reddit/GitHub praise from teams running 3+ agents, or growing past the 5-human free limit and feeling the value firsthand.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 30,
+  "price_too_expensive": 75
+}

@@ -1,0 +1,13 @@
+{
+  "id": "P071",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "I buy dev tools only after checking Reddit, GitHub issues, and Twitter, and Loom is brand new — there's nothing to vet. As a solo developer I run one agent at a time, so sharing sessions across ten agents isn't a pain I have, and I won't hand an unknown vendor my credentials at $30/seat on launch day.",
+  "objection": "No reviews anywhere — no Reddit threads, no GitHub issues, no Twitter takes — yet I'd be giving a brand-new local daemon my credentials across every agent before anyone I trust has vetted it.",
+  "would_change_my_mind": "Real reviews from developers like me, plus proof the daemon is open source or auditable so I'm not locking my credentials into an unknown vendor.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 40,
+  "price_too_expensive": 90
+}

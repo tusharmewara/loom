@@ -1,0 +1,13 @@
+{
+  "id": "P076",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "I can't buy this. I need SSO, an audit log, and FIPS before any purchase, and the pitch mentions none of them — I wouldn't trust a local daemon with my team's credentials and MCP keys without those. Cursor and Copilot already share context inside their own editors, and I'd want to see real teams vouch for it on GitHub or Reddit before I install anything.",
+  "objection": "No SSO, audit log, or FIPS is mentioned anywhere, and I can't buy software that handles credentials without them; there's also no social proof on GitHub or Reddit yet.",
+  "would_change_my_mind": "SSO, audit log, and FIPS compliance (SOC 2) plus real team reviews on GitHub or Reddit.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 60,
+  "price_too_expensive": 150
+}

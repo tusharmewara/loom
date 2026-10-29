@@ -1,0 +1,13 @@
+{
+  "id": "P015",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "habit",
+  "reason": "No. I already pay for GitHub Copilot Enterprise and Cursor, I don't need another local daemon just to share context between agents, and I'm not installing a brew tap from an unknown publisher without seeing it vetted on GitHub or Reddit first.",
+  "objection": "We already pay for Copilot Enterprise; adding loomd means another tool, another credential store, and another $30 seat for something my stack already does.",
+  "would_change_my_mind": "A peer I trust runs it in production with zero context loss across Cursor and Codex.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 50,
+  "price_too_expensive": 100
+}

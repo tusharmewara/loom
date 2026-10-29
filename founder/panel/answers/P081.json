@@ -1,0 +1,13 @@
+{
+  "id": "P081",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "price",
+  "reason": "I'm a deal hunter who compares every AI tool on price per seat and switches for free tiers — the first five humans are free, so my team stays on the free tier and I never convert to $30 a seat.",
+  "objection": "Handing every agent's credentials, hooks, and sessions to one local daemon from an unproven vendor is a single point of failure I'd have to trust before I'd pay.",
+  "would_change_my_mind": "If the daemon were open source and self-auditable, or free forever for small teams.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 45,
+  "price_too_expensive": 100
+}

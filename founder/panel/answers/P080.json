@@ -1,0 +1,13 @@
+{
+  "id": "P080",
+  "buys": true,
+  "purchases_first_month": 0,
+  "reason_code": "need",
+  "reason": "I run three AI agents a day and lose context every time I switch; a shared layer that keeps skills, sessions, and credentials across Claude Code, Cursor, and whatever else my team uses is exactly my problem. First five humans free means I can try it before paying anything.",
+  "objection": "I can't force my team onto one agent, and I don't trust one local daemon with all our credentials until I see it actually hand off context between two different agents without breaking.",
+  "would_change_my_mind": "A live demo where a task started in Claude Code continues in Cursor with full context, using our real MCP servers.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 50,
+  "price_too_expensive": 100
+}

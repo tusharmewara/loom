@@ -1,0 +1,13 @@
+{
+  "id": "P088",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "need",
+  "reason": "I already pay for Cursor, and it shares context inside my editor. I'm not running three different AI agents, so there's nothing for Loom to connect — I'm not adding another daemon to my machine for a problem I don't have.",
+  "objection": "Cursor/Copilot already do context sharing within their own editor, and I'm reluctant to add another tool I don't actually need.",
+  "would_change_my_mind": "If I actually started running Claude Code, Codex, and Cursor side by side and lost context every time I switched between them.",
+  "price_too_cheap": 5,
+  "price_cheap": 12,
+  "price_expensive": 60,
+  "price_too_expensive": 150
+}

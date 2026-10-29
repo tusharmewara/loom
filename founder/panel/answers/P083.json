@@ -1,0 +1,6 @@
+{
+  "id": "P083",
+  "buys": false,
+  "reason_code": "need",
+  "reason": "I already pay for GitHub Copilot Enterprise and run three AI agents a day. Context loss switching tools is annoying, but I don't see Loom fixing it well enough to justify adding a local daemon and another tool on top of what I have — I'd need to see cross-agent context actually work before spending."
+}

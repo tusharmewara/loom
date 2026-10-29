@@ -1,0 +1,13 @@
+{
+  "id": "P087",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "The pain is real — I switch between Claude Code and Cursor all day and re-pasting context kills me — but I buy dev tools only after checking Reddit, GitHub issues, and Twitter first, and this is launch day with no track record, no audit, and nobody I know vouching for it. I'm not handing a stranger's local daemon my code, sessions, and credentials for $30 a seat.",
+  "objection": "Unknown vendor, no reviews on Reddit or GitHub, no security audit, no one I trust has used it — and I'd be giving a local daemon from an unproven company access to my code and credentials.",
+  "would_change_my_mind": "A third-party security audit, public source or a self-host option, and real reviews from engineers I know confirming the cross-agent handoff actually works.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 50,
+  "price_too_expensive": 100
+}

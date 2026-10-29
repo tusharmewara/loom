@@ -1,0 +1,13 @@
+{
+  "id": "P049",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "The context-switching pain is real — I run three AI agents every day and losing context between them kills my flow — but this is the first time I've heard of Loom, on a launch day, from a vendor I've never heard of. $30/seat isn't the blocker; handing my team's shared session context, skills, hooks, and credentials to one local daemon from an unknown vendor with no audit or track record is.",
+  "objection": "I don't trust an unknown vendor with my team's code, session data, and credentials on first sight — no security audit, no reputation, and if the local daemon breaks, every agent I run goes down with it.",
+  "would_change_my_mind": "A third-party security audit, public source or a self-host option, or an engineering lead I already trust vouching for it.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 60,
+  "price_too_expensive": 150
+}

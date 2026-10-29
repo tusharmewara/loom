@@ -1,0 +1,13 @@
+{
+  "id": "P011",
+  "buys": true,
+  "purchases_first_month": 1,
+  "reason_code": "need",
+  "reason": "I run three or more AI agents every day and lose context every time I switch between them — that's a real, daily tax Loom is built to remove. The first five humans are free, so there's almost no cost to try it, and $30/seat later is a rounding error at my salary. My hesitation is that we already pay for GitHub Copilot Enterprise, so Loom has to prove it adds something Copilot doesn't rather than being another layer to manage.",
+  "objection": "We already pay for GitHub Copilot Enterprise; why add this? Loom needs to prove it solves cross-agent context that my editor and Copilot can't, instead of just duplicating them.",
+  "would_change_my_mind": "A live demo showing a task genuinely continuing across two different agents (e.g., Claude Code to Cursor) without re-prompting, or an engineering lead I already trust vouching for it.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 60,
+  "price_too_expensive": 120
+}

@@ -1,0 +1,1 @@
+{"id": "P005", "buys": false, "reason_code": "trust", "reason": "I can't buy software without SSO, an audit log, and FIPS — none of that's in the pitch — and I'm not installing a new daemon from a tap I've never heard of until I see it discussed on Reddit and GitHub issues. If Loom shuts down, my team's shared context is locked in with no exit."}

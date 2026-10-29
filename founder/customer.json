@@ -1,0 +1,69 @@
+{
+  "business": "Loom — shared agentic ecosystem for AI coding teams",
+  "target": "Engineering leads and CTOs at teams running 3+ AI coding agents who want shared skills, sessions, MCP servers, and credentials without per-tool lock-in",
+  "segments": [
+    {
+      "name": "Early-stage AI-native startup",
+      "share": 0.40,
+      "income": [90000, 180000]
+    },
+    {
+      "name": "Mid-market software team",
+      "share": 0.35,
+      "income": [110000, 200000]
+    },
+    {
+      "name": "Enterprise dev-ops / platform team",
+      "share": 0.15,
+      "income": [130000, 250000]
+    },
+    {
+      "name": "Freelance / solo polyglot developer",
+      "share": 0.10,
+      "income": [60000, 140000]
+    }
+  ],
+  "behaviours": [
+    {
+      "name": "Daily regular",
+      "share": 0.30,
+      "how": "Runs 3+ AI agents every day; context lost when switching tools"
+    },
+    {
+      "name": "Deal hunter",
+      "share": 0.20,
+      "how": "Compares every AI tool on price per seat; switches for free tiers"
+    },
+    {
+      "name": "Reads every review",
+      "share": 0.25,
+      "how": "Checks Reddit, GitHub issues, Twitter before buying any dev tool"
+    },
+    {
+      "name": "Loyal to a competitor",
+      "share": 0.15,
+      "how": "Already pays for Cursor or Copilot; reluctant to add another tool"
+    },
+    {
+      "name": "Compliance buyer",
+      "share": 0.10,
+      "how": "Needs SSO, audit log, FIPS before any purchase; slow procurement"
+    }
+  ],
+  "objections": [
+    "Another tool to manage — my team already has too many",
+    "Cursor/Copilot already do context sharing within their own editor",
+    "I don't trust a new vendor with my code and session data",
+    "$30/seat adds up fast when I have 10+ agents",
+    "My team uses different agents; I can't force them all onto one",
+    "Setup looks complex — daemon, adapters, MCP servers",
+    "What happens if Loom shuts down? My context is locked in",
+    "We already pay for GitHub Copilot Enterprise; why add this?"
+  ],
+  "habits": [
+    "Evaluates new dev tools on product-hunt-style launch days",
+    "Reads GitHub issues and Reddit before installing anything",
+    "Prefers CLI-first tools that script well",
+    "Buys on engineering-lead authority, not procurement committee"
+  ]
+}

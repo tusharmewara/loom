@@ -1,0 +1,13 @@
+{
+  "id": "P001",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "The context-switching pain is real — I run three AI agents a day and re-explaining context kills me — but I'm not handing my code and session data to a vendor I've never heard of on a launch day. The local daemon helps, but there's no track record, no audit, and no one I trust vouching for it yet. $30/seat is cheap enough; trust isn't.",
+  "objection": "I don't trust a new vendor with my code and session data — unknown security, no audit, no reputation, and my code is the company.",
+  "would_change_my_mind": "A third-party security audit plus public source/self-host option, or an engineering lead I already trust vouching for it.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 75,
+  "price_too_expensive": 150
+}

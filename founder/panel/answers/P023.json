@@ -1,0 +1,13 @@
+{
+  "id": "P023",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "I can't buy it. As a compliance buyer I need SSO, audit log, and FIPS before any purchase, and the pitch mentions none of them. My first reaction was lock-in too — if Loom shuts down, my team's context is locked in. $30 a seat with five humans free is cheap enough, but I buy on engineering authority and my baseline isn't met.",
+  "objection": "No SSO, audit log, or FIPS, and no answer for what happens to my context if Loom shuts down.",
+  "would_change_my_mind": "SSO, audit log, and FIPS compliance plus a guaranteed data export if the vendor shuts down.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 50,
+  "price_too_expensive": 100
+}

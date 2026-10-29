@@ -1,0 +1,13 @@
+{
+  "id": "P026",
+  "buys": false,
+  "purchases_first_month": 0,
+  "reason_code": "trust",
+  "reason": "The shared-context pitch actually fits — I run three-plus agents and re-explaining context is a real tax. But I buy on engineering-lead authority and I read every review first; Loom is a new vendor with nothing on Reddit, GitHub, or Twitter vouching for it, and I'm not handing my session data and code to an unknown daemon on launch day. $30/seat is fine; trust isn't there yet.",
+  "objection": "I don't trust a new vendor with my code and agent session data — no track record, no audit, no one I respect vouching for it, and my first instinct is that it's just another tool to manage.",
+  "would_change_my_mind": "A third-party security audit, public source or self-host option, or an engineering lead I already trust vouching for it in production.",
+  "price_too_cheap": 5,
+  "price_cheap": 15,
+  "price_expensive": 60,
+  "price_too_expensive": 120
+}
