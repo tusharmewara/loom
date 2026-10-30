@@ -2,74 +2,99 @@ use crate::PluginManifest;
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
+
+const MAX_OUTBOUND_REDIRECTS: usize = 5;
 
 /// Validate that a URL is safe for outbound fetching: HTTPS scheme only,
 /// and the host must not resolve to a private or loopback IP address.
 ///
 /// Blocks RFC 1918 (10/8, 172.16/12, 192.168/16), loopback (127/8, ::1),
 /// link-local (169.254/16, fe80::/10), unique-local (fc00::/7), multicast,
-/// reserved, and IPv4-mapped IPv6 forms.  Decimal/octal/hex IP literals
-/// (e.g. `2130706433`, `0177.0.0.1`) are not parseable by `IpAddr`, so
-/// they fall through to DNS lookup and fail there — not a practical SSRF
-/// vector against modern HTTP clients.
+/// reserved, and IPv4-mapped IPv6 forms. The URL parser canonicalizes
+/// non-decimal IPv4 literals before address validation.
 ///
 /// Fail-closed: returns `Err` on any non-HTTPS or private/loopback host.
 /// Callers must treat the error as fatal (no silent-skip).
 pub fn validate_outbound_url(url: &str) -> Result<()> {
-    validate_https_scheme(url)?;
-    let host = extract_host(url).ok_or_else(|| {
-        anyhow::anyhow!("invalid URL: no host in '{url}'")
-    })?;
+    resolve_outbound_url(url).map(|_| ())
+}
 
-    if host.is_empty() {
-        anyhow::bail!("refusing outbound URL with empty host in '{url}'");
+fn resolve_outbound_url(url: &str) -> Result<(ureq::RequestUrl, Vec<SocketAddr>)> {
+    let parsed = ureq::get(url)
+        .request_url()
+        .with_context(|| format!("invalid outbound URL '{url}'"))?;
+    if parsed.scheme() != "https" {
+        anyhow::bail!("refusing non-HTTPS URL '{url}': outbound fetches are HTTPS-only");
     }
 
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        if is_private_or_loopback(ip) {
-            anyhow::bail!(
-                "refusing outbound URL to private/loopback host '{host}' in '{url}'"
-            );
-        }
-        return Ok(());
-    }
+    let host = parsed.host();
+    let host_for_resolution = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(host);
+    let port = parsed.port().unwrap_or(443);
+    let addresses: Vec<SocketAddr> = if let Ok(ip) = host_for_resolution.parse::<IpAddr>() {
+        vec![SocketAddr::new(ip, port)]
+    } else {
+        (host_for_resolution, port)
+            .to_socket_addrs()
+            .with_context(|| format!("could not resolve outbound URL host '{host}'"))?
+            .collect()
+    };
 
-    let resolved = (host, 443)
-        .to_socket_addrs()
-        .map_err(|_| anyhow::anyhow!("invalid URL host '{host}' in '{url}'"))?;
-    for addr in resolved {
-        if is_private_or_loopback(addr.ip()) {
-            anyhow::bail!(
-                "refusing outbound URL to private/loopback host '{host}' in '{url}'"
-            );
-        }
-    }
+    validate_outbound_addresses(host, &addresses)?;
+    Ok((parsed, addresses))
+}
 
+fn validate_outbound_addresses(host: &str, addresses: &[SocketAddr]) -> Result<()> {
+    if addresses.is_empty() {
+        anyhow::bail!("outbound URL host '{host}' resolved to no addresses");
+    }
+    if addresses
+        .iter()
+        .any(|address| is_private_or_loopback(address.ip()))
+    {
+        anyhow::bail!("refusing outbound URL to private/loopback host '{host}'");
+    }
     Ok(())
 }
 
-/// HTTPS scheme check only (kept for callers that don't need IP blocking).
-fn validate_https_scheme(url: &str) -> Result<()> {
-    if !url.starts_with("https://") {
-        anyhow::bail!(
-            "refusing non-HTTPS URL '{url}': outbound fetches are HTTPS-only"
-        );
-    }
-    Ok(())
-}
+fn fetch_outbound_url(url: &str) -> Result<String> {
+    let mut current = ureq::get(url)
+        .request_url()
+        .with_context(|| format!("invalid outbound URL '{url}'"))?
+        .as_url()
+        .clone();
 
-/// Extract the host portion from an `https://` URL.
-/// Handles `[ipv6]:port`, `host:port`, and bare `host`.
-fn extract_host(url: &str) -> Option<&str> {
-    let rest = url.strip_prefix("https://")?;
-let end = rest.find(|c| c == '/' || c == '?' || c == '#').unwrap_or(rest.len());
-    let host_port = &rest[..end];
-    if let Some(bracketed) = host_port.strip_prefix('[') {
-        return bracketed.split(']').next();
+    for redirects_followed in 0..=MAX_OUTBOUND_REDIRECTS {
+        let (parsed, addresses) = resolve_outbound_url(current.as_str())?;
+        let agent = ureq::AgentBuilder::new()
+            .redirects(0)
+            .resolver(move |_netloc: &str| Ok(addresses.clone()))
+            .build();
+        let response = agent.get(parsed.as_url().as_str()).call()?;
+
+        if (300..400).contains(&response.status()) {
+            if let Some(location) = response.header("location") {
+                if redirects_followed == MAX_OUTBOUND_REDIRECTS {
+                    anyhow::bail!("outbound URL exceeded the redirect limit");
+                }
+                current = parsed
+                    .as_url()
+                    .join(location)
+                    .with_context(|| format!("invalid redirect URL '{location}'"))?;
+                continue;
+            }
+        }
+
+        return response
+            .into_string()
+            .context("failed to read outbound response body");
     }
-    host_port.split(':').next()
+
+    unreachable!("redirect loop always returns or errors")
 }
 
 /// Check whether an IP address is private, loopback, link-local, or
@@ -101,7 +126,12 @@ fn is_private_or_loopback(ip: IpAddr) -> bool {
             false
         }
         IpAddr::V6(v6) => {
-            if v6.is_loopback() || v6.is_unicast_link_local() || v6.is_unique_local() {
+            if v6.is_unspecified()
+                || v6.is_loopback()
+                || v6.is_unicast_link_local()
+                || v6.is_unique_local()
+                || v6.is_multicast()
+            {
                 return true;
             }
             // IPv4-mapped IPv6: ::ffff:a.b.c.d → segs[0..5]=0, segs[5]=0xffff
@@ -364,17 +394,9 @@ impl PluginRegistry {
         version: Option<&str>,
         require_signature: bool,
     ) -> Result<PluginManifest> {
-        // Plugin downloads are HTTPS-only and SSRF-guarded (routing-debt.md Step 5)
-        validate_outbound_url(url)?;
-
-        // Attempt to download the tool TOML
-        let response = ureq::get(url)
-            .call()
+        // Fetching pins each validated DNS answer and revalidates every redirect.
+        let body = fetch_outbound_url(url)
             .map_err(|e| anyhow::anyhow!("Failed to download tool TOML from '{}': {}", url, e))?;
-
-        let body = response
-            .into_string()
-            .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))?;
 
         self.install_from_content(name, url, &body, version, require_signature)
     }
@@ -516,17 +538,8 @@ impl PluginRegistry {
             anyhow::anyhow!("Plugin '{}' has no tool_toml_url to update from", name)
         })?;
 
-        // Plugin downloads are HTTPS-only and SSRF-guarded (routing-debt.md Step 5)
-        validate_outbound_url(url)?;
-
-        // Download new version
-        let response = ureq::get(url)
-            .call()
+        let body = fetch_outbound_url(url)
             .map_err(|e| anyhow::anyhow!("Failed to download tool TOML: {}", e))?;
-
-        let body = response
-            .into_string()
-            .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))?;
 
         // Validate TOML
         if let Err(e) = toml::from_str::<toml::Value>(&body) {
@@ -833,6 +846,9 @@ mod tests {
         // IPv4 private / loopback / link-local / metadata
         for bad in [
             "https://127.0.0.1/",
+            "https://2130706433/",
+            "https://0177.0.0.1/",
+            "https://0x7f000001/",
             "https://127.0.0.1:8080/x",
             "https://10.0.0.5/",
             "https://172.16.0.1/",
@@ -854,6 +870,8 @@ mod tests {
             "https://[::ffff:127.0.0.1]/",
             "https://[fe80::1]/",
             "https://[fc00::1]/",
+            "https://[::]/",
+            "https://[ff02::1]/",
         ] {
             let err = validate_outbound_url(bad).unwrap_err();
             assert!(
@@ -861,16 +879,28 @@ mod tests {
                 "expected private/loopback error for {bad}, got: {err}"
             );
         }
+        let err = validate_outbound_url("https://127.0.0.1?query=1").unwrap_err();
+        assert!(err.to_string().contains("private/loopback"), "got: {err}");
+
         // Non-HTTPS still rejected
         let err = validate_outbound_url("http://127.0.0.1/").unwrap_err();
         assert!(err.to_string().contains("HTTPS"), "got: {err}");
-        // Public HTTPS URLs are allowed (no download attempted — just validation)
+        // Public HTTPS URL literals avoid depending on external DNS in this test.
         for good in [
-            "https://example.com/x.toml",
-            "https://example.com/",
-            "https://www.example.org/path?query=1",
+            "https://93.184.216.34/x.toml",
+            "https://[2606:4700:4700::1111]/path?query=1",
         ] {
             validate_outbound_url(good).expect("public HTTPS URL should pass: {good}");
         }
+    }
+
+    #[test]
+    fn outbound_validation_rejects_any_private_dns_answer() {
+        let addresses = [
+            "93.184.216.34:443".parse().unwrap(),
+            "127.0.0.1:443".parse().unwrap(),
+        ];
+        let err = validate_outbound_addresses("plugins.example", &addresses).unwrap_err();
+        assert!(err.to_string().contains("private/loopback"), "got: {err}");
     }
 }
