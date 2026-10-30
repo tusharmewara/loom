@@ -5,6 +5,27 @@ All notable changes to the Loom project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-10-30
+
+<!-- Release notes copied from RELEASE_NOTES.md -->
+
+### Added
+
+- feat(cli): `loom export --plain-files` — export sessions as plain, tool-agnostic files for lock-in prevention
+- docs(readme): add Mermaid architecture diagram + architecture.mmd source
+- docs(readme): fix Mermaid architecture diagram syntax
+- docs(diagram): update architecture diagram for v0.12.0
+- docs(release): update README and homebrew formula for v0.12.0
+
+### Fixed
+
+- fix(security): harden outbound URL validation against SSRF
+- fix(security): remediate Trivy + Semgrep SAST findings
+
+### Security
+
+- security: fixes
+
 ## [0.12.0] - 2026-10-28
 
 <!-- Release notes copied from RELEASE_NOTES.md -->
